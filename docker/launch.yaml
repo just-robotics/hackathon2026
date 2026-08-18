@@ -1,0 +1,85 @@
+up:
+  desc: "Запустить профиль"
+  parameters:
+    - __profile__
+  commands:
+    - "docker compose -f init-compose.yaml up -d --no-recreate"
+    - "docker compose --profile __placeholder_1__ up -d --no-recreate"
+
+build:
+  desc: "Собрать образы профиля"
+  parameters:
+    - __profile__
+  commands:
+    - "docker compose --profile __placeholder_1__ build"
+
+terminate-init:
+  desc: "(debug команда) Остановить init сервисы"
+  commands:
+    - "docker compose -f init-compose.yaml down -t0"
+
+down:
+  desc: "Остановить профиль"
+  parameters:
+    - __profile__
+  commands:
+    - "docker compose --profile __placeholder_1__ kill"
+
+restart:
+  desc: "Перезапустить контейнеры по профилю"
+  parameters:
+    - __profile__
+  commands:
+    # Не делаем restart, чтобы точно не пересоздать контейнеры
+    - "docker compose --profile __placeholder_1__ kill"
+    - "docker compose --profile __placeholder_1__ up -d --no-recreate"
+
+clean:
+  desc: "Очистить контейнеры по профилю"
+  parameters:
+    - __profile__
+  commands:
+    - "docker compose --profile __placeholder_1__ down -t0"
+
+commit:
+  desc: "Закоммитить контейнер сервиса в уже существующий или новый образ"
+  parameters:
+    - __service__
+    - __image__
+  resolvers:
+    1:
+      __placeholder_1__: get_container_id_by_profile
+  commands:
+    - "docker commit --change=\"CMD \"/bin/bash\"\" __placeholder_1__ __placeholder_2__"
+    - "echo COMMITED __placeholder_1__ INTO __placeholder_2__"
+
+ps:
+  desc: "Показать запущенные сервисы"
+  commands:
+    - "docker compose ps
+      --all
+      --format
+      'table {{.Service}}\t{{.State}}\t{{.Status}}\t{{.Name}}\t{{.Image}}'"
+
+flogs:
+  desc: "Показать все логи для профиля и отслеживать"
+  parameters:
+    - __profile__
+  commands:
+    - "docker compose --profile __placeholder_1__ logs -f"
+
+enter:
+  desc: "Войти в контейнер по сервису"
+  parameters:
+    - __service__
+  commands:
+    - "docker compose exec __placeholder_1__ bash"
+    - "echo Exit service: __placeholder_1__"
+
+exec:
+  desc: "Выполнить команду внутри контейнера по сервису"
+  parameters:
+    - __service__
+  long_command: true
+  commands:
+    - "docker compose exec __placeholder_1__ bash -c 'source /autoware/install/setup.bash && __placeholder_2__'"

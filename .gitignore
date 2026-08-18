@@ -1,0 +1,7 @@
+logs
+.isaac-sim-docker
+__pycache__
+.pytest_cache
+build
+scripts
+*.egg-info

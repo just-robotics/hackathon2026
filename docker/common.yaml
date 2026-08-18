@@ -1,0 +1,28 @@
+services:
+    app:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile
+            network: host
+            args:
+                - VEHICLE_ID=$VEHICLE_ID
+        image: $IMAGE
+        network_mode: host
+        ipc: host
+        privileged: true
+        runtime: nvidia
+        environment:
+            NVIDIA_VISIBLE_DEVICES: all
+            NVIDIA_DRIVER_CAPABILITIES: gpu,graphics,utility,compute
+            RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+            CYCLONEDDS_URI: file:///tmp/cyclonedds.xml
+            VEHICLE_ID: ${VEHICLE_ID}
+            USE_SIMULATION: ${USE_SIMULATION}
+        volumes:
+            - /etc/localtime:/etc/localtime:ro
+            - ${HOME}/.cyclone_dds/cyclonedds.xml:/tmp/cyclonedds.xml:ro
+            - /dev:/dev:rw
+        deploy:
+            restart_policy:
+                condition: none
+        tty: true
