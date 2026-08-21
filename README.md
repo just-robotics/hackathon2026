@@ -50,6 +50,14 @@
    sudo activate-global-python-argcomplete
    ```
 
+5. Поставить клиент просмотра — картинка из симулятора идёт по WebRTC в
+   отдельное приложение на хосте, не в контейнер:
+
+   ```bash
+   curl -fLO https://downloads.isaacsim.nvidia.com/isaacsim-webrtc-streaming-client-2.0.0-linux-x86_64.deb
+   sudo dpkg -i ./isaacsim-webrtc-streaming-client-*-linux-*.deb && sudo apt -f install
+   ```
+
 ## Запуск
 
 ### Первый запуск
@@ -80,7 +88,8 @@ helm down simulation    # остановить
 Готовность отслеживает healthcheck: он ищет `AppReady` в свежем логе Kit, с
 запасом `start_period: 180s`.
 
-Дальше — [просмотр картинки](#просмотр) в нативном клиенте.
+Когда симулятор готов — запустить `isaacsim-webrtc-streaming-client` и указать
+`127.0.0.1`, подробности в [«Просмотр»](#просмотр).
 
 Настройки — карта, образ, профили, параметры симулятора — в [.env](.env),
 пересборка после правок не нужна.
@@ -142,15 +151,8 @@ helm up -h
 
 ### Просмотр
 
-Картинка идёт по WebRTC в нативный клиент. Ставится один раз, на хост (не в
-контейнер):
-
-```bash
-curl -fLO https://downloads.isaacsim.nvidia.com/isaacsim-webrtc-streaming-client-2.0.0-linux-x86_64.deb
-sudo dpkg -i ./isaacsim-webrtc-streaming-client-*-linux-*.deb && sudo apt -f install
-```
-
-Запуск — из меню приложений или командой:
+Клиент ставится один раз при [установке](#установка). Запуск — из меню
+приложений или командой:
 
 ```bash
 isaacsim-webrtc-streaming-client
