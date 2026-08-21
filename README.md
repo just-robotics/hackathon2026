@@ -1,7 +1,89 @@
 # hackathon2026
 
 Стек автопилота (Autoware/ROS 2 Humble) и симулятор NVIDIA Isaac Sim, запускаемые
-в docker через обёртку `helm`.
+в docker.
+
+Управление — через `helm`, CLI из [helm_launch/](helm_launch/) в этом же
+репозитории. Ставится вручную, см. «Установка».
+
+## Что нужно на хосте
+
+- Docker с плагином `docker compose` (v2) и правами запуска без `sudo`
+- Python 3 с `pip`
+- NVIDIA GPU + драйвер и [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  — нужны для Isaac Sim; без них поднимется только автопилот
+
+## Установка
+
+1. Склонировать репозиторий:
+
+   ```bash
+   git clone git@github.com:just-robotics/hackathon2026.git
+   cd hackathon2026
+   ```
+
+2. Поставить `helm`. Команда зависит от версии дистрибутива:
+
+   ```bash
+   # Ubuntu 24.04, Debian 12+
+   sudo pip install helm_launch/. --break-system-packages
+
+   # Ubuntu 22.04
+   sudo pip install helm_launch/.
+   ```
+
+   На 24.04 без `--break-system-packages` установка упирается в PEP 668
+   (`error: externally-managed-environment`). На 22.04 наоборот: там pip 22.0.2,
+   который такого флага ещё не знает, и с ним команда падает с
+   `no such option: --break-system-packages`. Проверить свою версию — `pip --version`,
+   флаг появился в pip 23.0.1.
+
+3. Проверить:
+
+   ```bash
+   helm -h
+   ```
+
+4. Автодополнение по Tab:
+
+   ```bash
+   sudo activate-global-python-argcomplete
+   ```
+
+## Запуск
+
+### Первый запуск
+
+Контейнер симулятора работает от uid 1234 (пользователь `isaac-sim`, его HOME —
+`/isaac-sim`), поэтому каталоги кэша должны принадлежать этому uid, иначе Hub не
+сможет записать свой конфиг:
+
+```bash
+sudo chown -R 1234:1234 docker/.isaac-sim-docker
+```
+
+Каталог `docker/.isaac-sim-docker/` хранит кэш шейдеров, логи, данные и Documents
+между перезапусками — он в `.gitignore`. Достаточно одного раза, дальше сразу к
+обычному запуску.
+
+### Обычный запуск
+
+```bash
+helm build all          # образы автопилота, долго
+helm up simulation      # автопилот + симулятор
+helm ps                 # что поднялось
+helm flogs isaac        # логи симулятора, ждём "app ready"
+helm down simulation    # остановить
+```
+
+Первый старт симулятора долгий — прогревается кэш, последующие заметно быстрее.
+Готовность отслеживает healthcheck: он ищет `AppReady` в свежем логе Kit, с
+запасом `start_period: 180s`.
+
+Дальше — [просмотр картинки](#просмотр) в нативном клиенте.
+
+Настройки — карта, образ, профили, параметры симулятора — в [.env](.env),
+пересборка после правок не нужна.
 
 ## Структура
 
@@ -9,10 +91,9 @@
 | --- | --- |
 | [docker/](docker/) | `Dockerfile` автопилота, compose-файлы, кэш симулятора |
 | [docker/common.yaml](docker/common.yaml) | базовый сервис `app`, от которого наследуются модули автопилота |
-| [docker/docker-compose.yaml](docker/docker-compose.yaml) | сервисы: модули автопилота, `isaac`, `hub-cache`, `web-viewer` |
+| [docker/docker-compose.yaml](docker/docker-compose.yaml) | сервисы: модули автопилота, `isaac`, `hub-cache` |
 | [docker/init-compose.yaml](docker/init-compose.yaml) | инфраструктурные сервисы (`ros-daemon`), поднимаются первыми |
 | [docker/launch.yaml](docker/launch.yaml) | описание команд `helm` |
-| [docker/web-viewer/](docker/web-viewer/) | сборка браузерного клиента симулятора |
 | [helm_launch/](helm_launch/) | исходники CLI `helm` |
 | [.env](.env) | все настройки: образ, карта, профили, параметры симулятора |
 
@@ -58,37 +139,11 @@ helm up -h
   Обязателен: в образе симулятора прошит `HUB__ARGS__DETECT_ONLY=true`, то есть
   Hub он не запускает, а только ищет уже работающий. Без этого сервиса в логах
   бесконечно повторяется `Hub failed to launch ... without writing file`.
-- **`web-viewer`** — браузерный клиент, опционален (см. ниже).
 
-### Первый запуск
+### Просмотр
 
-Контейнер работает от uid 1234 (пользователь `isaac-sim`, его HOME — `/isaac-sim`),
-поэтому каталоги кэша должны принадлежать этому uid, иначе Hub не сможет
-записать свой конфиг:
-
-```bash
-sudo chown -R 1234:1234 docker/.isaac-sim-docker
-```
-
-Каталог `docker/.isaac-sim-docker/` хранит кэш шейдеров, логи, данные и Documents
-между перезапусками — он в `.gitignore`. Первый старт долгий (прогрев кэша),
-последующие заметно быстрее.
-
-```bash
-helm up isaac
-helm flogs isaac     # ждём "Isaac Sim Full Streaming App is loaded" и "app ready"
-```
-
-Готовность отслеживает healthcheck: он ищет `AppReady` в свежем логе Kit, с
-запасом `start_period: 180s`. От него зависит `web-viewer` — браузерный клиент
-не поднимется, пока симулятор не отрапортует готовность.
-
-### Просмотр: нативный клиент
-
-Основной способ. Даёт более чёткую картинку, чем браузер, потому что не
-масштабирует поток под размер окна.
-
-Ставится один раз, на хост (не в контейнер):
+Картинка идёт по WebRTC в нативный клиент. Ставится один раз, на хост (не в
+контейнер):
 
 ```bash
 curl -fLO https://downloads.isaacsim.nvidia.com/isaacsim-webrtc-streaming-client-2.0.0-linux-x86_64.deb
@@ -104,40 +159,6 @@ isaacsim-webrtc-streaming-client
 В поле адреса указать `127.0.0.1`. Порты клиент подставит сам: 49100 (TCP,
 сигналинг) и 47998 (UDP, поток). Контейнер работает в `network_mode: host`,
 так что порты доступны напрямую, пробрасывать ничего не нужно.
-
-### Просмотр: браузер
-
-Альтернатива, когда клиент ставить некуда или нужен доступ с другой машины.
-Собирается локально из [docker/web-viewer/](docker/web-viewer/) (Dockerfile от
-NVIDIA, само приложение тянется из их npm-реестра).
-
-По умолчанию отдельно от симулятора:
-
-```bash
-helm build web-viewer    # один раз, сборка через npm — небыстрая
-helm up web-viewer
-```
-
-Затем <http://127.0.0.1:8210> в браузере на движке Chromium.
-
-Чтобы вьювер поднимался сразу вместе с симулятором, в [.env](.env):
-
-```ini
-USE_WEB=true    # false -- только по явной команде
-```
-
-После этого `helm up isaac` поднимает все три сервиса разом. Значение читает
-`helm` и подставляет сервису `web-viewer` профиль `isaac` либо `web-viewer` —
-так же, как он поступает с `USE_RESOURCES_SPLITTING` и `USE_SIMULATION`.
-
-Адрес и порты **зашиваются в сборку**, поэтому после смены `WEB_VIEWER_HOST` или
-портов нужен пересбор:
-
-```bash
-helm build web-viewer && helm restart web-viewer
-```
-
-Порт вьювера меняется через `WEB_VIEWER_PORT` в `.env`.
 
 ### Качество картинки
 
@@ -160,16 +181,8 @@ command:
 ### Просмотр с другой машины
 
 Симулятор ничего дополнительно не требует: он не фиксирует адрес медиапотока, а
-перечисляет все свои, и WebRTC выбирает доступный. В нативном клиенте достаточно
-указать адрес хоста вместо `127.0.0.1`.
-
-Браузерному клиенту адрес зашивается в сборку, поэтому в [.env](.env):
-
-```ini
-WEB_VIEWER_HOST=192.168.1.42
-```
-
-и пересобрать: `helm build web-viewer`.
+перечисляет все свои, и WebRTC выбирает доступный. В клиенте достаточно указать
+адрес хоста вместо `127.0.0.1`.
 
 ## Диагностика
 

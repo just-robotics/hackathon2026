@@ -46,7 +46,6 @@ def main():
 
     use_splitting_str = env_config["USE_RESOURCES_SPLITTING"]
     use_simulation_str = env_config["USE_SIMULATION"]
-    use_web_str = env_config["USE_WEB"]
 
     if use_splitting_str == "true":
         # разделение ресурсов задается под конкретное железо, поэтому файл
@@ -57,18 +56,7 @@ def main():
     else:
         raise ValueError(f"USE_RESOURCES_SPLITTING: unexpected value {use_splitting_str}")
 
-    if use_web_str == "true":
-        # веб-просмотр поднимается вместе с симулятором
-        web_viewer_profile = "isaac"
-    elif use_web_str == "false":
-        # только по явному helm up web-viewer
-        web_viewer_profile = "web-viewer"
-    else:
-        raise ValueError(f"USE_WEB: unexpected value {use_web_str}")
-
     os.environ["RESOURCES_FILE"] = resources_file
-    # профиль сервиса web-viewer, подставляется в docker-compose.yaml
-    os.environ["WEB_VIEWER_PROFILE"] = web_viewer_profile
     # значение уходит в контейнер через common.yaml
     os.environ["VEHICLE_ID"] = misc.resolve_vehicle_id(use_simulation_str)
 
