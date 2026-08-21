@@ -1,0 +1,155 @@
+services:
+    vehicle:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - vehicle
+
+    sensing:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - sensing
+
+    localization:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - localization
+
+    perception:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - perception
+            - simulation
+
+    planning:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - planning
+            - simulation
+
+    control:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - control
+            - simulation
+
+    api:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - api
+            - simulation
+
+    tools:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - tools
+            - simulation
+
+    transforms:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - transforms
+            - simulation
+
+    # Сервис для отладки, менять и коммитить рекомендуется его
+    debug:
+        command: $CMD "sleep infinity"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - all
+            - debug
+
+    isaac:
+        image: nvcr.io/nvidia/isaac-sim:6.0.1
+        network_mode: host
+        runtime: nvidia
+        # Аргументы уходят в kit (runheadless.sh пробрасывает "$@").
+        # По умолчанию DLSS в режиме Performance (execMode=0) -- рендер идёт
+        # примерно в половине разрешения и картинка мылит.
+        # execMode: 0 Performance, 1 Balanced, 2 Quality, 3 Auto -- других значений нет.
+        # aa/op=4 -- DLAA: рендер в нативном разрешении, апскейла нет вовсе,
+        # при нём execMode уже ни на что не влияет (оставлен на случай отката к DLSS).
+        command:
+            - "--/rtx/post/dlss/execMode=2"
+        depends_on:
+            - hub-cache
+        environment:
+            ACCEPT_EULA: Y
+            PRIVACY_CONSENT: Y
+            NVIDIA_VISIBLE_DEVICES: all
+            NVIDIA_DRIVER_CAPABILITIES: gpu,graphics,utility,compute
+            # ISAACSIM_HOST намеренно не задаём: он прописывает publicIp, то есть
+            # жёстко фиксирует адрес для медиапотока. Без него симулятор
+            # перечисляет все свои адреса и WebRTC выбирает рабочий -- иначе при
+            # наличии VPN ответы уходят с адреса VPN-интерфейса, клиент считает
+            # их чужими, медиаканал не открывается и в клиенте чёрный экран.
+            ISAACSIM_SIGNAL_PORT: ${ISAACSIM_SIGNAL_PORT:-49100}
+            ISAACSIM_STREAM_PORT: ${ISAACSIM_STREAM_PORT:-47998}
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - 'logdir=/isaac-sim/.nvidia-omniverse/logs/Kit; [ -d "$$logdir" ] && latest=$$(ls -t "$$logdir"/*/*/kit_*.log 2>/dev/null | head -1) && [ -n "$$latest" ] && grep -q AppReady "$$latest" && exit 0; exit 1'
+            interval: 30s
+            timeout: 10s
+            start_period: 180s
+            retries: 3
+        user: "1234:1234"
+        volumes:
+            - ./.isaac-sim-docker/cache/main:/isaac-sim/.cache:rw
+            - ./.isaac-sim-docker/cache/computecache:/isaac-sim/.nv/ComputeCache:rw
+            - ./.isaac-sim-docker/config:/isaac-sim/.nvidia-omniverse/config:rw
+            - ./.isaac-sim-docker/logs:/isaac-sim/.nvidia-omniverse/logs:rw
+            - ./.isaac-sim-docker/data:/isaac-sim/.local/share/ov/data:rw
+            - ./.isaac-sim-docker/pkg:/isaac-sim/.local/share/ov/pkg:rw
+            - ./.isaac-sim-docker/cache/hub:/var/cache/hub:rw
+        profiles:
+            - isaac
+            - simulation
+        stdin_open: true
+
+    hub-cache:
+        image: nvcr.io/nvidia/omniverse/hub_workstation_cache:2.2.0
+        network_mode: host
+        user: "1234:1234"
+        volumes:
+            - ./.isaac-sim-docker/cache/hub:/var/cache/hub:rw
+        profiles:
+            - isaac
+            - simulation
