@@ -100,14 +100,18 @@ services:
         image: nvcr.io/nvidia/isaac-sim:6.0.1
         network_mode: host
         runtime: nvidia
-        # Аргументы уходят в kit (runheadless.sh пробрасывает "$@").
+        # Переключается флагом RENDER_SCENE из .env (маппинг делает helm):
+        #   runheadless.sh -- isaacsim.exp.full.streaming.kit, с WebRTC;
+        #   runapp.sh --no-window -- isaacsim.exp.full.kit, расширений
+        #   omni.kit.livestream.* там нет вовсе, картинку смотреть нечем.
+        # Физика, ROS-графы и RTX-лидар работают одинаково в обоих режимах.
+        entrypoint: ${ISAAC_ENTRYPOINT:-/isaac-sim/runheadless.sh}
+        # Аргументы уходят в kit (оба скрипта пробрасывают "$@").
         # По умолчанию DLSS в режиме Performance (execMode=0) -- рендер идёт
         # примерно в половине разрешения и картинка мылит.
         # execMode: 0 Performance, 1 Balanced, 2 Quality, 3 Auto -- других значений нет.
-        # aa/op=4 -- DLAA: рендер в нативном разрешении, апскейла нет вовсе,
-        # при нём execMode уже ни на что не влияет (оставлен на случай отката к DLSS).
         command:
-            - "--/rtx/post/dlss/execMode=1"
+            - "--/rtx/post/dlss/execMode=0"
             - "--ext-folder"
             - "/workspace/isaac/exts"
             - "--enable"
