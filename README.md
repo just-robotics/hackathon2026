@@ -11,17 +11,42 @@
 - NVIDIA Container Toolkit для GPU-лидара
 - X11, если нужен GUI Gazebo
 
-## Установка helm
+## Установка
 
-```bash
-# Ubuntu 24.04, Debian 12+
-sudo pip install helm_launch/. --break-system-packages
+1. Склонировать репозиторий:
 
-# Ubuntu 22.04
-sudo pip install helm_launch/.
+   ```bash
+   git clone git@github.com:just-robotics/hackathon2026.git
+   cd hackathon2026
+   ```
 
-helm -h
-```
+2. Поставить `helm`. Команда зависит от версии дистрибутива:
+
+   ```bash
+   # Ubuntu 24.04, Debian 12+
+   sudo pip install helm_launch/. --break-system-packages
+
+   # Ubuntu 22.04
+   sudo pip install helm_launch/.
+   ```
+
+   На 24.04 без `--break-system-packages` установка упирается в PEP 668
+   (`error: externally-managed-environment`). На 22.04 наоборот: там pip 22.0.2,
+   который такого флага ещё не знает, и с ним команда падает с
+   `no such option: --break-system-packages`. Проверить свою версию — `pip --version`,
+   флаг появился в pip 23.0.1.
+
+3. Проверить:
+
+   ```bash
+   helm -h
+   ```
+
+4. Автодополнение по Tab:
+
+   ```bash
+   sudo activate-global-python-argcomplete # or activate-global-python-argcomplete3
+   ```
 
 ## Сборка
 
