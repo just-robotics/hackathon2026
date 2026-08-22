@@ -96,82 +96,32 @@ services:
             - all
             - debug
 
-    isaac:
-        image: nvcr.io/nvidia/isaac-sim:6.0.1
-        network_mode: host
-        runtime: nvidia
-        # Переключается флагом RENDER_SCENE из .env (маппинг делает helm):
-        #   runheadless.sh -- isaacsim.exp.full.streaming.kit, с WebRTC;
-        #   runapp.sh --no-window -- isaacsim.exp.full.kit, расширений
-        #   omni.kit.livestream.* там нет вовсе, картинку смотреть нечем.
-        # Физика, ROS-графы и RTX-лидар работают одинаково в обоих режимах.
-        entrypoint: ${ISAAC_ENTRYPOINT:-/isaac-sim/runheadless.sh}
-        # Аргументы уходят в kit (оба скрипта пробрасывают "$@").
-        # По умолчанию DLSS в режиме Performance (execMode=0) -- рендер идёт
-        # примерно в половине разрешения и картинка мылит.
-        # execMode: 0 Performance, 1 Balanced, 2 Quality, 3 Auto -- других значений нет.
-        command:
-            - "--/rtx/post/dlss/execMode=0"
-            - "--ext-folder"
-            - "/workspace/isaac/exts"
-            - "--enable"
-            - "isaacsim.hackathon.turtlebot"
-        depends_on:
-            - hub-cache
+    gazebo:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py headless:=${GAZEBO_HEADLESS:-false}"
+        extends:
+            file: common.yaml
+            service: app
         environment:
-            ACCEPT_EULA: Y
-            PRIVACY_CONSENT: Y
-            NVIDIA_VISIBLE_DEVICES: all
-            NVIDIA_DRIVER_CAPABILITIES: gpu,graphics,utility,compute
-            # Humble + CycloneDDS, как у автопилота. Образ 6.0.1 на Ubuntu 24.04
-            # по умолчанию берёт Jazzy. setup_ros_env.sh дописывает
-            # .../ros2.core/$ROS_DISTRO/lib в LD_LIBRARY_PATH только если
-            # ROS_DISTRO ещё не задан -- поэтому путь к humble/lib здесь явно.
-            ROS_DISTRO: humble
-            RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
-            LD_LIBRARY_PATH: /isaac-sim/exts/isaacsim.ros2.core/humble/lib
-            CYCLONEDDS_URI: file:///tmp/cyclonedds.xml
-            HACKATHON_ISAAC_ROOT: /workspace/isaac
-            # Simple Room: при false комната не грузится, робот с лидаром
-            # остаётся на голой плоскости с землёй.
-            HACKATHON_ROOM: ${USE_SIMPLE_ROOM:-true}
-            # ISAACSIM_HOST намеренно не задаём: он прописывает publicIp, то есть
-            # жёстко фиксирует адрес для медиапотока. Без него симулятор
-            # перечисляет все свои адреса и WebRTC выбирает рабочий -- иначе при
-            # наличии VPN ответы уходят с адреса VPN-интерфейса, клиент считает
-            # их чужими, медиаканал не открывается и в клиенте чёрный экран.
-            ISAACSIM_SIGNAL_PORT: ${ISAACSIM_SIGNAL_PORT:-49100}
-            ISAACSIM_STREAM_PORT: ${ISAACSIM_STREAM_PORT:-47998}
+            GZ_PARTITION: hackathon2026
+            GZ_SIM_RESOURCE_PATH: /autoware/install/sim_kobuki/share
+            GZ_HEADLESS_RENDERING: ${GAZEBO_HEADLESS:-false}
+            DISPLAY: ${DISPLAY:-:0}
+            # Процесс в контейнере идёт от uid 1000, как и пользователь хоста,
+            # поэтому cookie X-сервера подходит как есть и `xhost` не нужен.
+            XAUTHORITY: /tmp/.xauthority
+            QT_X11_NO_MITSHM: "1"
+        volumes:
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - ${XAUTHORITY:-/dev/null}:/tmp/.xauthority:ro
         healthcheck:
             test:
                 - CMD-SHELL
-                - 'logdir=/isaac-sim/.nvidia-omniverse/logs/Kit; [ -d "$$logdir" ] && latest=$$(ls -t "$$logdir"/*/*/kit_*.log 2>/dev/null | head -1) && [ -n "$$latest" ] && grep -q AppReady "$$latest" && exit 0; exit 1'
-            interval: 30s
+                - "bash -lc 'source /autoware/install/setup.bash && ros2 topic list | grep -qx /clock'"
+            interval: 15s
             timeout: 10s
-            start_period: 180s
-            retries: 3
-        user: "1234:1234"
-        volumes:
-            - ./.isaac-sim-docker/cache/main:/isaac-sim/.cache:rw
-            - ./.isaac-sim-docker/cache/computecache:/isaac-sim/.nv/ComputeCache:rw
-            - ./.isaac-sim-docker/config:/isaac-sim/.nvidia-omniverse/config:rw
-            - ./.isaac-sim-docker/logs:/isaac-sim/.nvidia-omniverse/logs:rw
-            - ./.isaac-sim-docker/data:/isaac-sim/.local/share/ov/data:rw
-            - ./.isaac-sim-docker/pkg:/isaac-sim/.local/share/ov/pkg:rw
-            - ./.isaac-sim-docker/cache/hub:/var/cache/hub:rw
-            - ../isaac:/workspace/isaac:ro
-            - ${HOME}/.cyclone_dds/cyclonedds.xml:/tmp/cyclonedds.xml:ro
+            start_period: 60s
+            retries: 5
         profiles:
-            - isaac
+            - gazebo
             - simulation
         stdin_open: true
-
-    hub-cache:
-        image: nvcr.io/nvidia/omniverse/hub_workstation_cache:2.2.0
-        network_mode: host
-        user: "1234:1234"
-        volumes:
-            - ./.isaac-sim-docker/cache/hub:/var/cache/hub:rw
-        profiles:
-            - isaac
-            - simulation

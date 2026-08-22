@@ -32,6 +32,10 @@ RUN \
     apt-get install -y --no-install-recommends \
       git \
       sudo \
+      ca-certificates \
+      curl \
+      gnupg \
+      lsb-release \
       cmake \
       build-essential \
       sysstat \
@@ -55,6 +59,22 @@ RUN \
       ros-humble-tf-transformations \
       ros-humble-rosbag2-storage-mcap \
       && rm -rf /var/lib/apt/lists/*
+
+# ROS 2 Humble officially targets Gazebo Fortress. The OSRF repository provides
+# the Humble bridge rebuilt for Gazebo Harmonic as ros-humble-ros-gzharmonic.
+RUN curl -fsSL https://packages.osrfoundation.org/gazebo.gpg \
+      -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
+      > /etc/apt/sources.list.d/gazebo-stable.list && \
+    apt-get update -y && \
+    conflicting_packages="$(dpkg-query -W -f='${binary:Package}\n' 'ros-humble-ros-gz*' 2>/dev/null || true)" && \
+    if [[ -n "${conflicting_packages}" ]]; then \
+      apt-get remove -y ${conflicting_packages}; \
+    fi && \
+    apt-get install -y --no-install-recommends \
+      gz-harmonic \
+      ros-humble-ros-gzharmonic && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY src ${WORKDIR}/src
 
