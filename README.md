@@ -133,8 +133,13 @@ Launch-файл запускает:
 | `/clock` | `rosgraph_msgs/msg/Clock` | Gazebo → ROS |
 | `/tf`, `/tf_static` | TF | симулятор / robot_state_publisher |
 
-Лидар установлен в `livox_frame`, работает на 10 Гц, имеет 32 вертикальных
-канала, обзор 360°, диапазон 0.1–40 м. Статические трансформы модели публикует
+Лидар Livox Mid-360 установлен в `livox_frame`, работает на 10 Гц через
+[RGLGazeboPlugin](https://github.com/RobotecAI/RGLGazeboPlugin) (GPU OptiX)
+с пресетом `Livox Mid360` — non-repetitive паттерн, ~200k pts/s,
+диапазон 0.1–40 м. PointCloud2 идёт через `ros_gz_bridge` на `/livox/lidar`.
+В GUI Gazebo облако смотрите плагином **RGLVisualize** (топик с суффиксом
+`/world`), не Visualize Lidar.
+Статические трансформы модели публикует
 `robot_state_publisher`, а Gazebo публикует динамическую цепочку
 `odom → base_footprint → base_link`.
 
@@ -174,7 +179,7 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 ```
 
 В RViz выберите `Fixed Frame: odom` и добавьте PointCloud2
-`/livox/lidar`.
+`/livox/lidar`. В настройках дисплея поставьте **Reliability: Best Effort**.
 
 ## Структура репозитория
 
@@ -188,11 +193,10 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 
 ## Диагностика
 
-**Нет `/clock` или `/livox/lidar`.** Проверьте `helm flogs gazebo`. В мире
-должен загрузиться `gz-sim-sensors-system` с `ogre2`.
-
-**GPU-лидар не запускается.** Проверьте NVIDIA Container Toolkit и доступность
-GPU внутри контейнера командой `nvidia-smi`.
+**Нет `/clock` или `/livox/lidar`.** Проверьте `helm flogs gazebo`. Нужны
+GPU (NVIDIA), `RGL_PATTERNS_DIR=/opt/rgl/lidar_patterns` и
+`GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/rgl/plugins`. В мире должен быть
+`RGLServerPluginManager`.
 
 **GUI не открывается.** Установите `GAZEBO_HEADLESS=false`, выполните
 `xhost +local:root` и проверьте переменную `DISPLAY`.

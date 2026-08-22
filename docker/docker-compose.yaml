@@ -97,14 +97,17 @@ services:
             - debug
 
     gazebo:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py headless:=${GAZEBO_HEADLESS:-false}"
+        command: $CMD "export LD_LIBRARY_PATH=/opt/rgl/plugins:$${LD_LIBRARY_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py headless:=${GAZEBO_HEADLESS:-true}"
         extends:
             file: common.yaml
             service: app
         environment:
             GZ_PARTITION: hackathon2026
             GZ_SIM_RESOURCE_PATH: /autoware/install/sim_kobuki/share
-            GZ_HEADLESS_RENDERING: ${GAZEBO_HEADLESS:-false}
+            GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/rgl/plugins
+            GZ_GUI_PLUGIN_PATH: /opt/rgl/gui
+            RGL_PATTERNS_DIR: /opt/rgl/lidar_patterns
+            GZ_HEADLESS_RENDERING: ${GAZEBO_HEADLESS:-true}
             DISPLAY: ${DISPLAY:-:0}
             # Процесс в контейнере идёт от uid 1000, как и пользователь хоста,
             # поэтому cookie X-сервера подходит как есть и `xhost` не нужен.

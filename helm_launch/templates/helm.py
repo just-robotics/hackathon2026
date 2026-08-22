@@ -46,7 +46,6 @@ def main():
 
     use_splitting_str = env_config["USE_RESOURCES_SPLITTING"]
     use_simulation_str = env_config["USE_SIMULATION"]
-    render_scene_str = env_config["RENDER_SCENE"]
 
     if use_splitting_str == "true":
         # разделение ресурсов задается под конкретное железо, поэтому файл
@@ -57,18 +56,7 @@ def main():
     else:
         raise ValueError(f"USE_RESOURCES_SPLITTING: unexpected value {use_splitting_str}")
 
-    if render_scene_str == "true":
-        # рендер сцены и WebRTC -- смотрим симулятор клиентом
-        isaac_entrypoint = "/isaac-sim/runheadless.sh"
-    elif render_scene_str == "false":
-        # без окна и без livestream: остаются физика, ROS-графы и лидар
-        isaac_entrypoint = "/isaac-sim/runapp.sh --no-window"
-    else:
-        raise ValueError(f"RENDER_SCENE: unexpected value {render_scene_str}")
-
     os.environ["RESOURCES_FILE"] = resources_file
-    # entrypoint сервиса isaac, подставляется в docker-compose.yaml
-    os.environ["ISAAC_ENTRYPOINT"] = isaac_entrypoint
     # значение уходит в контейнер через common.yaml
     os.environ["VEHICLE_ID"] = misc.resolve_vehicle_id(use_simulation_str)
 

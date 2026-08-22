@@ -191,34 +191,21 @@
   </gazebo>
 
   <gazebo reference="livox_frame">
-    <sensor name="livox_mid360" type="gpu_lidar">
+    <sensor name="livox_mid360" type="custom">
       <always_on>true</always_on>
-      <visualize>true</visualize>
       <update_rate>10</update_rate>
-      <topic>/livox/lidar</topic>
-      <frame_id>livox_frame</frame_id>
-      <gz_frame_id>livox_frame</gz_frame_id>
-      <lidar>
-        <scan>
-          <horizontal>
-            <samples>1024</samples>
-            <resolution>1</resolution>
-            <min_angle>-3.141592653589793</min_angle>
-            <max_angle>3.141592653589793</max_angle>
-          </horizontal>
-          <vertical>
-            <samples>32</samples>
-            <resolution>1</resolution>
-            <min_angle>-0.12217304763960307</min_angle>
-            <max_angle>0.9075712110370514</max_angle>
-          </vertical>
-        </scan>
+      <topic>livox/lidar</topic>
+      <plugin filename="RGLServerPluginInstance" name="rgl::RGLServerPluginInstance">
         <range>
           <min>0.10</min>
           <max>40.0</max>
-          <resolution>0.01</resolution>
         </range>
-      </lidar>
+        <update_rate>10</update_rate>
+        <update_on_paused_sim>false</update_on_paused_sim>
+        <topic>livox/lidar</topic>
+        <frame>livox_frame</frame>
+        <pattern_preset>Livox Mid360</pattern_preset>
+      </plugin>
     </sensor>
   </gazebo>
 

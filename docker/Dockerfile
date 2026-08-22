@@ -58,6 +58,7 @@ RUN \
       ros-humble-xacro \
       ros-humble-tf-transformations \
       ros-humble-rosbag2-storage-mcap \
+      ros-humble-ros-gz-sim \
       && rm -rf /var/lib/apt/lists/*
 
 # ROS 2 Humble officially targets Gazebo Fortress. The OSRF repository provides
@@ -73,8 +74,24 @@ RUN curl -fsSL https://packages.osrfoundation.org/gazebo.gpg \
     fi && \
     apt-get install -y --no-install-recommends \
       gz-harmonic \
-      ros-humble-ros-gzharmonic && \
+      ros-humble-ros-gzharmonic \
+      unzip && \
     rm -rf /var/lib/apt/lists/*
+
+# RGL Gazebo Plugin (Harmonic): GPU raycast + Livox Mid-360 non-repetitive pattern.
+ARG RGL_VERSION=v0.2.0-harmonic
+ARG RGL_UBUNTU=22
+RUN curl -fsSL -o /tmp/rgl.zip \
+      "https://github.com/RobotecAI/RGLGazeboPlugin/releases/download/${RGL_VERSION}/RGLGazeboPlugin_ubuntu${RGL_UBUNTU}.zip" && \
+    unzip -q /tmp/rgl.zip -d /tmp/rgl && \
+    mkdir -p /opt/rgl/plugins /opt/rgl/gui && \
+    cp /tmp/rgl/RGLServerPlugin/*.so /opt/rgl/plugins/ && \
+    cp /tmp/rgl/RGLVisualize/*.so /opt/rgl/gui/ && \
+    rm -rf /tmp/rgl /tmp/rgl.zip && \
+    git clone --depth 1 --branch ${RGL_VERSION} \
+      https://github.com/RobotecAI/RGLGazeboPlugin.git /tmp/rgl_src && \
+    cp -a /tmp/rgl_src/lidar_patterns /opt/rgl/lidar_patterns && \
+    rm -rf /tmp/rgl_src
 
 COPY src ${WORKDIR}/src
 
