@@ -1,0 +1,248 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kobuki">
+  <xacro:property name="wheel_radius" value="0.035"/>
+  <xacro:property name="wheel_width" value="0.0206"/>
+  <xacro:property name="wheel_separation" value="0.230"/>
+  <xacro:property name="wheel_axle_z" value="0.025"/>
+  <xacro:property name="wheel_contact_z" value="${wheel_axle_z - wheel_radius}"/>
+  <xacro:property name="caster_radius" value="0.015"/>
+  <xacro:property name="caster_clearance" value="0.0005"/>
+
+  <material name="black">
+    <color rgba="0.03 0.03 0.03 1"/>
+  </material>
+  <material name="dark_grey">
+    <color rgba="0.20 0.20 0.20 1"/>
+  </material>
+  <material name="aluminium">
+    <color rgba="0.80 0.80 0.80 1"/>
+  </material>
+  <material name="orange">
+    <color rgba="1.0 0.42 0.04 1"/>
+  </material>
+
+  <link name="base_footprint"/>
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0 0 0.0102"/>
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0.001 0 0.05199"/>
+      <geometry>
+        <mesh filename="package://sim_kobuki/meshes/kobuki/main_body.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05949"/>
+      <geometry>
+        <cylinder radius="0.178" length="0.10938"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01 0 0"/>
+      <mass value="2.4"/>
+      <inertia ixx="0.019995" ixy="0" ixz="0"
+               iyy="0.019995" iyz="0" izz="0.03675"/>
+    </inertial>
+  </link>
+
+  <xacro:macro name="wheel" params="side sign">
+    <joint name="wheel_${side}_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="wheel_${side}_link"/>
+      <origin xyz="0 ${sign * wheel_separation / 2} ${wheel_axle_z}"
+              rpy="-1.5707963267948966 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="20" velocity="20"/>
+      <dynamics damping="0.05" friction="0.0"/>
+    </joint>
+    <link name="wheel_${side}_link">
+      <visual>
+        <geometry>
+          <mesh filename="package://sim_kobuki/meshes/kobuki/wheel.dae"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="0.00005" ixy="0" ixz="0"
+                 iyy="0.00005" iyz="0" izz="0.00006"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <xacro:wheel side="left" sign="1"/>
+  <xacro:wheel side="right" sign="-1"/>
+
+  <!-- All fixed links are lumped into one body, so the casters share it with the
+       chassis. Their contact sits slightly above the wheel contact so the drive
+       wheels carry the weight: with coplanar contacts the solver loaded the
+       near-frictionless casters instead, which made braking weak and let the robot
+       skid after a stop command. The chassis then rests on the front caster, and
+       the clearance only sets that tilt, so keep it small but well above the
+       collision margin. -->
+  <xacro:macro name="caster" params="name x">
+    <joint name="caster_${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="caster_${name}_link"/>
+      <origin xyz="${x} 0 ${wheel_contact_z + caster_radius + caster_clearance}"/>
+    </joint>
+    <link name="caster_${name}_link">
+      <visual>
+        <geometry><sphere radius="${caster_radius}"/></geometry>
+        <material name="dark_grey"/>
+      </visual>
+      <collision>
+        <geometry><sphere radius="${caster_radius}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.01"/>
+        <inertia ixx="0.000001" ixy="0" ixz="0"
+                 iyy="0.000001" iyz="0" izz="0.000001"/>
+      </inertial>
+    </link>
+    <gazebo reference="caster_${name}_link">
+      <mu1>0.01</mu1>
+      <mu2>0.01</mu2>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:caster name="front" x="0.115"/>
+  <xacro:caster name="rear" x="-0.135"/>
+
+  <!-- Hexagon standoffs are visual only: they belong to the plate link, so they
+       add no bodies or collision shapes, but the lidar still sees them. -->
+  <xacro:macro name="standoffs" params="length">
+    <xacro:property name="offset" value="${-(length + 0.006) / 2}"/>
+    <xacro:macro name="standoff" params="x y">
+      <visual>
+        <origin xyz="${x} ${y} ${offset}"/>
+        <geometry><cylinder radius="0.0065" length="${length}"/></geometry>
+        <material name="aluminium"/>
+      </visual>
+    </xacro:macro>
+    <xacro:standoff x="0.1256" y="0.0725"/>
+    <xacro:standoff x="0.0" y="0.145"/>
+    <xacro:standoff x="-0.1256" y="0.0725"/>
+    <xacro:standoff x="-0.1256" y="-0.0725"/>
+    <xacro:standoff x="0.0" y="-0.145"/>
+    <xacro:standoff x="0.1256" y="-0.0725"/>
+  </xacro:macro>
+
+  <xacro:macro name="plate" params="name height standoff_length">
+    <joint name="plate_${name}_joint" type="fixed">
+      <origin xyz="0 0 ${height}"/>
+      <parent link="base_link"/>
+      <child link="plate_${name}_link"/>
+    </joint>
+    <link name="plate_${name}_link">
+      <visual>
+        <geometry><cylinder radius="0.170" length="0.006"/></geometry>
+        <material name="dark_grey"/>
+      </visual>
+      <xacro:standoffs length="${standoff_length}"/>
+      <collision>
+        <geometry><cylinder radius="0.170" length="0.006"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.52"/>
+        <inertia ixx="0.003328" ixy="0" ixz="0"
+                 iyy="0.003328" iyz="0" izz="0.006656"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <xacro:plate name="bottom" height="0.1306" standoff_length="0.013"/>
+  <xacro:plate name="middle" height="0.1874" standoff_length="0.0508"/>
+  <xacro:plate name="top" height="0.3966" standoff_length="0.2032"/>
+
+  <joint name="livox_joint" type="fixed">
+    <origin xyz="0 0 -0.033"
+            rpy="3.141592653589793 0 -1.5707963267948966"/>
+    <parent link="plate_top_link"/>
+    <child link="livox_frame"/>
+  </joint>
+  <link name="livox_frame">
+    <visual>
+      <geometry><cylinder radius="0.0325" length="0.060"/></geometry>
+      <material name="orange"/>
+    </visual>
+    <inertial>
+      <mass value="0.265"/>
+      <inertia ixx="0.00015" ixy="0" ixz="0"
+               iyy="0.00015" iyz="0" izz="0.00014"/>
+    </inertial>
+  </link>
+
+  <gazebo reference="wheel_left_link">
+    <mu1>1.4</mu1>
+    <mu2>1.2</mu2>
+  </gazebo>
+  <gazebo reference="wheel_right_link">
+    <mu1>1.4</mu1>
+    <mu2>1.2</mu2>
+  </gazebo>
+
+  <gazebo reference="livox_frame">
+    <sensor name="livox_mid360" type="gpu_lidar">
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <topic>/livox/lidar</topic>
+      <frame_id>livox_frame</frame_id>
+      <gz_frame_id>livox_frame</gz_frame_id>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>1024</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.141592653589793</min_angle>
+            <max_angle>3.141592653589793</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>32</samples>
+            <resolution>1</resolution>
+            <min_angle>-0.12217304763960307</min_angle>
+            <max_angle>0.9075712110370514</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.10</min>
+          <max>40.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <gazebo>
+    <plugin filename="gz-sim-diff-drive-system"
+            name="gz::sim::systems::DiffDrive">
+      <left_joint>wheel_left_joint</left_joint>
+      <right_joint>wheel_right_joint</right_joint>
+      <wheel_separation>${wheel_separation}</wheel_separation>
+      <wheel_radius>${wheel_radius}</wheel_radius>
+      <topic>/cmd_vel</topic>
+      <odom_topic>/odom</odom_topic>
+      <tf_topic>/tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_footprint</child_frame_id>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <max_linear_velocity>0.70</max_linear_velocity>
+      <max_angular_velocity>3.14</max_angular_velocity>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>/joint_states</topic>
+      <joint_name>wheel_left_joint</joint_name>
+      <joint_name>wheel_right_joint</joint_name>
+    </plugin>
+  </gazebo>
+</robot>
