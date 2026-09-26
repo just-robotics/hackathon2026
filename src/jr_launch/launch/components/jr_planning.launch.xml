@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Планирование: опорная траектория MPC в /planning/trajectory.
+
+     Ноды приходят из подмодуля mpc_motion_control (пакет swarm_controller),
+     он подключается командой `helm submodules`. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <arg name="trajectory" default="lanelet" description="line | circle | lanelet"/>
+  <arg name="trajectory_file" default="my_trajectory5.yaml" description="waypoints для lanelet"/>
+  <arg name="trajectory_topic" default="/planning/trajectory"/>
+  <arg name="pose_topic" default="/odom" description="поза для привязки старта"/>
+  <arg name="frame_id" default="odom"/>
+
+  <include file="$(find-pkg-share swarm_controller)/launch/sim_planning.launch.py">
+    <arg name="trajectory" value="$(var trajectory)"/>
+    <arg name="trajectory_file" value="$(var trajectory_file)"/>
+    <arg name="trajectory_topic" value="$(var trajectory_topic)"/>
+    <arg name="pose_topic" value="$(var pose_topic)"/>
+    <arg name="frame_id" value="$(var frame_id)"/>
+  </include>
+</launch>
