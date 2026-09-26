@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import setup
 
 setup(
@@ -5,10 +6,14 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/hsl_debug_control"]),
         ("share/hsl_debug_control", ["package.xml"]),
+        ("share/hsl_debug_control/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"], zip_safe=True,
     maintainer="Just Robotics", maintainer_email="dev@just-robotics.ru",
     description="Replaceable safety-gated path follower for Gazebo tests",
     license="Apache-2.0",
-    entry_points={"console_scripts": ["debug_follower = hsl_debug_control.node:main"]},
+    entry_points={"console_scripts": [
+        "debug_follower = hsl_debug_control.node:main",
+        "mpc_gate = hsl_debug_control.mpc_gate:main",
+    ]},
 )

@@ -2,7 +2,7 @@
 
 ## О проекте
 
-hackathon2026 — стек для робототехнического хакатона: Autoware / ROS 2 Humble и симуляция мобильного робота Kobuki в Gazebo Harmonic. Сборка и запуск выполняются в Docker через локальную CLI-команду helm. Цель, регламентные ограничения и инвентаризация модулей описаны в [PROJECT_GOAL.md](PROJECT_GOAL.md), первоисточник — [регламент HSL26](<Регламент HSL26 - v06092026.pdf>). Текущее состояние работ и проверок ведётся в [PROJECT_STATUS.md](PROJECT_STATUS.md).
+hackathon2026 — стек для робототехнического хакатона: Autoware / ROS 2 Humble и симуляция мобильного робота Kobuki в Gazebo Classic 11. Сборка и запуск выполняются в Docker через локальную CLI-команду helm. Цель, регламентные ограничения и инвентаризация модулей описаны в [PROJECT_GOAL.md](PROJECT_GOAL.md), первоисточник — [регламент HSL26](<Регламент HSL26 - v06092026.pdf>). Текущее состояние работ и проверок ведётся в [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Цель и правила соревнования
 
@@ -22,27 +22,29 @@ hackathon2026 — стек для робототехнического хака�
 | docs/Регламент HSL26 - v06092026.pdf | Первоисточник правил соревнования |
 | docs/PROJECT_STATUS.md | Фактическое состояние работ и результаты проверок |
 | .env | Переменные Docker Compose и helm, включая режим симуляции и GUI |
-| docker/Dockerfile | Образ Autoware, ROS 2 Humble, Gazebo Harmonic, RGL и пакетов из src/ |
+| docker/Dockerfile | Образ Autoware, ROS 2 Humble, Gazebo Classic 11, Livox SDK/драйвер и пакеты из src/ |
 | docker/docker-compose.yaml | Gazebo, профили и контейнеры-заготовки для будущих модулей |
 | docker/common.yaml | Общие параметры контейнеров: сеть, GPU, устройства и DDS |
 | docker/init-compose.yaml | Начальная подготовка ROS daemon |
 | docker/launch.yaml | Команды, доступные через helm |
 | helm_launch/ | Исходники CLI helm и её модульные тесты |
-| src/sim_kobuki/ | ROS-пакет с моделью Kobuki, миром, launch-файлом и bridge |
+| src/sim_kobuki/ | Модель Kobuki, мир maze.world и одиночный/двухроботный launch для Gazebo Classic |
+| src/jr_map/, src/jr_launch/ | Карта занятости из SDF, демонстрационные launch для карты, траектории и MPC |
+| src/mpc_motion_control/ | Подмодуль с MPC-контроллером (требуется инициализация) |
 | src/hsl_interfaces/ | Сообщение PlanningIntent между decision manager и планировщиком |
 | src/hsl_decision/ | Конечный автомат и ROS-узел выбора поведения |
 | src/hsl_planning/ | Проекция 3D-препятствий, A* и локальные траектории |
 | src/hsl_sim_adapter/ | Временные источники данных Gazebo и сценарный соперник |
-| src/hsl_debug_control/ | Сменный отладочный контроллер пути |
+| src/hsl_debug_control/ | Защитный шлюз MPC и сменный отладочный контроллер пути |
 
 ## Как устроен запуск
 
-1. helm читает docker/launch.yaml, docker/docker-compose.yaml и .env, затем вызывает Docker Compose с нужным профилем. Скрипт helm генерируется при установке из helm_launch/templates/helm.py.
-2. Docker-образ собирает пакеты из src/, устанавливает Gazebo Harmonic, RGL Gazebo Plugin и Livox SDK/драйвер.
-3. src/sim_kobuki/launch/launch_sim.launch.py запускает robot_state_publisher, Gazebo, создание модели Kobuki и ros_gz_bridge.
-4. Геометрия, приводы, TF и лидар заданы в src/sim_kobuki/description/kobuki.urdf.xacro; мир и препятствия — в src/sim_kobuki/worlds/empty.sdf; направления и типы ROS/Gazebo-топиков — в src/sim_kobuki/config/gz_bridge.yaml.
+1. `helm` читает `docker/launch.yaml`, `docker/docker-compose.yaml` и `.env`, затем вызывает Docker Compose.
+2. Образ собирает пакеты из `src/`, устанавливает Gazebo Classic 11 и зависимости. Подмодуль MPC нужно инициализировать перед сборкой профиля `duel`.
+3. `gazebo` запускает одного Kobuki. `simulation` — демонстрацию из `main`: одиночный Kobuki, аналитическая карта `/map`, фиксированная траектория `/planning/trajectory` и MPC на `/cmd_vel`.
+4. `duel` запускает двух Kobuki с раздельными темами и TF, адаптер Gazebo, decision manager, планировщик, сценарного соперника и MPC с защитным шлюзом. Штатный `simulation` и `duel` одновременно запускать нельзя: они используют общие ROS-топики и мир.
 
-Основной интерфейс симулятора: `/cmd_vel`, `/livox/lidar`, `/odom`, `/joint_states`, `/clock`, `/tf`. Профиль `gazebo` сохраняет одного робота; профиль `simulation` запускает двух роботов, адаптер данных, decision manager, планировщик, отладочный контроллер и сценарного соперника. Контракт навигации: `/navigation/self` и `/navigation/opponent` (`Odometry`), `/navigation/map_points` и `/navigation/scan` (`PointCloud2`) в кадре `map`; `/navigation/intent` (`PlanningIntent`); `/navigation/global_path` и `/navigation/local_path` (`Path`). Движение закрыто до вызова `/match/allow_motion`. Подробности — в [README.md](../README.md). Сервисы vehicle, sensing, localization, perception, api, tools, transforms и debug пока остаются заготовками. Реальные локализация и обнаружение соперника ещё не подключены; обе роли в Gazebo проверены 2026-09-25, результаты и ограничения — в [PROJECT_STATUS.md](PROJECT_STATUS.md).
+Основной контракт `duel`: `/navigation/self` и `/navigation/opponent` (`Odometry`), `/navigation/map_points` и `/navigation/scan` (`PointCloud2`) в кадре `map`; опциональная симуляционная `/navigation/known_grid` (`OccupancyGrid`); `/navigation/intent` (`PlanningIntent`); `/navigation/global_path` и `/navigation/local_path` (`Path`). Единственный издатель `/cmd_vel` в `duel` — шлюз MPC. Движение закрыто до вызова `/match/allow_motion`. Координаты площадок в YAML пока демонстрационные. Подробности — в [README.md](../README.md). Реальные локализация, карта и обнаружение соперника ещё не подключены; результат проверок — в [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Правила работы
 
@@ -50,6 +52,7 @@ hackathon2026 — стек для робототехнического хака�
 - При разработке соревновательной логики сверяй требования с [PROJECT_GOAL.md](PROJECT_GOAL.md) и исходным PDF; не выдавай рабочие выводы документа за дополнительные правила организаторов.
 - После **каждой завершённой работы** обнови PROJECT_STATUS.md в рамках той же работы: что изменено, что проверено и с каким результатом, что осталось открытым. Отличай подтверждение пользователя от собственной проверки.
 - Если меняются архитектура, команды запуска, зависимости или ROS-интерфейс, синхронно обнови README.md, этот файл и PROJECT_STATUS.md.
-- При изменении топиков, имён кадров или параметров робота сверяй Xacro, launch-файл, конфигурацию bridge и документацию. При изменении Docker/Compose учитывай необходимость пересборки образа и пересоздания контейнера.
+- При изменении топиков, имён кадров или параметров робота сверяй Xacro, launch-файл, настройки плагинов Gazebo Classic и документацию. При изменении Docker/Compose учитывай необходимость пересборки образа и пересоздания контейнера.
 - Выбирай проверку по характеру изменения: для CLI есть тесты в helm_launch/tests/; для ROS/Gazebo нужны проверки в запущенной среде. Записывай ограничения проверки в PROJECT_STATUS.md.
 - Не добавляй в документацию токены, пароли и прочие секреты. Не удаляй чужие файлы и не выполняй разрушительные команды без необходимости.
+- Не оставляй неиспользуемые функции, модули, параметры и устаревшие ветки кода. Когда реализация заменена, удали старую вместе с относящимися к ней настройками и документацией, чтобы проект не разрастался без пользы.

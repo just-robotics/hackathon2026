@@ -1,5 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kobuki">
+  <xacro:arg name="ros_namespace" default="/"/>
+  <xacro:arg name="frame_prefix" default=""/>
   <xacro:property name="wheel_radius" value="0.035"/>
   <xacro:property name="wheel_width" value="0.0206"/>
   <xacro:property name="wheel_separation" value="0.230"/>
@@ -226,11 +228,11 @@
       </ray>
       <plugin name="livox_lidar_controller" filename="libgazebo_ros_ray_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>$(arg ros_namespace)</namespace>
           <remapping>~/out:=livox/lidar</remapping>
         </ros>
         <output_type>sensor_msgs/PointCloud2</output_type>
-        <frame_name>livox_frame</frame_name>
+        <frame_name>$(arg frame_prefix)livox_frame</frame_name>
       </plugin>
     </sensor>
 
@@ -253,10 +255,10 @@
       </imu>
       <plugin name="livox_imu_controller" filename="libgazebo_ros_imu_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>$(arg ros_namespace)</namespace>
           <remapping>~/out:=livox/imu</remapping>
         </ros>
-        <frame_name>livox_frame</frame_name>
+        <frame_name>$(arg frame_prefix)livox_frame</frame_name>
       </plugin>
     </sensor>
   </gazebo>
@@ -264,7 +266,7 @@
   <gazebo>
     <plugin name="diff_drive_controller" filename="libgazebo_ros_diff_drive.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>$(arg ros_namespace)</namespace>
       </ros>
       <left_joint>wheel_left_joint</left_joint>
       <right_joint>wheel_right_joint</right_joint>
@@ -275,14 +277,14 @@
       <publish_odom>true</publish_odom>
       <publish_odom_tf>true</publish_odom_tf>
       <publish_wheel_tf>false</publish_wheel_tf>
-      <odometry_frame>odom</odometry_frame>
-      <robot_base_frame>base_footprint</robot_base_frame>
+      <odometry_frame>$(arg frame_prefix)odom</odometry_frame>
+      <robot_base_frame>$(arg frame_prefix)base_footprint</robot_base_frame>
       <update_rate>50</update_rate>
     </plugin>
 
     <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>$(arg ros_namespace)</namespace>
         <remapping>~/out:=joint_states</remapping>
       </ros>
       <update_rate>50</update_rate>
@@ -298,7 +300,7 @@
          отличие от odom, который стоит в точке спавна робота. -->
     <plugin name="ground_truth_p3d" filename="libgazebo_ros_p3d.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>$(arg ros_namespace)</namespace>
         <remapping>odom:=localization/pose</remapping>
       </ros>
       <body_name>base_footprint</body_name>

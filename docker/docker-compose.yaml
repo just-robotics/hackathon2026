@@ -89,7 +89,7 @@ services:
     # Карта занятости: считается из того же .world, что грузит симулятор,
     # и публикуется в /map как nav_msgs/OccupancyGrid.
     map:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_map.launch.xml map:=${MAP:-maze} resolution:=${MAP_RESOLUTION:-0.05} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_map.launch.xml map:=${MAP:-maze} resolution:=${MAP_RESOLUTION:-0.05}"
         extends:
             file: common.yaml
             service: app
@@ -154,3 +154,69 @@ services:
             - gazebo
             - simulation
         stdin_open: true
+
+    # Изолированный сценарий двух роботов. Основной профиль simulation со
+    # штатным planning/control из main остаётся без изменений.
+    gazebo-duel:
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23} opponent_x:=${OPPONENT_X:-4.0} opponent_y:=${OPPONENT_Y:-0.0} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-3.14159}"
+        extends:
+            file: common.yaml
+            service: app
+        environment:
+            JR_GAZEBO_PATH: /autoware/install/sim_kobuki/share
+            DISPLAY: ${DISPLAY:-:0}
+            XAUTHORITY: /tmp/.xauthority
+            QT_X11_NO_MITSHM: "1"
+        volumes:
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - ${XAUTHORITY:-/dev/null}:/tmp/.xauthority:ro
+        profiles:
+            - duel
+
+    hsl-adapter:
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter sim_observations --ros-args -p use_sim_time:=true -p own_spawn_x:=${SPAWN_X:--0.34} -p own_spawn_y:=${SPAWN_Y:--0.18}"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    hsl-map:
+        command: $CMD "source /autoware/install/setup.bash && ros2 run jr_map sdf_map_server.py --ros-args -p world:=/autoware/install/sim_kobuki/share/sim_kobuki/worlds/${MAP:-maze}.world -p resolution:=${MAP_RESOLUTION:-0.05} -p spawn_x:=${SPAWN_X:--0.34} -p spawn_y:=${SPAWN_Y:--0.18} -p use_sim_time:=true"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    hsl-decision:
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_decision decision_manager --ros-args --params-file /autoware/install/hsl_decision/share/hsl_decision/config/decision.yaml -p role:=${HSL_ROLE:-explorer} -p use_sim_time:=true"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    hsl-planning:
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_planning trajectory_planner --ros-args -p use_sim_time:=true"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    hsl-control:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_debug_control hsl_mpc.launch.py"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    hsl-opponent:
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter scripted_opponent --ros-args -p use_sim_time:=true"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel

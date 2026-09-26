@@ -143,9 +143,9 @@ def rasterize(
     Проверка идёт в локальных координатах стены, поэтому поворот учитывается
     без приближения габаритным прямоугольником.
 
-    Координаты пересчитываются относительно origin -- точки спавна робота.
-    Так карта оказывается в одной системе с /odom, который тоже отсчитывается
-    от места спавна, и поза робота напрямую ложится на сетку.
+    Координаты пересчитываются относительно origin. Для штатного профиля
+    simulation это начало мира Gazebo (совпадает с /odom); для duel адаптер
+    задаёт начало в точке спавна своего робота.
 
     :boxes список (cx, cy, half_x, half_y, yaw) в координатах мира
     :resolution размер ячейки в метрах
@@ -195,8 +195,7 @@ def rasterize(
         )
         grid[inside] = OCCUPIED
 
-    # origin отдаётся относительно точки спавна: сетка остаётся той же, но
-    # её нулём становится место, от которого считает одометрия
+    # origin отдаётся относительно выбранного начала координат.
     return grid, min_x - shift_x, min_y - shift_y
 
 
@@ -212,7 +211,7 @@ class SdfMapServer(Node):
         self.declare_parameter("z_slice", 0.25)
         self.declare_parameter("frame_id", "map")
         self.declare_parameter("topic", "/map")
-        # точка спавна робота: относительно неё задаётся origin карты
+        # Сдвиг начала карты; по умолчанию она совпадает с координатами мира.
         self.declare_parameter("spawn_x", 0.0)
         self.declare_parameter("spawn_y", 0.0)
 
@@ -272,7 +271,7 @@ class SdfMapServer(Node):
             f"занято {occupied} ячеек "
             f"({occupied * resolution ** 2:.1f} м2), "
             f"origin ({origin_x:.2f}, {origin_y:.2f}) "
-            f"от спавна ({spawn[0]:.2f}, {spawn[1]:.2f}) -> {topic}"
+            f"от начала ({spawn[0]:.2f}, {spawn[1]:.2f}) -> {topic}"
         )
 
 

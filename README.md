@@ -8,7 +8,7 @@
 
 - Docker с плагином `docker compose` v2
 - Python 3 и `pip`
-- NVIDIA Container Toolkit для GPU-лидара
+- NVIDIA Container Toolkit для контейнера Autoware
 - X11, если нужен GUI Gazebo
 
 ## Установка
@@ -98,6 +98,10 @@ helm build gazebo
 helm up simulation
 ```
 
+Это демонстрационный профиль `main` для **одного** Kobuki и заранее заданной
+траектории. Двухроботный контур decision manager запускается профилем `duel`
+ниже. Профили используют общие ROS-топики и должны запускаться по отдельности.
+
 `planning` поднимает `sim_planning.launch.py` (строит опорную траекторию в
 `/planning/trajectory`), `control` — `sim_control.launch.py`
 (`/planning/trajectory` + `/odom` → `/cmd_vel`). Параметры вынесены в
@@ -144,9 +148,9 @@ SLAM.
 helm exec tools ros2 topic echo /localization/pose --once
 ```
 
-Отличие от `/odom`: `/odom` считается по колёсам от точки спавна (плагин
-`diff_drive`) и накапливает ошибку при пробуксовке, а `/localization/pose`
-отсчитывается от начала координат мира (`frame_name: world`) и всегда точна.
+Отличие от `/odom`: в Gazebo Classic `/odom` тоже задан в мировых координатах,
+но считается по колёсам плагином `diff_drive` и может накапливать ошибку при
+пробуксовке. `/localization/pose` берётся прямо из физического движка.
 Поэтому `/localization/pose` удобно брать как эталон для сравнения.
 
 В TF плагин ничего не публикует — иначе у `base_footprint` было бы два
@@ -191,7 +195,53 @@ Gazebo вместе с модулями автопилота:
 helm up simulation
 ```
 
-Окно симулятора открывается автоматически в обоих профилях. Compose передаёт в
+Двухроботный сценарий с выбором поведения и построением путей:
+
+```bash
+helm submodules mpc_motion_control
+helm build duel
+helm clean duel
+GAZEBO_HEADLESS=true helm up duel
+```
+
+Профиль `duel` запускает два Kobuki, карту `/map`, адаптер наблюдений,
+decision manager, планировщик, сценарного соперника и MPC. Подмодуль
+`mpc_motion_control` обязателен для этого профиля. Роль задаётся в `.env`
+через `HSL_ROLE=explorer` или `HSL_ROLE=guardian`; после её смены пересоздайте
+контейнеры (`helm clean duel && helm up duel`). Второй робот спавнится в
+`OPPONENT_X`, `OPPONENT_Y`, `OPPONENT_Z`, `OPPONENT_YAW`. Контуры площадок
+задаются в `src/hsl_decision/config/decision.yaml` в системе `map` и сейчас
+служат только примером для мира `maze`.
+
+До разрешения старта решение публикует `WAIT`, а защитный шлюз — нулевую
+скорость. После истечения `freeze time` разрешите движение:
+
+```bash
+helm exec hsl-decision ros2 service call /match/allow_motion std_srvs/srv/SetBool "{data: true}"
+```
+
+Для остановки передайте `{data: false}`. `helm start` и `helm stop` управляют
+штатным сервисом `control` профиля `simulation`; для `duel` используется
+`/match/allow_motion`.
+
+В `duel` `/navigation/self` и `/navigation/opponent` — позы `Odometry` в `map`
+из симуляционного ground truth; `/navigation/scan` и
+`/navigation/map_points` — текущие и накопленные 3D-точки `PointCloud2`;
+`/navigation/known_grid` — доступная только в симуляции карта занятости.
+В `duel` начало `map` совпадает с точкой спавна своего робота: адаптер сдвигает
+в неё ground truth, а TF связывает мировые кадры одометрии с `map`.
+В штатном `simulation` карта и `/odom` остаются в мировых координатах Gazebo.
+Decision manager публикует `/navigation/intent`, планировщик —
+`/navigation/global_path` и `/navigation/local_path` (`nav_msgs/Path`). MPC
+следует по локальному пути, а единственный издатель `/cmd_vel` в этом профиле
+останавливает робота при `WAIT`, `STOP`, пустом пути и устаревших данных.
+
+Если нужно проверить путь без подмодуля MPC, остановите сервис `hsl-control`
+и запустите `ros2 run hsl_debug_control debug_follower --ros-args -p
+use_sim_time:=true` в том же ROS-домене. Этот контроллер — отладочная замена,
+одновременно с MPC его запускать нельзя.
+
+Окно симулятора открывается автоматически при выключенном headless-режиме. Compose передаёт в
 контейнер `DISPLAY` и cookie X-сервера из `XAUTHORITY`, а процесс внутри идёт от
 uid 1000, как и пользователь хоста, поэтому `xhost` не нужен.
 
@@ -222,9 +272,9 @@ helm up gazebo
 
 ```text
 sim_kobuki/
-├── config/gz_bridge.yaml
 ├── description/kobuki.urdf.xacro
 ├── launch/launch_sim.launch.py
+├── launch/launch_duel.launch.py
 ├── meshes/kobuki/
 └── worlds/
     └── maze.world   # лабиринт
@@ -244,10 +294,9 @@ Launch-файл запускает:
 
 ```bash
 MAP=maze     # лабиринт (по умолчанию)
-MAP=empty    # пустой мир с двумя коробками
 ```
 
-Чтобы добавить свою карту, положите `<имя>.sdf` в
+Чтобы добавить свой мир, положите `<имя>.world` в
 [src/sim_kobuki/worlds/](src/sim_kobuki/worlds/) и укажите `MAP=<имя>`.
 Стены лабиринта заданы **box**-коллизиями.
 
@@ -330,8 +379,11 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 | [docker/launch.yaml](docker/launch.yaml) | команды `helm` |
 | [docker/submodules.yaml](docker/submodules.yaml) | список подмодулей с ROS-пакетами |
 | [src/sim_kobuki/](src/sim_kobuki/) | модель, мир и launch симуляции |
+| [src/hsl_decision/](src/hsl_decision/), [src/hsl_planning/](src/hsl_planning/) | выбор поведения и построение глобального/локального путей |
+| [src/hsl_sim_adapter/](src/hsl_sim_adapter/), [src/hsl_debug_control/](src/hsl_debug_control/) | временные симуляционные входы и контроллер/шлюз |
 | `src/mpc_motion_control/` | подмодуль с MPC-контроллером (`helm submodules`) |
 | [helm_launch/](helm_launch/) | CLI `helm` |
+| [docs/PROJECT_GOAL.md](docs/PROJECT_GOAL.md), [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md), [docs/AGENTS.md](docs/AGENTS.md) | цель и регламент, состояние, инструкции для агентов |
 
 ## Диагностика
 

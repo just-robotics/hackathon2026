@@ -31,7 +31,7 @@ class DecisionManager(Node):
         defaults = {
             "role": "explorer", "planning_frame": "map",
             "own_start": [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
-            "opponent_start": [3.5, -2.5, 4.5, -2.5, 4.5, -1.5, 3.5, -1.5],
+            "opponent_start": [3.9, -0.32, 4.7, -0.32, 4.7, 0.68, 3.9, 0.68],
             "pose_timeout": 1.2, "scan_timeout": 1.8,
             "opponent_timeout": 1.0, "switch_margin": 0.15,
             "min_dwell": 0.5, "evade_distance": 1.5,

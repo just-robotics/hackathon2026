@@ -38,3 +38,28 @@ def safe_follow(now, own, path, intent, pose_timeout=0.5, path_timeout=0.5,
             or now - intent_stamp > intent_timeout):
         return 0.0, 0.0
     return follow(pose, points, max_speed)
+
+
+def safe_mpc_command(now, pose_stamp, scan_stamp, path, intent, command,
+                     pose_timeout=1.2, scan_timeout=1.8,
+                     path_timeout=1.0, intent_timeout=1.0,
+                     command_timeout=0.5, rotation_error=None):
+    """Stop the MPC output when the navigation contract is not current."""
+    if not path or not intent:
+        return 0.0, 0.0
+    points, path_stamp = path
+    behavior, max_speed, intent_stamp = intent
+    if (behavior in (0, 1) or not points or max_speed <= 0
+            or now - pose_stamp > pose_timeout
+            or now - scan_stamp > scan_timeout
+            or now - path_stamp > path_timeout
+            or now - intent_stamp > intent_timeout):
+        return 0.0, 0.0
+    if rotation_error is not None:
+        return 0.0, max(-1.0, min(1.0, 2.0 * rotation_error)) if abs(rotation_error) > 0.1 else 0.0
+    if not command:
+        return 0.0, 0.0
+    linear, angular, command_stamp = command
+    if now - command_stamp > command_timeout:
+        return 0.0, 0.0
+    return max(-max_speed, min(max_speed, linear)), max(-1.2, min(1.2, angular))

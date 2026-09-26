@@ -19,16 +19,8 @@
   <arg name="frame_id" default="map"/>
   <arg name="topic" default="/map"/>
 
-  <!-- Начало карты совпадает с точкой спавна робота: от неё же отсчитывается
-       /odom, поэтому поза робота ложится на сетку напрямую. Значения должны
-       совпадать со spawn_x/spawn_y у sim_kobuki (SPAWN_* в .env). -->
-  <arg name="spawn_x" default="-0.34"/>
-  <arg name="spawn_y" default="-0.18"/>
-
-  <!-- Связь карты с деревом TF. Без неё фрейма map не существует, и RViz не
-       может разместить карту ("No map received"), хотя топик публикуется.
-       Трансформ нулевой: origin карты уже отсчитан от точки спавна, а от неё
-       же считает одометрию diff_drive, поэтому map и odom совпадают. -->
+  <!-- Gazebo Classic публикует /odom в мировых координатах. Карта в этом
+       профиле тоже задана в мировых координатах, поэтому TF единичный. -->
   <node pkg="tf2_ros" exec="static_transform_publisher" name="map_to_odom_tf"
         args="--x 0.0 --y 0.0 --z 0.0
               --roll 0.0 --pitch 0.0 --yaw 0.0
@@ -43,8 +35,6 @@
     <param name="z_slice" value="$(var z_slice)"/>
     <param name="frame_id" value="$(var frame_id)"/>
     <param name="topic" value="$(var topic)"/>
-    <param name="spawn_x" value="$(var spawn_x)"/>
-    <param name="spawn_y" value="$(var spawn_y)"/>
     <param name="use_sim_time" value="$(var simulation)"/>
   </node>
 </launch>

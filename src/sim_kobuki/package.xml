@@ -2,7 +2,7 @@
 <package format="3">
   <name>sim_kobuki</name>
   <version>0.1.0</version>
-  <description>Kobuki simulation package for Gazebo Harmonic and ROS 2 Humble.</description>
+  <description>Kobuki simulation package for Gazebo Classic and ROS 2 Humble.</description>
 
   <maintainer email="dev@just-robotics.ru">Just Robotics</maintainer>
   <license>Apache-2.0</license>

@@ -5,10 +5,10 @@ from math import atan2, cos, hypot, sin
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
-from nav_msgs.msg import Odometry, Path
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
 
@@ -84,6 +84,8 @@ class TrajectoryPlanner(Node):
         self.intent = None
         self.scan_stamp = 0.0
         self.map_points = []
+        self.grid_points = []
+        self.grid_free = set()
         self.scan_points = []
         self.dirty = True
         self.global_path = []
@@ -95,6 +97,9 @@ class TrajectoryPlanner(Node):
                                  qos_profile_sensor_data)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
                                  qos_profile_sensor_data)
+        grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(OccupancyGrid, "navigation/known_grid",
+                                 self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
@@ -126,6 +131,26 @@ class TrajectoryPlanner(Node):
             self.scan_stamp = seconds(msg.header.stamp)
             self.dirty = True
 
+    def on_known_grid(self, msg):
+        if msg.header.frame_id != self.frame or msg.info.width <= 0 or msg.info.resolution <= 0:
+            return
+        resolution = msg.info.resolution
+        width = msg.info.width
+        origin = msg.info.origin.position
+        points = []
+        free = set()
+        for index, value in enumerate(msg.data):
+            row, col = divmod(index, width)
+            x = origin.x + (col + 0.5) * resolution
+            y = origin.y + (row + 0.5) * resolution
+            if value >= 50:
+                points.append((x, y, 0.3))
+            elif value == 0:
+                free.add(self.world.cell(x, y))
+        self.grid_points = points
+        self.grid_free = free
+        self.dirty = True
+
     def publish_empty(self, reason):
         self.global_path = []
         self.global_pub.publish(make_path(self, []))
@@ -155,14 +180,14 @@ class TrajectoryPlanner(Node):
         else:
             enemy_future = None
         if self.dirty:
-            static_points = self.map_points
+            static_points = self.map_points + self.grid_points
             scan_points = self.scan_points
             if enemy:
                 static_points = [p for p in static_points
                                  if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.4]
                 scan_points = [p for p in scan_points
                                if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.3]
-            self.world.update(static_points, scan_points, own)
+            self.world.update(static_points, scan_points, own, self.grid_free)
             self.dirty = False
         intent = self.intent
         if intent.behavior in (6, 7) and enemy:

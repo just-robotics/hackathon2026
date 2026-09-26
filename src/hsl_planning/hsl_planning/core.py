@@ -54,7 +54,7 @@ class VoxelWorld:
     def point(self, cell):
         return Pose2(cell[0] * self.resolution, cell[1] * self.resolution)
 
-    def update(self, static_points, scan_points, scan_origin):
+    def update(self, static_points, scan_points, scan_origin, known_free=()):
         self.static_points = list(static_points)
         self.scan_points = list(scan_points)
         self.scan_origin = scan_origin
@@ -80,6 +80,8 @@ class VoxelWorld:
                 cells = list(ray_cells(origin, self.cell(x, y)))
                 self.free.update(cells[:-1])
             self.free.difference_update(self.occupied)
+        self.free.update(known_free)
+        self.free.difference_update(self.occupied)
 
     def blocked(self, x, y):
         return self.cell(x, y) in self.occupied

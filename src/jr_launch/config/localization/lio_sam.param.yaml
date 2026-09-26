@@ -1,9 +1,9 @@
 /**:
   ros__parameters:
 
-    # Topics. ОТНОСИТЕЛЬНЫЕ (без ведущего "/"): под namespace робота резолвятся в
-    # /<vehicle_id>/sensing/livox/{points,imu} (совпадает с выходом sensing-компонента).
-    pointCloudTopic: "/livox/lidar"       # облако от RGL-плагина в симуляторе
+    # Абсолютные темы текущей симуляции Gazebo Classic. LIO-SAM пока не включён:
+    # штатный ray-сенсор не публикует нужные для него поля времени и линии.
+    pointCloudTopic: "/livox/lidar"
     imuTopic: "/livox/imu"                # IMU из URDF, тот же livox_frame
     odomTopic: "lio_sam/odometry"                    # IMU pre-preintegration odometry, same frequency as IMU
     # gpsTopic: "odometry/gpsz"                    # GPS odometry topic from navsat, see module_navsat.launch file

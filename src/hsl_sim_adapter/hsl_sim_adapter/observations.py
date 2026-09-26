@@ -1,16 +1,15 @@
-"""Simulation-only conversion into future localization/perception interfaces."""
+"""Gazebo Classic ground truth and lidar converted to navigation inputs."""
 
 from collections import OrderedDict
 from copy import deepcopy
-from math import cos, hypot, sin
+from math import hypot
 
 import rclpy
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2
-from tf2_msgs.msg import TFMessage
 from tf2_ros import Buffer, TransformListener
 
 from .cloud import make_cloud, read_xyz, transform
@@ -19,111 +18,95 @@ from .cloud import make_cloud, read_xyz, transform
 class SimObservations(Node):
     def __init__(self):
         super().__init__("sim_observations")
+        self.declare_parameter("own_spawn_x", -0.34)
+        self.declare_parameter("own_spawn_y", -0.18)
         self.declare_parameter("own_odom_topic", "/odom")
         self.declare_parameter("opponent_odom_topic", "/opponent/odom")
+        self.declare_parameter("own_truth_topic", "/localization/pose")
+        self.declare_parameter("opponent_truth_topic", "/opponent/localization/pose")
         self.declare_parameter("lidar_topic", "/livox/lidar")
-        self.declare_parameter("own_model", "kobuki")
-        self.declare_parameter("opponent_model", "opponent")
-        self.declare_parameter("opponent_offset", [4.0, -2.0])
-        self.declare_parameter("opponent_initial_yaw", 3.14159)
-        self.own_model = self.get_parameter("own_model").value
-        self.opponent_model = self.get_parameter("opponent_model").value
-        self.offset = self.get_parameter("opponent_offset").value
-        self.opponent_initial_yaw = self.get_parameter("opponent_initial_yaw").value
+        self.declare_parameter("self_filter_radius", 0.25)
+        self.spawn = (self.get_parameter("own_spawn_x").value,
+                      self.get_parameter("own_spawn_y").value)
+        self.self_filter_radius = self.get_parameter("self_filter_radius").value
         self.own_odom = None
         self.opponent_odom = None
-        self.world_poses = {}
+        self.own_truth = None
+        self.opponent_truth = None
         self.voxels = OrderedDict()
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.create_subscription(Odometry, self.get_parameter("own_odom_topic").value,
-                                 self.on_own, 10)
+                                 lambda msg: setattr(self, "own_odom", msg), 10)
         self.create_subscription(Odometry, self.get_parameter("opponent_odom_topic").value,
-                                 self.on_opponent, 10)
-        self.create_subscription(TFMessage, "/gazebo/world_poses", self.on_world_poses, 10)
+                                 lambda msg: setattr(self, "opponent_odom", msg), 10)
+        self.create_subscription(Odometry, self.get_parameter("own_truth_topic").value,
+                                 lambda msg: setattr(self, "own_truth", msg), 10)
+        self.create_subscription(Odometry, self.get_parameter("opponent_truth_topic").value,
+                                 lambda msg: setattr(self, "opponent_truth", msg), 10)
         self.create_subscription(PointCloud2, self.get_parameter("lidar_topic").value,
                                  self.on_lidar, qos_profile_sensor_data)
+        map_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(OccupancyGrid, "/map", self.on_known_map, map_qos)
         self.own_pub = self.create_publisher(Odometry, "navigation/self", 10)
         self.opponent_pub = self.create_publisher(Odometry, "navigation/opponent", 10)
         self.scan_pub = self.create_publisher(PointCloud2, "navigation/scan",
                                               qos_profile_sensor_data)
         self.map_pub = self.create_publisher(PointCloud2, "navigation/map_points",
                                              qos_profile_sensor_data)
+        self.known_map_pub = self.create_publisher(OccupancyGrid, "navigation/known_grid", map_qos)
         self.create_timer(0.05, self.publish_poses)
         self.create_timer(0.5, self.publish_map)
 
-    def on_own(self, msg):
-        self.own_odom = msg
+    def on_known_map(self, msg):
+        if msg.header.frame_id == "map":
+            self.known_map_pub.publish(msg)
 
-    def on_opponent(self, msg):
-        self.opponent_odom = msg
-
-    def on_world_poses(self, msg):
-        for item in msg.transforms:
-            name = item.child_frame_id.strip("/")
-            for model in (self.own_model, self.opponent_model):
-                if name == model or name.endswith("::" + model) or name.endswith("/" + model):
-                    self.world_poses[model] = (item.transform, self.get_clock().now().nanoseconds * 1e-9)
-
-    def model_truth(self, model):
-        item = self.world_poses.get(model)
-        if item and self.get_clock().now().nanoseconds * 1e-9 - item[1] <= 0.5:
-            return item[0]
-        return None
-
-    def opponent_xy(self):
-        truth = self.model_truth(self.opponent_model)
-        if truth:
-            return truth.translation.x, truth.translation.y
-        if self.opponent_odom:
-            odom = self.as_map_odom(self.opponent_odom, self.opponent_model,
-                                    self.offset, self.opponent_initial_yaw)
-            return odom.pose.pose.position.x, odom.pose.pose.position.y
-        return float("inf"), float("inf")
-
-    def as_map_odom(self, original, model, fallback_offset=(0.0, 0.0), fallback_yaw=0.0):
-        if original is None:
+    def as_map_odom(self, truth, odom, child_frame):
+        if truth is None:
             return None
         result = Odometry()
-        result.header.stamp = original.header.stamp
+        result.header = deepcopy(truth.header)
         result.header.frame_id = "map"
-        result.child_frame_id = "base_footprint"
-        result.pose = deepcopy(original.pose)
-        result.twist = deepcopy(original.twist)
-        truth = self.model_truth(model)
-        if truth:
-            result.pose.pose.position.x = truth.translation.x
-            result.pose.pose.position.y = truth.translation.y
-            result.pose.pose.position.z = truth.translation.z
-            result.pose.pose.orientation = truth.rotation
-        else:
-            x, y = result.pose.pose.position.x, result.pose.pose.position.y
-            result.pose.pose.position.x = fallback_offset[0] + cos(fallback_yaw) * x - sin(fallback_yaw) * y
-            result.pose.pose.position.y = fallback_offset[1] + sin(fallback_yaw) * x + cos(fallback_yaw) * y
-            q = result.pose.pose.orientation
-            half = fallback_yaw / 2
-            q.z, q.w = q.z * cos(half) + q.w * sin(half), q.w * cos(half) - q.z * sin(half)
+        result.child_frame_id = child_frame
+        result.pose = deepcopy(truth.pose)
+        result.pose.pose.position.x -= self.spawn[0]
+        result.pose.pose.position.y -= self.spawn[1]
+        result.twist = deepcopy(odom.twist if odom else truth.twist)
         return result
 
+    def opponent_xy(self):
+        if self.opponent_truth:
+            p = self.opponent_truth.pose.pose.position
+            return p.x - self.spawn[0], p.y - self.spawn[1]
+        return float("inf"), float("inf")
+
     def publish_poses(self):
-        own = self.as_map_odom(self.own_odom, self.own_model)
-        enemy = self.as_map_odom(self.opponent_odom, self.opponent_model,
-                                 self.offset, self.opponent_initial_yaw)
+        own = self.as_map_odom(self.own_truth, self.own_odom, "base_footprint")
+        enemy = self.as_map_odom(self.opponent_truth, self.opponent_odom,
+                                 "opponent/base_footprint")
         if own:
             self.own_pub.publish(own)
         if enemy:
             self.opponent_pub.publish(enemy)
 
     def on_lidar(self, msg):
+        if self.own_truth is None:
+            return
         try:
             tf = self.tf_buffer.lookup_transform("map", msg.header.frame_id, Time())
         except Exception:
             return
-        translation = (tf.transform.translation.x, tf.transform.translation.y,
-                       tf.transform.translation.z)
-        q = tf.transform.rotation
-        quaternion = (q.x, q.y, q.z, q.w)
-        points = [transform(point, translation, quaternion) for point in read_xyz(msg)]
+        t, q = tf.transform.translation, tf.transform.rotation
+        own = self.own_truth.pose.pose.position
+        sx, sy = own.x - self.spawn[0], own.y - self.spawn[1]
+        points = []
+        for point in read_xyz(msg):
+            mapped = transform(point, (t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
+            # The Classic ray sensor returns points from Kobuki's own plates.
+            # Remove only the measured body radius before scan/map publication.
+            if hypot(mapped[0] - sx, mapped[1] - sy) >= self.self_filter_radius:
+                points.append(mapped)
         header = deepcopy(msg.header)
         header.frame_id = "map"
         self.scan_pub.publish(make_cloud(header, points))

@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1] / "src"
 for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_adapter"):
     sys.path.insert(0, str(ROOT / package))
 
-from hsl_debug_control.core import follow, safe_follow
+from hsl_debug_control.core import follow, safe_follow, safe_mpc_command
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon)
@@ -107,6 +107,13 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(path)
         self.assertTrue(all(not world.blocked(p.x, p.y) for p in path))
 
+    def test_known_grid_free_cells_do_not_override_inflated_walls(self):
+        world = VoxelWorld(0.1, 0.2)
+        known = {world.cell(x / 10, 0) for x in range(20)}
+        world.update([(1.0, 0, 0.3)], [], None, known)
+        self.assertNotIn(world.cell(1.0, 0), world.free)
+        self.assertIn(world.cell(0.0, 0), world.free)
+
     def test_debug_follower_stops_without_path(self):
         self.assertEqual(follow((0, 0, 0), [], 0.5), (0, 0))
 
@@ -119,6 +126,21 @@ class PlanningTests(unittest.TestCase):
         self.assertGreater(safe_follow(10.7, own, path, (GOAL, 0.5, 10.0),
                                        pose_timeout=1.2, path_timeout=1.0,
                                        intent_timeout=1.0)[0], 0)
+
+    def test_mpc_gate_stops_for_wait_empty_path_or_stale_scan(self):
+        path = ([object()], 10.0)
+        command = (0.4, 0.2, 10.0)
+        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, path,
+                                          (WAIT, 0.3, 10.0), command), (0, 0))
+        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, ([], 10.0),
+                                          (GOAL, 0.3, 10.0), command), (0, 0))
+        self.assertEqual(safe_mpc_command(12.0, 12.0, 10.0, path,
+                                          (GOAL, 0.3, 12.0), (0.4, 0.2, 12.0)), (0, 0))
+        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, path,
+                                          (GOAL, 0.3, 10.0), command), (0.3, 0.2))
+        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, path,
+                                          (CAPTURE, 0.3, 10.0), None,
+                                          rotation_error=0.5), (0.0, 1.0))
 
     def test_quaternion_transform(self):
         self.assertEqual(transform((1, 2, 3), (4, 5, 6), (0, 0, 0, 1)),

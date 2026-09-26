@@ -7,7 +7,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     TimerAction,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -117,7 +117,5 @@ def generate_launch_description():
                     ),
                 ],
             ),
-            # ros_gz_bridge не нужен: в Classic плагины gazebo_ros публикуют
-            # в ROS напрямую, а /clock отдает gazebo_ros_init внутри gzserver.
         ]
     )
