@@ -17,6 +17,10 @@ services:
             - all
             - sensing
 
+    # Локализация идёт из симулятора: плагин gazebo_ros_p3d в URDF публикует
+    # точную позу модели в /localization/pose и TF map -> base_footprint.
+    # Отдельный сервис для этого не нужен; здесь останется место под LIO-SAM,
+    # когда он будет включён (jr_localization.launch.xml уже готов).
     localization:
         command: $CMD "sleep infinity"
         extends:
@@ -25,6 +29,7 @@ services:
         profiles:
             - all
             - localization
+            - simulation
 
     perception:
         command: $CMD "sleep infinity"
@@ -36,8 +41,11 @@ services:
             - perception
             - simulation
 
+    # Планировщик MPC: строит опорную траекторию в /planning/trajectory.
+    # Ноды приходят из подмодуля mpc_motion_control и появляются в образе
+    # после `helm submodules` и `helm build`.
     planning:
-        command: $CMD "sleep infinity"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_planning.launch.xml trajectory:=${MPC_TRAJECTORY:-lanelet} trajectory_file:=${MPC_TRAJECTORY_FILE:-my_trajectory5.yaml}"
         extends:
             file: common.yaml
             service: app
@@ -46,8 +54,9 @@ services:
             - planning
             - simulation
 
+    # Контроллер MPC: /planning/trajectory + /odom -> /cmd_vel
     control:
-        command: $CMD "sleep infinity"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_control.launch.xml lateral:=${MPC_LATERAL:-true} longitudinal:=${MPC_LONGITUDINAL:-cc}"
         extends:
             file: common.yaml
             service: app
@@ -66,8 +75,9 @@ services:
             - api
             - simulation
 
+    # Инструменты отладки: мост Foxglove на порту 8765
     tools:
-        command: $CMD "sleep infinity"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_tools.launch.xml"
         extends:
             file: common.yaml
             service: app
@@ -97,17 +107,21 @@ services:
             - debug
 
     gazebo:
-        command: $CMD "export LD_LIBRARY_PATH=/opt/rgl/plugins:$${LD_LIBRARY_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py headless:=${GAZEBO_HEADLESS:-true}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23}"
         extends:
             file: common.yaml
             service: app
         environment:
-            GZ_PARTITION: hackathon2026
-            GZ_SIM_RESOURCE_PATH: /autoware/install/sim_kobuki/share
-            GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/rgl/plugins
-            GZ_GUI_PLUGIN_PATH: /opt/rgl/gui
-            RGL_PATTERNS_DIR: /opt/rgl/lidar_patterns
-            GZ_HEADLESS_RENDERING: ${GAZEBO_HEADLESS:-true}
+            # Путь к ресурсам пакета: по нему Gazebo резолвит меши робота.
+            # В команде сервиса дописывается и в GAZEBO_RESOURCE_PATH, и в
+            # GAZEBO_MODEL_PATH -- при конвертации URDF в SDF схема
+            # package:// становится model://, а она ищется только по
+            # MODEL_PATH; без него робот в GUI невидим ("No mesh specified").
+            # Именно дописывается, а не заменяет: в /usr/share/gazebo-11 лежат
+            # шейдеры, без которых gzclient падает на "Unable to find shader
+            # lib". Побочный эффект MODEL_PATH -- безвредные сообщения
+            # "Missing model.config" на служебные каталоги ROS внутри share.
+            JR_GAZEBO_PATH: /autoware/install/sim_kobuki/share
             DISPLAY: ${DISPLAY:-:0}
             # Процесс в контейнере идёт от uid 1000, как и пользователь хоста,
             # поэтому cookie X-сервера подходит как есть и `xhost` не нужен.

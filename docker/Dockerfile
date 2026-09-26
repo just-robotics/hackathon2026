@@ -58,40 +58,34 @@ RUN \
       ros-humble-xacro \
       ros-humble-tf-transformations \
       ros-humble-rosbag2-storage-mcap \
-      ros-humble-ros-gz-sim \
       && rm -rf /var/lib/apt/lists/*
 
-# ROS 2 Humble officially targets Gazebo Fortress. The OSRF repository provides
-# the Humble bridge rebuilt for Gazebo Harmonic as ros-humble-ros-gzharmonic.
-RUN curl -fsSL https://packages.osrfoundation.org/gazebo.gpg \
-      -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
-      > /etc/apt/sources.list.d/gazebo-stable.list && \
-    apt-get update -y && \
-    conflicting_packages="$(dpkg-query -W -f='${binary:Package}\n' 'ros-humble-ros-gz*' 2>/dev/null || true)" && \
-    if [[ -n "${conflicting_packages}" ]]; then \
-      apt-get remove -y ${conflicting_packages}; \
-    fi && \
+# Gazebo Classic 11. Формально EOL с января 2025, но выбран сознательно:
+# только под него существуют плагины Livox, воспроизводящие настоящий
+# non-repetitive паттерн Mid-360 (с полями tag/line и offset_time для деskew).
+# GPU-растеризации, как в RGL, здесь нет -- лучи считает ODE на CPU.
+RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
-      gz-harmonic \
-      ros-humble-ros-gzharmonic \
+      gazebo \
+      libgazebo-dev \
+      ros-humble-gazebo-ros-pkgs \
+      ros-humble-gazebo-plugins \
+      ros-humble-gazebo-ros \
       unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# RGL Gazebo Plugin (Harmonic): GPU raycast + Livox Mid-360 non-repetitive pattern.
-ARG RGL_VERSION=v0.2.0-harmonic
-ARG RGL_UBUNTU=22
-RUN curl -fsSL -o /tmp/rgl.zip \
-      "https://github.com/RobotecAI/RGLGazeboPlugin/releases/download/${RGL_VERSION}/RGLGazeboPlugin_ubuntu${RGL_UBUNTU}.zip" && \
-    unzip -q /tmp/rgl.zip -d /tmp/rgl && \
-    mkdir -p /opt/rgl/plugins /opt/rgl/gui && \
-    cp /tmp/rgl/RGLServerPlugin/*.so /opt/rgl/plugins/ && \
-    cp /tmp/rgl/RGLVisualize/*.so /opt/rgl/gui/ && \
-    rm -rf /tmp/rgl /tmp/rgl.zip && \
-    git clone --depth 1 --branch ${RGL_VERSION} \
-      https://github.com/RobotecAI/RGLGazeboPlugin.git /tmp/rgl_src && \
-    cp -a /tmp/rgl_src/lidar_patterns /opt/rgl/lidar_patterns && \
-    rm -rf /tmp/rgl_src
+# GTSAM -- зависимость lio_sam (факторный граф). В apt для jammy его нет,
+# ставим из PPA borglab. Сам lio_sam сейчас не собирается (локализация идёт из
+# симулятора), но GTSAM оставлен, чтобы включение LIO-SAM не требовало
+# пересборки половины образа.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends software-properties-common && \
+    add-apt-repository -y ppa:borglab/gtsam-release-4.1 && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+      libgtsam-dev \
+      libgtsam-unstable-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY src ${WORKDIR}/src
 
@@ -110,6 +104,26 @@ RUN mv package_ROS2.xml package.xml && \
 WORKDIR ${WORKDIR}
 
 RUN source ${SOURCE} && colcon build --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release
+
+# lio_sam пока не собирается: локализация берётся из симулятора (плагин p3d).
+# Чтобы включить LIO-SAM, допишите сюда
+# src/lio_sam_src/workspace/src/lio_sam
+ARG SUBMODULE_PACKAGES="src/mpc_motion_control/workspace/src/swarm_msgs src/mpc_motion_control/workspace/src/swarm_controller"
+RUN base_paths="" && \
+    for package in ${SUBMODULE_PACKAGES}; do \
+      if [[ -f "${WORKDIR}/${package}/package.xml" ]]; then \
+        base_paths="${base_paths} ${WORKDIR}/${package}"; \
+      else \
+        echo "SKIP ${package}: подмодуль не подключен (helm submodules)"; \
+      fi; \
+    done && \
+    if [[ -n "${base_paths}" ]]; then \
+      python3 -m pip install --no-cache-dir osqp scipy && \
+      source ${SOURCE} && \
+      source ${WORKDIR}/install/setup.bash && \
+      colcon build --symlink-install --base-paths ${base_paths} \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release; \
+    fi
 
 RUN echo "source ${SOURCE}" >> /root/.bashrc && \
     echo "source ${WORKDIR}/install/setup.bash" >> /root/.bashrc

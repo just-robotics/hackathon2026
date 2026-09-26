@@ -191,45 +191,120 @@
   </gazebo>
 
   <gazebo reference="livox_frame">
-    <sensor name="livox_mid360" type="custom">
+    <!-- Пока штатный ray-лидар Gazebo Classic: вращательный паттерн, не
+         non-repetitive. Плагин Livox с настоящим паттерном Mid-360 (CSV,
+         поля tag/line, offset_time) подключается отдельным шагом. -->
+    <sensor name="livox_mid360" type="ray">
       <always_on>true</always_on>
       <update_rate>10</update_rate>
-      <topic>livox/lidar</topic>
-      <plugin filename="RGLServerPluginInstance" name="rgl::RGLServerPluginInstance">
+      <visualize>false</visualize>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>900</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>40</samples>
+            <resolution>1</resolution>
+            <min_angle>-0.1222</min_angle>  <!-- -7 град -->
+            <max_angle>0.9075</max_angle>   <!-- +52 град, как у Mid-360 -->
+          </vertical>
+        </scan>
         <range>
           <min>0.10</min>
           <max>40.0</max>
+          <resolution>0.01</resolution>
         </range>
-        <update_rate>10</update_rate>
-        <update_on_paused_sim>false</update_on_paused_sim>
-        <topic>livox/lidar</topic>
-        <frame>livox_frame</frame>
-        <pattern_preset>Livox Mid360</pattern_preset>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.02</stddev>
+        </noise>
+      </ray>
+      <plugin name="livox_lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=livox/lidar</remapping>
+        </ros>
+        <output_type>sensor_msgs/PointCloud2</output_type>
+        <frame_name>livox_frame</frame_name>
+      </plugin>
+    </sensor>
+
+    <!-- У настоящего Mid-360 IMU встроен в лидар, поэтому сенсор живёт в том
+         же фрейме. -->
+    <sensor name="livox_imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>200</update_rate>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>0.0009</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>0.0009</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>0.0009</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>0.021</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>0.021</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>0.021</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+      <plugin name="livox_imu_controller" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=livox/imu</remapping>
+        </ros>
+        <frame_name>livox_frame</frame_name>
       </plugin>
     </sensor>
   </gazebo>
 
   <gazebo>
-    <plugin filename="gz-sim-diff-drive-system"
-            name="gz::sim::systems::DiffDrive">
+    <plugin name="diff_drive_controller" filename="libgazebo_ros_diff_drive.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
       <left_joint>wheel_left_joint</left_joint>
       <right_joint>wheel_right_joint</right_joint>
       <wheel_separation>${wheel_separation}</wheel_separation>
-      <wheel_radius>${wheel_radius}</wheel_radius>
-      <topic>/cmd_vel</topic>
-      <odom_topic>/odom</odom_topic>
-      <tf_topic>/tf</tf_topic>
-      <frame_id>odom</frame_id>
-      <child_frame_id>base_footprint</child_frame_id>
-      <odom_publish_frequency>50</odom_publish_frequency>
-      <max_linear_velocity>0.70</max_linear_velocity>
-      <max_angular_velocity>3.14</max_angular_velocity>
+      <wheel_diameter>${wheel_radius * 2}</wheel_diameter>
+      <max_wheel_torque>2.0</max_wheel_torque>
+      <max_wheel_acceleration>2.0</max_wheel_acceleration>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <update_rate>50</update_rate>
     </plugin>
-    <plugin filename="gz-sim-joint-state-publisher-system"
-            name="gz::sim::systems::JointStatePublisher">
-      <topic>/joint_states</topic>
+
+    <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
+      <ros>
+        <namespace>/</namespace>
+        <remapping>~/out:=joint_states</remapping>
+      </ros>
+      <update_rate>50</update_rate>
       <joint_name>wheel_left_joint</joint_name>
       <joint_name>wheel_right_joint</joint_name>
+    </plugin>
+
+    <!-- Локализация из симулятора: p3d отдаёт точную позу модели прямо из
+         физического движка, то есть ground truth без дрейфа и без SLAM.
+         Публикует только nav_msgs/Odometry и не пишет в TF, поэтому не спорит
+         с diff_drive за родителя base_footprint.
+         frame_name=world задаёт то же начало координат, что у мира Gazebo, в
+         отличие от odom, который стоит в точке спавна робота. -->
+    <plugin name="ground_truth_p3d" filename="libgazebo_ros_p3d.so">
+      <ros>
+        <namespace>/</namespace>
+        <remapping>odom:=localization/pose</remapping>
+      </ros>
+      <body_name>base_footprint</body_name>
+      <frame_name>world</frame_name>
+      <update_rate>50</update_rate>
+      <gaussian_noise>0.0</gaussian_noise>
     </plugin>
   </gazebo>
 </robot>

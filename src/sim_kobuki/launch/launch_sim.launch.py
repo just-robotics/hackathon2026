@@ -2,57 +2,76 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    TimerAction,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
     package_share = get_package_share_directory("sim_kobuki")
-    ros_gz_share = get_package_share_directory("ros_gz_sim")
+    gazebo_ros_share = get_package_share_directory("gazebo_ros")
 
-    world = LaunchConfiguration("world")
+    # мир выбирается по имени карты (MAP в .env): worlds/<map>.world
+    world = PathJoinSubstitution(
+        [package_share, "worlds", [LaunchConfiguration("map"), ".world"]]
+    )
     headless = LaunchConfiguration("headless")
     robot_description = ParameterValue(
         Command(["xacro ", os.path.join(package_share, "description", "kobuki.urdf.xacro")]),
         value_type=str,
     )
 
-    common_gz_arguments = {
-        "on_exit_shutdown": "true",
-    }
-
-    gazebo_headless = IncludeLaunchDescription(
+    # Gazebo Classic разнесен на два процесса: gzserver считает физику,
+    # gzclient рисует окно. В headless-режиме поднимаем только сервер.
+    gzserver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(ros_gz_share, "launch", "gz_sim.launch.py")
+            os.path.join(gazebo_ros_share, "launch", "gzserver.launch.py")
         ),
         launch_arguments={
-            **common_gz_arguments,
-            "gz_args": ["-r -s -v 4 ", world],
+            "world": world,
+            "verbose": "true",
+            # плагины ROS-моста грузит сам gzserver
+            "init": "true",
+            "factory": "true",
+            "force_system": "false",
         }.items(),
-        condition=IfCondition(headless),
     )
 
-    gazebo_with_gui = IncludeLaunchDescription(
+    gzclient = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(ros_gz_share, "launch", "gz_sim.launch.py")
+            os.path.join(gazebo_ros_share, "launch", "gzclient.launch.py")
         ),
-        launch_arguments={
-            **common_gz_arguments,
-            "gz_args": ["-r -v 4 ", world],
-        }.items(),
         condition=UnlessCondition(headless),
     )
 
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "world",
-                default_value=os.path.join(package_share, "worlds", "empty.sdf"),
-                description="Absolute path to an SDF world.",
+                "map",
+                default_value="maze",
+                description="World name from worlds/, without the .world suffix.",
+            ),
+            DeclareLaunchArgument(
+                "spawn_x",
+                default_value="-0.34",
+                description="Robot spawn X, world frame.",
+            ),
+            DeclareLaunchArgument(
+                "spawn_y",
+                default_value="-0.18",
+                description="Robot spawn Y, world frame.",
+            ),
+            DeclareLaunchArgument(
+                "spawn_z",
+                default_value="0.23",
+                description="Robot spawn Z, world frame.",
             ),
             DeclareLaunchArgument(
                 "headless",
@@ -71,33 +90,34 @@ def generate_launch_description():
                 ],
                 output="screen",
             ),
-            gazebo_headless,
-            gazebo_with_gui,
-            Node(
-                package="ros_gz_sim",
-                executable="create",
-                arguments=[
-                    "-topic",
-                    "robot_description",
-                    "-name",
-                    "kobuki",
-                    "-z",
-                    "0.05",
+            gzserver,
+            gzclient,
+            # Спавн отложен: spawn_entity.py обращается к сервису gzserver и
+            # без задержки успевает стартовать раньше него -- сервис ещё не
+            # поднят, и процесс падает с "Spawn service failed".
+            TimerAction(
+                period=8.0,
+                actions=[
+                    Node(
+                        package="gazebo_ros",
+                        executable="spawn_entity.py",
+                        arguments=[
+                            "-topic",
+                            "robot_description",
+                            "-entity",
+                            "kobuki",
+                            "-x",
+                            LaunchConfiguration("spawn_x"),
+                            "-y",
+                            LaunchConfiguration("spawn_y"),
+                            "-z",
+                            LaunchConfiguration("spawn_z"),
+                        ],
+                        output="screen",
+                    ),
                 ],
-                output="screen",
             ),
-            Node(
-                package="ros_gz_bridge",
-                executable="parameter_bridge",
-                parameters=[
-                    {
-                        "config_file": os.path.join(
-                            package_share, "config", "gz_bridge.yaml"
-                        ),
-                        "use_sim_time": True,
-                    }
-                ],
-                output="screen",
-            ),
+            # ros_gz_bridge не нужен: в Classic плагины gazebo_ros публикуют
+            # в ROS напрямую, а /clock отдает gazebo_ros_init внутри gzserver.
         ]
     )
