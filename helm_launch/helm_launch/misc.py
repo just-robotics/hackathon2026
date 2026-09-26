@@ -3,6 +3,7 @@
 """Вспомогательные функции"""
 
 import os
+import shutil
 import yaml
 
 
@@ -70,6 +71,35 @@ def resolve_vehicle_id(use_simulation_str: str) -> str:
     return vehicle_id
 
 
+def prepare_xauthority() -> str:
+    """Скопировать cookie X-сервера в стабильный путь
+
+    На Wayland (GNOME) Mutter выдает cookie как /run/user/1000/
+    .mutter-Xwaylandauth.XXXXXX и перевыпускает его со новым случайным
+    суффиксом при каждом старте сессии. Путь из окружения попадает в конфиг
+    контейнера, и после перелогина docker монтирует уже несуществующий файл --
+    создает на его месте каталог и падает с "not a directory".
+
+    Поэтому cookie копируется в фиксированный путь, который и монтируется.
+
+    :return путь к копии cookie (или пустая строка, если cookie нет)
+    """
+    xauthority = os.environ.get("XAUTHORITY", "").strip()
+
+    if not xauthority or not os.path.isfile(xauthority):
+        # нет графической сессии (ssh, headless) -- GUI все равно не нужен
+        return ""
+
+    stable_dir = os.path.expanduser("~/.hackathon2026")
+    stable_path = os.path.join(stable_dir, "xauthority")
+
+    os.makedirs(stable_dir, exist_ok=True)
+    shutil.copyfile(xauthority, stable_path)
+    os.chmod(stable_path, 0o600)
+
+    return stable_path
+
+
 def execute(command: str, work_dir: str = "") -> int:
     """Выполнить команду
 
@@ -82,6 +112,7 @@ def execute(command: str, work_dir: str = "") -> int:
     if work_dir:
         os.chdir(work_dir)
 
-    ret = os.system(command)
+    # os.system возвращает wait-статус, а не код возврата процесса
+    ret = os.waitstatus_to_exitcode(os.system(command))
     os.chdir(cwd)
     return ret
