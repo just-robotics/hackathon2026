@@ -49,6 +49,10 @@ RUN \
       vim \
       nano \
       ros-humble-rmw-cyclonedds-cpp \
+      ros-humble-rclpy \
+      ros-humble-rosidl-default-generators \
+      ros-humble-std-srvs \
+      ros-humble-tf2-ros \
       ros-humble-teleop-twist-keyboard \
       ros-humble-teleop-twist-joy \
       ros-humble-usb-cam \
@@ -87,8 +91,6 @@ RUN apt-get update -y && \
       libgtsam-unstable-dev && \
     rm -rf /var/lib/apt/lists/*
 
-COPY src ${WORKDIR}/src
-
 # sensing dependencies
 RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/livox_sdk && \
     mkdir /tmp/livox_sdk_build && \
@@ -97,11 +99,14 @@ RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/livox_sdk && \
     cmake --install /tmp/livox_sdk_build && \
     rm -rf /tmp/livox_sdk /tmp/livox_sdk_build
 
-RUN git clone https://github.com/Livox-SDK/livox_ros_driver2.git ${WORKDIR}/src/livox_ros_driver2
+RUN mkdir -p ${WORKDIR}/src && \
+    git clone https://github.com/Livox-SDK/livox_ros_driver2.git ${WORKDIR}/src/livox_ros_driver2
 WORKDIR ${WORKDIR}/src/livox_ros_driver2
 RUN mv package_ROS2.xml package.xml && \
     cp -rf launch_ROS2/ launch/
 WORKDIR ${WORKDIR}
+
+COPY src ${WORKDIR}/src
 
 RUN source ${SOURCE} && colcon build --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release
 
