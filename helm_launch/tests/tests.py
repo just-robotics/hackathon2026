@@ -526,3 +526,99 @@ def test_argument_parser_1():
     assert placeholders[0] == "all"
     assert placeholders[1] == "tf"
     # TODO: проверить тест вывода описания параметров
+
+
+def test_optional_tail_1():
+    """Пустой хвост разрешен, если команда это допускает (helm submodules)"""
+    c = command.Command()
+    c.name = "submodules"
+    c.long_command = True
+    c.optional_tail = True
+
+    parser = arguments.register_arguments([c])
+    args = parser.parse_args(["submodules"])
+    placeholders = arguments.parse_placeholders(args, c.optional_tail)
+
+    assert args.cmd == "submodules"
+    assert placeholders == [""]
+
+
+def test_optional_tail_2():
+    """Непустой хвост собирается в один параметр"""
+    c = command.Command()
+    c.name = "submodules"
+    c.long_command = True
+    c.optional_tail = True
+
+    parser = arguments.register_arguments([c])
+    args = parser.parse_args(["submodules", "mpc_motion_control"])
+    placeholders = arguments.parse_placeholders(args, c.optional_tail)
+
+    assert placeholders == ["mpc_motion_control"]
+
+
+def test_optional_tail_3():
+    """Без optional_tail пустой хвост по-прежнему ошибка (helm exec)"""
+    c = command.Command()
+    c.name = "exec"
+    c.parameters = [["control"]]
+    c.long_command = True
+
+    parser = arguments.register_arguments([c])
+    args = parser.parse_args(["exec", "control"])
+
+    try:
+        arguments.parse_placeholders(args)
+        assert False, "ожидался выход с ошибкой"
+    except SystemExit as ex:
+        assert ex.code == 1
+
+
+def test_resolve_scripts_1():
+    """Плейсхолдер скрипта заменяется на существующий путь"""
+    import os
+
+    resolved = command.resolve_scripts("python3 __submodules_script__")
+
+    assert "__submodules_script__" not in resolved
+    assert resolved.endswith("submodules.py")
+    assert os.path.exists(resolved.split(" ", 1)[1])
+
+
+def test_resolve_scripts_2():
+    """Команда без плейсхолдера скрипта не меняется"""
+    assert command.resolve_scripts("echo hi") == "echo hi"
+
+
+def test_execute_return_code_1(mocker):
+    """Успешные подкоманды дают нулевой код"""
+    c = command.Command()
+    c.commands = [command.create_callback("echo a"), command.create_callback("echo b")]
+
+    mocker.patch("misc.execute", return_value=0)
+
+    assert c.execute() == 0
+
+
+def test_execute_return_code_2(mocker):
+    """Ненулевой код подкоманды пробрасывается наружу"""
+    c = command.Command()
+    c.commands = [command.create_callback("false")]
+
+    mocker.patch("misc.execute", return_value=1)
+
+    assert c.execute() == 1
+
+
+def test_execute_return_code_3(mocker):
+    """При нескольких ошибках возвращается код последней"""
+    c = command.Command()
+    c.commands = [
+        command.create_callback("a"),
+        command.create_callback("b"),
+        command.create_callback("c"),
+    ]
+
+    mocker.patch("misc.execute", side_effect=[1, 0, 2])
+
+    assert c.execute() == 2

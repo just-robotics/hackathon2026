@@ -2,6 +2,7 @@
 
 """Модуль парсинга команд"""
 
+import os
 import re
 
 import parameters
@@ -9,6 +10,32 @@ import misc
 import resolvers
 
 from typing import Callable, List, Dict
+
+
+# Скрипты helm_launch, которые можно вызывать из команд в launch.yaml.
+# В .yaml они пишутся как __<имя>_script__ и подменяются на реальный путь --
+# он зависит от способа установки (локально или глобально через pip).
+SCRIPTS = {
+    "__submodules_script__": "submodules.py",
+    "__control_script__": "control.py",
+}
+
+
+def resolve_scripts(shell_command: str) -> str:
+    """Подставить пути к скриптам helm_launch
+
+    :shell_command команда из launch.yaml
+
+    :return команда с абсолютными путями к скриптам
+    """
+    package_dir = os.path.dirname(os.path.abspath(__file__))
+
+    for placeholder, script in SCRIPTS.items():
+        if placeholder in shell_command:
+            path = os.path.join(package_dir, script)
+            shell_command = shell_command.replace(placeholder, path)
+
+    return shell_command
 
 
 class Command:
@@ -23,6 +50,7 @@ class Command:
         self.__commands: Callable = []
         self.__shell_commands: List[str] = []
         self.__long_command: bool = False
+        self.__optional_tail: bool = False
         self.__resolvers: List[Dict[str, str]] = []
 
     def __eq__(self, o):
@@ -48,6 +76,7 @@ class Command:
         out += f'parameters_templates: {self.parameters_templates}\n'
         out += f'parameters: {self.parameters}\n'
         out += f'long_command: {self.long_command}\n'
+        out += f'optional_tail: {self.optional_tail}\n'
         out += f'shell_commands: {self.shell_commands}\n'
         out += f'resolvers: {self.resolvers}\n'
         out += '=' * 10
@@ -77,6 +106,10 @@ class Command:
     @property
     def long_command(self):
         return self.__long_command
+
+    @property
+    def optional_tail(self):
+        return self.__optional_tail
 
     @property
     def commands(self):
@@ -114,6 +147,10 @@ class Command:
     def long_command(self, x: list):
         self.__long_command = x
 
+    @optional_tail.setter
+    def optional_tail(self, x: bool):
+        self.__optional_tail = x
+
     @commands.setter
     def commands(self, x: list):
         self.__commands = x
@@ -127,8 +164,17 @@ class Command:
         self.__resolvers = x
 
     def execute(self, *x):
-        for command in self.__commands:
-            command(*x)
+        """Выполнить команду
+
+        :return код возврата последней неуспешной подкоманды (0 если все ок)
+        """
+        codes = [command(*x) for command in self.__commands]
+
+        # берем только настоящие коды возврата: callback может вернуть и не
+        # число (например, если misc.execute подменен)
+        failed = [c for c in codes if isinstance(c, int) and c != 0]
+
+        return failed[-1] if failed else 0
 
 
 def create_callback(shell_command: str, resolvers_dict: dict | None = None) -> Callable:
@@ -142,6 +188,8 @@ def create_callback(shell_command: str, resolvers_dict: dict | None = None) -> C
     """
 
     def function(*x, shell_command=shell_command):
+        shell_command = resolve_scripts(shell_command)
+
         # resolve placeholders
         for i in range(len(x)):
             placeholder_name = f"__placeholder_{i+1}__"
@@ -161,7 +209,7 @@ def create_callback(shell_command: str, resolvers_dict: dict | None = None) -> C
         shell_command = re.sub(r"__placeholder_\d__", "", shell_command)
         # TODO: выводить warning если есть placholder без параметра
 
-        misc.execute(shell_command)
+        return misc.execute(shell_command)
 
     return function
 
@@ -203,6 +251,9 @@ def parse_commands(compose_config: dict, run_config: dict) -> List[Command]:
 
         if "long_command" in command_dict:
             c.long_command = command_dict["long_command"]
+
+        if "optional_tail" in command_dict:
+            c.optional_tail = command_dict["optional_tail"]
 
         if "commands" in command_dict:
             # если введен не список команд, то сделаем его искуственно

@@ -57,6 +57,11 @@ def main():
         raise ValueError(f"USE_RESOURCES_SPLITTING: unexpected value {use_splitting_str}")
 
     os.environ["RESOURCES_FILE"] = resources_file
+    # cookie X-сервера копируется в стабильный путь: на Wayland исходный путь
+    # меняется при каждом старте сессии и ломает монтирование в контейнер
+    xauthority = misc.prepare_xauthority()
+    if xauthority:
+        os.environ["XAUTHORITY"] = xauthority
     # значение уходит в контейнер через common.yaml
     os.environ["VEHICLE_ID"] = misc.resolve_vehicle_id(use_simulation_str)
 
@@ -66,17 +71,21 @@ def main():
     argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
-    placeholders = arguments.parse_placeholders(args)
 
     if not args.cmd:
         parser.print_help()
         return 1
 
+    # часть команд допускает пустой хвостовой placeholder (helm submodules)
+    optional_tail = any(c.name == args.cmd and c.optional_tail for c in commands)
+    placeholders = arguments.parse_placeholders(args, optional_tail)
+
+    ret = 0
     for cmd in commands:
         if args.cmd == cmd.name:
-            cmd.execute(*placeholders)
+            ret = cmd.execute(*placeholders)
 
-    return 0
+    return ret
 
 
 if __name__ == "__main__":

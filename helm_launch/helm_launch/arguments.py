@@ -39,20 +39,27 @@ def register_arguments(commands: List[command.Command]) -> argparse.ArgumentPars
     return parser
 
 
-def parse_placeholders(args: argparse.Namespace) -> List[Union[int, float, str]]:
+def parse_placeholders(
+    args: argparse.Namespace, optional_tail: bool = False
+) -> List[Union[int, float, str]]:
     """Распарсить значения placeholders из полученных аргументов
 
     :args аргументы командной строки
+    :optional_tail разрешить пустой последний placeholder. Нужно командам,
+        у которых хвост -- необязательный список (например, helm submodules
+        без имен подключает все подмодули)
 
     :return значения для подстановки в placeholders
     """
 
     # тут ищем значения для параметров вида placeholder0, placeholder1 и т.д.
+    items = list(args.__dict__.items())
     placeholders = []
-    for i, (placeholder_name, placeholder_value) in enumerate(args.__dict__.items()):
+    for i, (placeholder_name, placeholder_value) in enumerate(items):
         if placeholder_name == 'cmd' and placeholder_value is None:
             continue
-        if len(placeholder_value) == 0:
+        is_tail = i == len(items) - 1
+        if len(placeholder_value) == 0 and not (optional_tail and is_tail):
             empty_placeholder_name = f"__placeholder_{i}__"
             cmd = args.__dict__['cmd']
             print(f'helm {cmd}: error: empty placeholder: {empty_placeholder_name}')

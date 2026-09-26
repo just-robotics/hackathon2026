@@ -13,6 +13,24 @@ build:
   commands:
     - "docker compose --profile __placeholder_1__ build"
 
+submodules:
+  desc: "Подключить/обновить подмодули с ROS-пакетами из submodules.yaml"
+  # без имен подключаются все подмодули, поэтому хвост необязательный
+  long_command: true
+  optional_tail: true
+  commands:
+    - "python3 __submodules_script__ __placeholder_1__"
+
+start:
+  desc: "Поехали: разрешить движение продольному контуру MPC"
+  commands:
+    - "python3 __control_script__ true"
+
+stop:
+  desc: "Стоп: запретить движение продольному контуру MPC"
+  commands:
+    - "python3 __control_script__ false"
+
 terminate-init:
   desc: "(debug команда) Остановить init сервисы"
   commands:
