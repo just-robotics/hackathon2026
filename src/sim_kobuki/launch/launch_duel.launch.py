@@ -17,19 +17,23 @@ def generate_launch_description():
     gazebo_share = get_package_share_directory("gazebo_ros")
     model = os.path.join(share, "description", "kobuki.urdf.xacro")
     world = PathJoinSubstitution([share, "worlds", [LaunchConfiguration("map"), ".world"]])
-    own_description = ParameterValue(Command(["xacro ", model]), value_type=str)
+    lidar_args = [" lidar_horizontal_samples:=", LaunchConfiguration("lidar_horizontal_samples"),
+                  " lidar_vertical_samples:=", LaunchConfiguration("lidar_vertical_samples")]
+    own_description = ParameterValue(Command(["xacro ", model, *lidar_args]), value_type=str)
     opponent_description = ParameterValue(
         Command(["xacro ", model,
-                 " ros_namespace:=/opponent frame_prefix:=opponent/"]), value_type=str)
+                 " ros_namespace:=/opponent frame_prefix:=opponent/", *lidar_args]), value_type=str)
 
     return LaunchDescription([
         DeclareLaunchArgument("map", default_value="maze"),
         DeclareLaunchArgument("headless", default_value="true"),
+        DeclareLaunchArgument("lidar_horizontal_samples", default_value="360"),
+        DeclareLaunchArgument("lidar_vertical_samples", default_value="16"),
         DeclareLaunchArgument("spawn_x", default_value="-0.34"),
         DeclareLaunchArgument("spawn_y", default_value="-0.18"),
         DeclareLaunchArgument("spawn_z", default_value="0.23"),
-        DeclareLaunchArgument("opponent_x", default_value="4.0"),
-        DeclareLaunchArgument("opponent_y", default_value="0.0"),
+        DeclareLaunchArgument("opponent_x", default_value="2.5"),
+        DeclareLaunchArgument("opponent_y", default_value="2.5"),
         DeclareLaunchArgument("opponent_z", default_value="0.23"),
         DeclareLaunchArgument("opponent_yaw", default_value="3.14159"),
         Node(package="robot_state_publisher", executable="robot_state_publisher",

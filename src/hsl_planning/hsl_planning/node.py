@@ -2,6 +2,7 @@
 
 import struct
 from math import atan2, cos, hypot, sin
+from time import perf_counter
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
@@ -10,9 +11,10 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
-from std_msgs.msg import String
+from std_msgs.msg import Float32, String
 
-from .core import Pose2, VoxelWorld, astar, capture_goal, local_rollout, reachable_target
+from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
+                   local_rollout, reachable_target)
 
 
 def seconds(stamp):
@@ -90,6 +92,8 @@ class TrajectoryPlanner(Node):
         self.dirty = True
         self.global_path = []
         self.last_global = -1e9
+        self.search_waypoint = None
+        self.search_visited = []
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
         self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
@@ -103,6 +107,7 @@ class TrajectoryPlanner(Node):
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
+        self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
         self.create_timer(0.2, self.tick)
 
     def now(self):
@@ -118,6 +123,9 @@ class TrajectoryPlanner(Node):
 
     def on_intent(self, msg):
         if msg.header.frame_id == self.frame:
+            if msg.behavior != 5:
+                self.search_waypoint = None
+                self.search_visited = []
             self.intent = msg
 
     def on_map(self, msg):
@@ -158,6 +166,13 @@ class TrajectoryPlanner(Node):
         self.status_pub.publish(String(data=reason))
 
     def tick(self):
+        started = perf_counter()
+        try:
+            self._tick()
+        finally:
+            self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
+
+    def _tick(self):
         now = self.now()
         if not self.own or not self.intent or self.intent.behavior in (0, 1):
             self.publish_empty("WAIT_OR_STOP")
@@ -184,9 +199,9 @@ class TrajectoryPlanner(Node):
             scan_points = self.scan_points
             if enemy:
                 static_points = [p for p in static_points
-                                 if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.4]
+                                 if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
                 scan_points = [p for p in scan_points
-                               if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.3]
+                               if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
             self.world.update(static_points, scan_points, own, self.grid_free)
             self.dirty = False
         intent = self.intent
@@ -198,10 +213,19 @@ class TrajectoryPlanner(Node):
             target = Pose2(intent.target.position.x, intent.target.position.y,
                            atan2(2 * q.w * q.z, 1 - 2 * q.z * q.z))
         else:
-            target = self.world.frontier(own)
+            if intent.behavior == 5:
+                if (self.search_waypoint is None or
+                        hypot(own.x - self.search_waypoint.x,
+                              own.y - self.search_waypoint.y) < 0.4):
+                    self.search_visited.append(own)
+                    self.search_waypoint = coverage_target(
+                        self.world, own, self.search_visited)
+                target = self.search_waypoint
+            else:
+                target = self.world.frontier(own)
         target = reachable_target(self.world, own, target,
-                                  explore=intent.behavior in (3, 5))
-        if target is None and intent.behavior in (3, 5):
+                                  explore=intent.behavior == 3)
+        if target is None and intent.behavior == 3:
             target = Pose2(own.x, own.y, own.yaw + 1.2)
         if target is None:
             self.publish_empty("NO_TARGET_OR_FRONTIER")

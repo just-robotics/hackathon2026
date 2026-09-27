@@ -1,7 +1,7 @@
 """Pure behavior logic; ROS transport lives in node.py."""
 
 from dataclasses import dataclass
-from math import atan2, hypot
+from math import atan2, hypot, pi
 
 
 WAIT, STOP, GOAL, EXPLORE, EVADE, SEARCH, PURSUE, CAPTURE = range(8)
@@ -85,6 +85,8 @@ class DecisionPolicy:
         self.goal_weight = goal_weight
         self.previous = WAIT
         self.last_switch = float("-inf")
+        self.search_anchor = None
+        self.search_exploring = False
 
     def _select(self, scores, now):
         best = max(scores, key=scores.get)
@@ -99,6 +101,8 @@ class DecisionPolicy:
     def step(self, obs):
         if not obs.allowed:
             self.previous = WAIT
+            self.search_anchor = None
+            self.search_exploring = False
             return Decision(WAIT, None, 0, 0, 0, 0, "waiting for start permission")
         if (obs.own is None or obs.now - obs.own_stamp > self.pose_timeout
                 or obs.now - obs.scan_stamp > self.scan_timeout):
@@ -136,10 +140,26 @@ class DecisionPolicy:
                 result = Decision(GOAL, self.goal, 0.35, 0.50, 0.65, 4.0,
                                   "moving toward guardian start")
         elif not opponent_fresh:
-            chosen = SEARCH
-            result = Decision(SEARCH, None, 0.3, 0.35, 0.36, 1.0,
-                              "opponent track missing")
+            anchor = obs.opponent if obs.opponent else self.goal
+            if self.search_anchor != anchor:
+                self.search_anchor = anchor
+                self.search_exploring = False
+            if hypot(anchor.x - obs.own.x, anchor.y - obs.own.y) <= 0.35:
+                self.search_exploring = True
+            result = Decision(SEARCH, None if self.search_exploring else anchor,
+                              0.3, 0.35, 0.0, 0.0,
+                              "sweeping known free space" if self.search_exploring
+                              else "searching last seen position" if obs.opponent
+                              else "searching opponent start area")
         else:
+            self.search_anchor = None
+            self.search_exploring = False
+            bearing = atan2(obs.opponent.y - obs.own.y,
+                            obs.opponent.x - obs.own.x)
+            heading_error = (bearing - obs.own.yaw + pi) % (2 * pi) - pi
+            if distance < 0.45 and abs(heading_error) <= pi / 4:
+                self.previous = STOP
+                return Decision(STOP, None, 0, 0, 0, 0, "opponent captured")
             scores = {PURSUE: 1.0, CAPTURE: 1.0 + max(0.0, 1.0 - distance / self.capture_distance)}
             chosen = self._select(scores, obs.now)
             dx = obs.own.x - obs.opponent.x
@@ -149,7 +169,7 @@ class DecisionPolicy:
                            obs.opponent.y + 0.41 * dy / norm,
                            atan2(-dy, -dx))
             result = Decision(chosen, target, 0.08 if chosen == CAPTURE else 0.25,
-                              0.25 if chosen == CAPTURE else 0.55, 0.36, 1.5,
+                              0.25 if chosen == CAPTURE else 0.55, 0.0, 0.0,
                               "orient for capture" if chosen == CAPTURE else "pursuing opponent")
         self.previous = result.behavior
         return result

@@ -183,6 +183,25 @@ def reachable_target(world, own, target, explore=False):
     return world.frontier(own, target)
 
 
+def coverage_target(world, own, visited):
+    """Pick a reachable free cell far from already searched positions."""
+    candidates = []
+    for cell in world.free:
+        if cell in world.occupied or cell[0] % 3 or cell[1] % 3:
+            continue
+        point = world.point(cell)
+        distance = hypot(point.x - own.x, point.y - own.y)
+        if distance < 0.8:
+            continue
+        novelty = min(hypot(point.x - seen.x, point.y - seen.y)
+                      for seen in visited)
+        candidates.append((novelty - 0.2 * distance, point))
+    for _, point in sorted(candidates, key=lambda item: item[0], reverse=True)[:30]:
+        if astar(world, own, point, max_cells=5000):
+            return point
+    return world.frontier(own)
+
+
 def local_rollout(world, own, global_path, opponent=None, clearance=0.0,
                   weight=0.0, max_speed=0.5, horizon=2.0, dt=0.2,
                   opponent_velocity=(0.0, 0.0)):

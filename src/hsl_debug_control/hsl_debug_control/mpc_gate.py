@@ -1,6 +1,7 @@
 """Sole cmd_vel publisher for the decision planner and the external MPC."""
 
 from math import atan2, hypot
+from time import perf_counter
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -9,6 +10,7 @@ from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Float32
 
 from .core import angle_error, safe_mpc_command
 
@@ -33,6 +35,7 @@ class MpcGate(Node):
         self.create_subscription(PlanningIntent, "/navigation/intent", self.on_intent, 10)
         self.create_subscription(Twist, "/navigation/mpc_cmd_vel", self.on_command, 10)
         self.pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.cycle_pub = self.create_publisher(Float32, "/navigation/control_cycle_ms", 10)
         self.create_timer(0.05, self.tick)
 
     def now(self):
@@ -57,6 +60,13 @@ class MpcGate(Node):
         self.command = (msg.linear.x, msg.angular.z, self.now())
 
     def tick(self):
+        started = perf_counter()
+        try:
+            self._tick()
+        finally:
+            self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
+
+    def _tick(self):
         rotation_error = None
         if self.path and len(self.path[0]) >= 2:
             start = self.path[0][0].pose.position

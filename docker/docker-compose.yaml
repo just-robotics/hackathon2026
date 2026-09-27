@@ -158,7 +158,7 @@ services:
     # Изолированный сценарий двух роботов. Основной профиль simulation со
     # штатным planning/control из main остаётся без изменений.
     gazebo-duel:
-        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23} opponent_x:=${OPPONENT_X:-4.0} opponent_y:=${OPPONENT_Y:-0.0} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-3.14159}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23} opponent_x:=${OPPONENT_X:-2.5} opponent_y:=${OPPONENT_Y:-2.5} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-3.14159} lidar_horizontal_samples:=${DUEL_LIDAR_HORIZONTAL_SAMPLES:-360} lidar_vertical_samples:=${DUEL_LIDAR_VERTICAL_SAMPLES:-16}"
         extends:
             file: common.yaml
             service: app
@@ -214,9 +214,19 @@ services:
             - duel
 
     hsl-opponent:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter scripted_opponent --ros-args -p use_sim_time:=true"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter scripted_opponent --ros-args -p use_sim_time:=true -p patrol_end_x:=${OPPONENT_PATROL_X:-1.0} -p patrol_end_y:=${OPPONENT_PATROL_Y:-2.5}"
         extends:
             file: common.yaml
             service: app
+        profiles:
+            - duel
+
+    hsl-metrics:
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter match_metrics --ros-args -p use_sim_time:=true -p role:=${HSL_ROLE:-explorer} -p own_spawn_x:=${SPAWN_X:--0.34} -p own_spawn_y:=${SPAWN_Y:--0.18}"
+        extends:
+            file: common.yaml
+            service: app
+        volumes:
+            - ../results:/autoware/match-results:rw
         profiles:
             - duel

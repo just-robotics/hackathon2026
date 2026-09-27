@@ -5,3 +5,4 @@ build
 scripts
 *.egg-info
 .vscode
+results/*.json

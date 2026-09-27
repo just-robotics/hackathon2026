@@ -1,14 +1,15 @@
 """ROS-facing decision manager."""
 
 from math import atan2, cos, sin
+from time import perf_counter
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import String
+from std_msgs.msg import Bool, Float32, String
 from std_srvs.srv import SetBool
 
 from .core import DecisionPolicy, Observation, Pose2
@@ -31,7 +32,7 @@ class DecisionManager(Node):
         defaults = {
             "role": "explorer", "planning_frame": "map",
             "own_start": [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
-            "opponent_start": [3.9, -0.32, 4.7, -0.32, 4.7, 0.68, 3.9, 0.68],
+            "opponent_start": [2.59, 2.43, 3.09, 2.43, 3.09, 2.93, 2.59, 2.93],
             "pose_timeout": 1.2, "scan_timeout": 1.8,
             "opponent_timeout": 1.0, "switch_margin": 0.15,
             "min_dwell": 0.5, "evade_distance": 1.5,
@@ -56,6 +57,10 @@ class DecisionManager(Node):
                                  qos_profile_sensor_data)
         self.intent_pub = self.create_publisher(PlanningIntent, "navigation/intent", 10)
         self.state_pub = self.create_publisher(String, "navigation/behavior", 10)
+        self.cycle_pub = self.create_publisher(Float32, "navigation/decision_cycle_ms", 10)
+        state_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.allowed_pub = self.create_publisher(Bool, "match/allowed", state_qos)
+        self.allowed_pub.publish(Bool(data=False))
         self.create_service(SetBool, "match/allow_motion", self.on_allow)
         self.create_timer(0.2, self.tick)
 
@@ -80,11 +85,19 @@ class DecisionManager(Node):
 
     def on_allow(self, request, response):
         self.allowed = request.data
+        self.allowed_pub.publish(Bool(data=self.allowed))
         response.success = True
         response.message = "motion enabled" if self.allowed else "motion disabled"
         return response
 
     def tick(self):
+        started = perf_counter()
+        try:
+            self._tick()
+        finally:
+            self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
+
+    def _tick(self):
         obs = Observation(
             now=self.now(), own=self.own[0] if self.own else None,
             own_stamp=self.own[1] if self.own else 0.0,

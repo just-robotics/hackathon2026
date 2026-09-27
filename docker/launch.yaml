@@ -31,6 +31,16 @@ stop:
   commands:
     - "python3 __control_script__ false"
 
+start_match:
+  desc: "Разрешить движение в профиле duel и начать замер матча"
+  commands:
+    - "docker compose exec -T hsl-decision bash -lc \"source /autoware/install/setup.bash && ros2 service call /match/allow_motion std_srvs/srv/SetBool '{data: true}'\""
+
+stop_match:
+  desc: "Остановить duel и сохранить итоговые метрики"
+  commands:
+    - "docker compose exec -T hsl-decision bash -lc \"source /autoware/install/setup.bash && ros2 service call /match/allow_motion std_srvs/srv/SetBool '{data: false}'\""
+
 terminate-init:
   desc: "(debug команда) Остановить init сервисы"
   commands:

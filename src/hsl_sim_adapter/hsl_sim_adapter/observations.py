@@ -10,9 +10,11 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformListener
 
 from .cloud import make_cloud, read_xyz, transform
+from .visibility import StaticGrid, opponent_visible
 
 
 class SimObservations(Node):
@@ -33,6 +35,9 @@ class SimObservations(Node):
         self.opponent_odom = None
         self.own_truth = None
         self.opponent_truth = None
+        self.grid = None
+        self.visible = False
+        self.last_seen = float("-inf")
         self.voxels = OrderedDict()
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -50,6 +55,7 @@ class SimObservations(Node):
         self.create_subscription(OccupancyGrid, "/map", self.on_known_map, map_qos)
         self.own_pub = self.create_publisher(Odometry, "navigation/self", 10)
         self.opponent_pub = self.create_publisher(Odometry, "navigation/opponent", 10)
+        self.visible_pub = self.create_publisher(Bool, "navigation/opponent_visible", 10)
         self.scan_pub = self.create_publisher(PointCloud2, "navigation/scan",
                                               qos_profile_sensor_data)
         self.map_pub = self.create_publisher(PointCloud2, "navigation/map_points",
@@ -59,7 +65,11 @@ class SimObservations(Node):
         self.create_timer(0.5, self.publish_map)
 
     def on_known_map(self, msg):
-        if msg.header.frame_id == "map":
+        if (msg.header.frame_id == "map" and msg.info.resolution > 0
+                and msg.info.width > 0 and msg.info.height > 0):
+            self.grid = StaticGrid(msg.info.resolution, msg.info.width,
+                                   msg.info.height, msg.info.origin.position.x,
+                                   msg.info.origin.position.y, msg.data)
             self.known_map_pub.publish(msg)
 
     def as_map_odom(self, truth, odom, child_frame):
@@ -83,12 +93,11 @@ class SimObservations(Node):
 
     def publish_poses(self):
         own = self.as_map_odom(self.own_truth, self.own_odom, "base_footprint")
-        enemy = self.as_map_odom(self.opponent_truth, self.opponent_odom,
-                                 "opponent/base_footprint")
         if own:
             self.own_pub.publish(own)
-        if enemy:
-            self.opponent_pub.publish(enemy)
+        now = self.get_clock().now().nanoseconds * 1e-9
+        age = now - self.last_seen
+        self.visible_pub.publish(Bool(data=self.visible and 0 <= age <= 0.3))
 
     def on_lidar(self, msg):
         if self.own_truth is None:
@@ -111,10 +120,15 @@ class SimObservations(Node):
         header.frame_id = "map"
         self.scan_pub.publish(make_cloud(header, points))
         ex, ey = self.opponent_xy()
+        self.visible = opponent_visible(self.grid, (sx, sy), (ex, ey), points)
+        if self.visible:
+            enemy = self.as_map_odom(self.opponent_truth, self.opponent_odom,
+                                     "opponent/base_footprint")
+            self.opponent_pub.publish(enemy)
+            self.last_seen = self.get_clock().now().nanoseconds * 1e-9
         for point in points:
-            if hypot(point[0] - ex, point[1] - ey) < 0.45:
-                continue
-            if 0.08 <= point[2] <= 0.60:
+            if (self.grid and 0.08 <= point[2] <= 0.60
+                    and self.grid.matches_static(point[0], point[1])):
                 key = tuple(round(value / 0.15) for value in point)
                 self.voxels[key] = point
         while len(self.voxels) > 50000:
@@ -126,10 +140,7 @@ class SimObservations(Node):
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
-        ex, ey = self.opponent_xy()
-        points = [p for p in self.voxels.values()
-                  if hypot(p[0] - ex, p[1] - ey) >= 0.45]
-        self.map_pub.publish(make_cloud(header, points))
+        self.map_pub.publish(make_cloud(header, self.voxels.values()))
 
 
 def main():
