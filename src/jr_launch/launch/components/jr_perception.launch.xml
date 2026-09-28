@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Восприятие: соперник как объект Autoware.
+
+     Сейчас это заглушка: поза соперника берётся из TF, а не из облака
+     лидара. Топики и типы сообщений те же, что у настоящего детектора,
+     поэтому подписчиков менять не придётся, когда он появится.
+
+     Публикуется вся цепочка Autoware:
+       <ns>/perception/object_recognition/detection/objects
+       <ns>/perception/object_recognition/tracking/objects
+       <ns>/perception/object_recognition/objects
+     Имена как в Autoware, чтобы настоящий детектор встал на то же место. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <!-- Пространство имён робота: в нём поднимается нода и лежат её топики. -->
+  <arg name="ns" default=""/>
+
+  <!-- Кого искать. Фрейм соперника в общем дереве TF: у защитника это
+       атакующий и наоборот. -->
+  <arg name="target_frame" default="attacker/base_footprint"/>
+
+  <!-- Система отсчёта результата: world, общий корень обоих роботов,
+       заданный симулятором. -->
+  <arg name="output_frame" default="world"/>
+
+  <arg name="rate" default="10.0" description="частота публикации, Гц"/>
+  <arg name="prediction_horizon" default="3.0" description="прогноз, с"/>
+  <arg name="prediction_step" default="0.5" description="шаг прогноза, с"/>
+
+  <group>
+    <push-ros-namespace namespace="$(var ns)"/>
+    <node pkg="jr_perception" exec="fake_opponent_detector.py"
+          name="fake_opponent_detector" namespace="perception"
+          output="screen">
+      <param name="target_frame" value="$(var target_frame)"/>
+      <param name="output_frame" value="$(var output_frame)"/>
+      <param name="rate" value="$(var rate)"/>
+      <param name="prediction_horizon" value="$(var prediction_horizon)"/>
+      <param name="prediction_step" value="$(var prediction_step)"/>
+      <param name="use_sim_time" value="$(var simulation)"/>
+    </node>
+  </group>
+</launch>

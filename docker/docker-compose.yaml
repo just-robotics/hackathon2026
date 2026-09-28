@@ -103,6 +103,24 @@ services:
         profiles:
             - duel
 
+    # Восприятие: каждый робот видит соперника. Пока это заглушка, берущая
+    # его позу из TF, поэтому цель задаётся фреймом противоположной роли.
+    perception_defender:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_perception.launch.xml ns:=defender target_frame:=attacker/base_footprint"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    perception_attacker:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_perception.launch.xml ns:=attacker target_frame:=defender/base_footprint"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
     api:
         command: $CMD "sleep infinity"
         extends:
