@@ -25,6 +25,7 @@ def main():
     rclpy.init()
     node = Node("trace_motion")
     latest = {}
+    match = {"started": False, "finished": False}
     samples = Counter()
     sums = Counter()
     path_lengths = []
@@ -88,10 +89,20 @@ def main():
     ):
         subscriptions.append(node.create_subscription(
             kind, prefix + "/" + topic, remember(name), 10))
+    def on_allowed(message):
+        latest["allowed"] = message.data
+        if message.data:
+            match["started"] = True
+        elif match["started"]:
+            match["finished"] = True
+
     subscriptions.append(node.create_subscription(
-        Bool, prefix + "/match/allowed",
-        lambda message: latest.__setitem__("allowed", message.data),
+        Bool, prefix + "/match/allowed", on_allowed,
         QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+    subscriptions.append(node.create_subscription(
+        String, "/match/outcome",
+        lambda message: match.__setitem__("finished", True)
+        if match["started"] else None, 10))
     subscriptions.append(node.create_subscription(
         Path, prefix + "/navigation/local_path", on_path, 10))
     subscriptions.append(node.create_subscription(
@@ -163,7 +174,7 @@ def main():
     subscriptions.append(node.create_subscription(
         Twist, prefix + "/cmd_vel", on_command, 10))
     deadline = time.monotonic() + args.wall_seconds
-    while time.monotonic() < deadline:
+    while time.monotonic() < deadline and not match["finished"]:
         rclpy.spin_once(node, timeout_sec=0.2)
     total = max(1, samples["total"])
     def percentile(values, fraction):

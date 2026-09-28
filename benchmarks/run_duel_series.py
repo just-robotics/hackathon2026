@@ -97,6 +97,38 @@ def wait_report(path, run_id, deadline, stopped=False):
     raise TimeoutError(f"result {path} for {run_id} did not appear")
 
 
+def start_traces(series_dir, index, env):
+    command(["docker", "cp", str(ROOT / "benchmarks" / "trace_motion.py"),
+             "docker-hsl-adapter-1:/tmp/hsl_trace_motion.py"], env, timeout=15)
+    traces = []
+    for role, namespace in (("first", ""), ("second", " --namespace opponent")):
+        destination = series_dir / f"{index:02d}-trace-{role}.json"
+        output = destination.open("w")
+        script = ("source /autoware/install/setup.bash && python3 "
+                  "/tmp/hsl_trace_motion.py --wall-seconds 1200" + namespace)
+        process = subprocess.Popen(
+            ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
+            cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
+        traces.append((process, output, destination))
+    time.sleep(2)
+    return traces
+
+
+def finish_traces(traces):
+    for process, output, _ in traces:
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        finally:
+            output.close()
+
+
 def summary(runs):
     complete = [run for run in runs if "outcome" in run]
     counts = Counter(run["outcome"]["event"] for run in complete)
@@ -142,6 +174,8 @@ def main():
     parser.add_argument("--active-s", type=float, default=360.0)
     parser.add_argument("--wall-timeout-s", type=float, default=1200.0)
     parser.add_argument("--build", action="store_true")
+    parser.add_argument("--trace", action="store_true",
+                        help="record active cmd/path diagnostics for each robot")
     parser.add_argument("--scenario", type=int, choices=SCENARIOS, default=1)
     args = parser.parse_args()
     if args.runs < 1 or args.active_s <= 0:
@@ -172,6 +206,7 @@ def main():
                   "roles": [first_role, second_role], "scenario": args.scenario}
         print(f"[{index + 1}/{args.runs}] {run_id} "
               f"{first_role}/{second_role} seed={seed}", flush=True)
+        traces = []
         try:
             for attempt in range(3):
                 suffix = f"{index:02d}" if attempt == 0 else f"{index:02d}-retry{attempt}"
@@ -185,6 +220,8 @@ def main():
                 except TimeoutError:
                     if attempt == 2:
                         raise
+            if args.trace:
+                traces = start_traces(series_dir, index, env)
             command(["helm", "start_match"], env, timeout=45,
                     log=series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
@@ -194,6 +231,9 @@ def main():
             second = wait_report(RESULTS / "opponent/latest.json", run_id,
                                  time.monotonic() + 45, stopped=True)
             record.update(outcome=outcome, robots=[first, second])
+            if traces:
+                finish_traces(traces)
+                traces = []
             print(f"  {outcome['event']} at {outcome['duration_s']} sim s; "
                   f"speeds {first['mean_speed_mps']}/{second['mean_speed_mps']} m/s",
                   flush=True)
@@ -209,6 +249,9 @@ def main():
             (series_dir / "index.json").write_text(json.dumps(
                 runs, indent=2, sort_keys=True) + "\n")
             break
+        finally:
+            if traces:
+                finish_traces(traces)
         runs.append(record)
         (series_dir / "index.json").write_text(json.dumps(
             runs, indent=2, sort_keys=True) + "\n")
