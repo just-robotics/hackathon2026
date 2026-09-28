@@ -119,7 +119,7 @@ services:
             - debug
 
     gazebo:
-        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23} lidar:=${LIDAR:-false}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} lidar:=${LIDAR:-false} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23}"
         extends:
             file: common.yaml
             service: app
@@ -153,4 +153,34 @@ services:
         profiles:
             - gazebo
             - simulation
+        stdin_open: true
+
+    # Тот же симулятор, но с двумя роботами: защитник и атакующий. Отдельный
+    # сервис, а не переключатель у gazebo, потому что у них разные лаунчи и
+    # разный набор аргументов (у дуэли точки спавна заданы в самом лаунче).
+    # Профиля simulation здесь нет: duel и gazebo поднимают каждый свой
+    # gzserver и вместе работать не могут.
+    duel:
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${DUEL_MAP:-totami} headless:=${GAZEBO_HEADLESS:-true} lidar:=${LIDAR:-false}"
+        extends:
+            file: common.yaml
+            service: app
+        environment:
+            JR_GAZEBO_PATH: /autoware/install/sim_kobuki/share
+            DISPLAY: ${DISPLAY:-:0}
+            XAUTHORITY: /tmp/.xauthority
+            QT_X11_NO_MITSHM: "1"
+        volumes:
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - ${XAUTHORITY:-/dev/null}:/tmp/.xauthority:ro
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - "bash -lc 'source /autoware/install/setup.bash && ros2 topic list | grep -qx /clock'"
+            interval: 15s
+            timeout: 10s
+            start_period: 60s
+            retries: 5
+        profiles:
+            - duel
         stdin_open: true

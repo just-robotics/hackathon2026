@@ -5,6 +5,20 @@
        симулятора, облако не нужно. Включается через lidar:=true. -->
   <xacro:arg name="lidar" default="false"/>
 
+  <!-- Пространство имён робота. Пустое значение оставляет прежние имена
+       (/cmd_vel, /odom, фрейм odom) и один робот работает как раньше.
+       Заданное, например defender, разводит топики в /defender/... и фреймы
+       в defender/odom, чтобы несколько роботов в одном мире не мешали друг
+       другу.
+
+       Имена link внутри URDF не трогаем: robot_state_publisher добавляет к
+       ним frame_prefix сам. Префиксовать нужно только то, что плагины
+       Gazebo пишут в TF и в топики: они про namespace ничего не знают. -->
+  <xacro:arg name="ns" default=""/>
+  <xacro:property name="ns" value="$(arg ns)"/>
+  <xacro:property name="prefix" value="${ns + '/' if ns else ''}"/>
+  <xacro:property name="ros_ns" value="${'/' + ns if ns else '/'}"/>
+
   <xacro:property name="wheel_radius" value="0.035"/>
   <xacro:property name="wheel_width" value="0.0206"/>
   <xacro:property name="wheel_separation" value="0.230"/>
@@ -232,11 +246,11 @@
       </ray>
       <plugin name="livox_lidar_controller" filename="libgazebo_ros_ray_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>${ros_ns}</namespace>
           <remapping>~/out:=livox/lidar</remapping>
         </ros>
         <output_type>sensor_msgs/PointCloud2</output_type>
-        <frame_name>livox_frame</frame_name>
+        <frame_name>${prefix}livox_frame</frame_name>
       </plugin>
     </sensor>
     </xacro:if>
@@ -260,10 +274,10 @@
       </imu>
       <plugin name="livox_imu_controller" filename="libgazebo_ros_imu_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>${ros_ns}</namespace>
           <remapping>~/out:=livox/imu</remapping>
         </ros>
-        <frame_name>livox_frame</frame_name>
+        <frame_name>${prefix}livox_frame</frame_name>
       </plugin>
     </sensor>
   </gazebo>
@@ -271,7 +285,7 @@
   <gazebo>
     <plugin name="diff_drive_controller" filename="libgazebo_ros_diff_drive.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>${ros_ns}</namespace>
       </ros>
       <left_joint>wheel_left_joint</left_joint>
       <right_joint>wheel_right_joint</right_joint>
@@ -282,14 +296,14 @@
       <publish_odom>true</publish_odom>
       <publish_odom_tf>true</publish_odom_tf>
       <publish_wheel_tf>false</publish_wheel_tf>
-      <odometry_frame>odom</odometry_frame>
-      <robot_base_frame>base_footprint</robot_base_frame>
+      <odometry_frame>${prefix}odom</odometry_frame>
+      <robot_base_frame>${prefix}base_footprint</robot_base_frame>
       <update_rate>50</update_rate>
     </plugin>
 
     <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>${ros_ns}</namespace>
         <remapping>~/out:=joint_states</remapping>
       </ros>
       <update_rate>50</update_rate>
@@ -305,7 +319,7 @@
          отличие от odom, который стоит в точке спавна робота. -->
     <plugin name="ground_truth_p3d" filename="libgazebo_ros_p3d.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>${ros_ns}</namespace>
         <remapping>odom:=localization/pose</remapping>
       </ros>
       <body_name>base_footprint</body_name>
