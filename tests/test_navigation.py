@@ -91,6 +91,17 @@ class DecisionTests(unittest.TestCase):
         self.assertLess(abs(capture.target.x - 0.5), 0.45)
         self.assertLess(capture.max_speed, 0.2)
 
+    def test_guardian_brakes_before_capture_range(self):
+        speeds = []
+        for distance in (0.8, 0.6, 0.5, 0.42):
+            policy = DecisionPolicy("guardian", self.area)
+            speeds.append(policy.step(self.observation(
+                opponent=DecisionPose(distance, 0))).max_speed)
+        self.assertTrue(all(a > b for a, b in zip(speeds, speeds[1:])))
+        self.assertGreater(speeds[1], 0.2)
+        self.assertLess(speeds[2], 0.12)
+        self.assertLessEqual(speeds[3], 0.08)
+
     def test_guardian_searches_last_seen_position_after_track_expires(self):
         policy = DecisionPolicy("guardian", self.area)
         lost = self.observation(now=12, opponent=DecisionPose(2, 1))
