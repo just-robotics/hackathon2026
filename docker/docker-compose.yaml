@@ -119,7 +119,7 @@ services:
             - debug
 
     gazebo:
-        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23} lidar:=${LIDAR:-false}"
         extends:
             file: common.yaml
             service: app

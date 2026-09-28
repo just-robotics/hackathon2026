@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kobuki">
+  <!-- Лидар отключён по умолчанию: на CPU-растеризации Gazebo Classic он
+       съедает заметную часть RTF, а задачам, которым хватает позы из
+       симулятора, облако не нужно. Включается через lidar:=true. -->
+  <xacro:arg name="lidar" default="false"/>
+
   <xacro:property name="wheel_radius" value="0.035"/>
   <xacro:property name="wheel_width" value="0.0206"/>
   <xacro:property name="wheel_separation" value="0.230"/>
@@ -194,6 +199,7 @@
     <!-- Пока штатный ray-лидар Gazebo Classic: вращательный паттерн, не
          non-repetitive. Плагин Livox с настоящим паттерном Mid-360 (CSV,
          поля tag/line, offset_time) подключается отдельным шагом. -->
+    <xacro:if value="$(arg lidar)">
     <sensor name="livox_mid360" type="ray">
       <always_on>true</always_on>
       <update_rate>10</update_rate>
@@ -233,6 +239,7 @@
         <frame_name>livox_frame</frame_name>
       </plugin>
     </sensor>
+    </xacro:if>
 
     <!-- У настоящего Mid-360 IMU встроен в лидар, поэтому сенсор живёт в том
          же фрейме. -->

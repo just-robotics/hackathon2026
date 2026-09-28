@@ -24,7 +24,14 @@ def generate_launch_description():
     )
     headless = LaunchConfiguration("headless")
     robot_description = ParameterValue(
-        Command(["xacro ", os.path.join(package_share, "description", "kobuki.urdf.xacro")]),
+        Command(
+            [
+                "xacro ",
+                os.path.join(package_share, "description", "kobuki.urdf.xacro"),
+                " lidar:=",
+                LaunchConfiguration("lidar"),
+            ]
+        ),
         value_type=str,
     )
 
@@ -78,6 +85,15 @@ def generate_launch_description():
                 default_value="false",
                 choices=["true", "false"],
                 description="Run only the Gazebo server when true.",
+            ),
+            DeclareLaunchArgument(
+                "lidar",
+                default_value="false",
+                choices=["true", "false"],
+                description=(
+                    "Attach the Livox lidar sensor. Off by default: ray "
+                    "casting runs on the CPU in Gazebo Classic and costs RTF."
+                ),
             ),
             Node(
                 package="robot_state_publisher",
