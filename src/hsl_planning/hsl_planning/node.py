@@ -15,7 +15,9 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32, String
 
 from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
-                   local_guidance, reachable_target, recovery_step, reusable_route)
+                   curved_guidance,
+                   local_guidance, reachable_target, recovery_step,
+                   reusable_local_guidance, reusable_route)
 
 
 def seconds(stamp):
@@ -108,6 +110,9 @@ class TrajectoryPlanner(Node):
         self.global_path = []
         self.global_target = None
         self.route_behavior = None
+        self.local_path = []
+        self.local_target = None
+        self.local_behavior = None
         self.search_waypoint = None
         self.search_visited = []
         self.progress_pose = None
@@ -189,6 +194,7 @@ class TrajectoryPlanner(Node):
 
     def publish_empty(self, reason):
         self.global_path = []
+        self.local_path = []
         self.global_pub.publish(make_path(self, []))
         self.local_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
@@ -338,16 +344,32 @@ class TrajectoryPlanner(Node):
                 self.publish_empty("NO_GLOBAL_PATH")
                 return
         if self.recovery_goal is not None:
+            self.local_path = []
             local = local_guidance(self.world, own, [self.recovery_goal], enemy,
                                    intent.opponent_clearance, min_step=0.04)
             if not local:
                 self.recovery_goal = None
         elif hypot(own.x - target.x, own.y - target.y) <= intent.target_tolerance:
+            self.local_path = []
             local = [own, Pose2(own.x, own.y, target.yaw)]
         else:
-            local = local_guidance(self.world, own, self.global_path, enemy,
-                                   intent.opponent_clearance)
+            same_target = (self.local_target is not None and
+                           hypot(target.x - self.local_target.x,
+                                 target.y - self.local_target.y) < 0.3)
+            local = (reusable_local_guidance(
+                self.world, own, self.local_path, enemy,
+                intent.opponent_clearance)
+                if same_target and self.local_behavior == intent.behavior else [])
+            if not local:
+                straight = local_guidance(self.world, own, self.global_path, enemy,
+                                          intent.opponent_clearance)
+                local = curved_guidance(self.world, own, straight, enemy,
+                                        intent.opponent_clearance)
+                self.local_path = local
+                self.local_target = target
+                self.local_behavior = intent.behavior
         if not local:
+            self.local_path = []
             self.global_path = []
             step = recovery_step(self.world, own, enemy,
                                  intent.opponent_clearance)

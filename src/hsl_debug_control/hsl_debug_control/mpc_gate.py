@@ -23,6 +23,8 @@ class MpcGate(Node):
     def __init__(self):
         super().__init__("hsl_mpc_gate")
         self.pose_stamp = 0.0
+        self.x = 0.0
+        self.y = 0.0
         self.yaw = 0.0
         self.scan_stamp = 0.0
         self.path = None
@@ -44,6 +46,8 @@ class MpcGate(Node):
 
     def on_pose(self, msg):
         self.pose_stamp = seconds(msg.header.stamp)
+        self.x = msg.pose.pose.position.x
+        self.y = msg.pose.pose.position.y
         q = msg.pose.pose.orientation
         self.yaw = atan2(2 * (q.w * q.z + q.x * q.y),
                          1 - 2 * (q.y * q.y + q.z * q.z))
@@ -73,16 +77,31 @@ class MpcGate(Node):
         if self.path and len(self.path[0]) >= 2:
             start = self.path[0][0].pose.position
             end_pose = self.path[0][-1].pose
-            endpoint_distance = hypot(end_pose.position.x - start.x,
-                                      end_pose.position.y - start.y)
-            if endpoint_distance < 0.02:
+            path_span = hypot(end_pose.position.x - start.x,
+                              end_pose.position.y - start.y)
+            endpoint_distance = hypot(end_pose.position.x - self.x,
+                                      end_pose.position.y - self.y)
+            if path_span < 0.02:
                 q = end_pose.orientation
                 desired = atan2(2 * (q.w * q.z + q.x * q.y),
                                 1 - 2 * (q.y * q.y + q.z * q.z))
                 rotation_error = angle_error(desired, self.yaw)
             else:
-                desired = atan2(end_pose.position.y - start.y,
-                                end_pose.position.x - start.x)
+                points = [pose.pose.position for pose in self.path[0]]
+                chord_x = end_pose.position.x - start.x
+                chord_y = end_pose.position.y - start.y
+                deviation = max(abs((point.x - start.x) * chord_y -
+                                    (point.y - start.y) * chord_x) / path_span
+                                for point in points)
+                if deviation > 0.035:
+                    nearest = min(range(len(points)),
+                                  key=lambda i: hypot(points[i].x - self.x,
+                                                      points[i].y - self.y))
+                    before = points[max(0, nearest - 2)]
+                    after = points[min(len(points) - 1, nearest + 3)]
+                    desired = atan2(after.y - before.y, after.x - before.x)
+                else:
+                    desired = atan2(chord_y, chord_x)
                 error = angle_error(desired, self.yaw)
                 if abs(error) > (0.35 if self.turning_to_path else 0.65):
                     self.turning_to_path = True

@@ -1,7 +1,7 @@
 """Pure behavior logic; ROS transport lives in node.py."""
 
 from dataclasses import dataclass
-from math import atan2, hypot, pi, sqrt
+from math import atan2, hypot, sqrt
 
 
 WAIT, STOP, GOAL, EXPLORE, EVADE, SEARCH, PURSUE, CAPTURE = range(8)
@@ -186,12 +186,8 @@ class DecisionPolicy:
         else:
             self.search_anchor = None
             self.search_exploring = False
-            bearing = atan2(obs.opponent.y - obs.own.y,
-                            obs.opponent.x - obs.own.x)
-            heading_error = (bearing - obs.own.yaw + pi) % (2 * pi) - pi
-            if distance < 0.45 and abs(heading_error) <= pi / 4:
-                self.previous = STOP
-                return Decision(STOP, None, 0, 0, 0, 0, "opponent captured")
+            # Only the referee can declare a capture: distance and heading
+            # alone cannot rule out a wall between the robots.
             scores = {PURSUE: 1.0, CAPTURE: 1.0 + max(0.0, 1.0 - distance / self.capture_distance)}
             chosen = self._select(scores, obs.now)
             predicted = (intercept_point(obs.own, obs.opponent,

@@ -277,10 +277,21 @@ def capture_goal(world, own, opponent):
         pose = Pose2(opponent.x + 0.39 * cos(angle),
                      opponent.y + 0.39 * sin(angle), angle + pi)
         rounded = world.point(world.cell(pose.x, pose.y))
-        if (hypot(rounded.x - opponent.x, rounded.y - opponent.y) > 0.36
-                and not world.blocked(pose.x, pose.y)
-                and world.clear_line_3d(pose, opponent)):
-            options.append((hypot(pose.x - own.x, pose.y - own.y), pose))
+        if (hypot(rounded.x - opponent.x, rounded.y - opponent.y) <= 0.36
+                or world.blocked(pose.x, pose.y)
+                or not world.inside_map(pose.x, pose.y, world.robot_radius + 0.07)
+                or world.obstacle_clearance(pose.x, pose.y) < world.robot_radius + 0.07
+                or not world.clear_line_3d(pose, opponent)):
+            continue
+        if safe_segment(world, own, pose):
+            travel = hypot(pose.x - own.x, pose.y - own.y)
+        else:
+            route = astar(world, own, pose, max_cells=3000)
+            if not route:
+                continue
+            travel = sum(hypot(b.x - a.x, b.y - a.y)
+                         for a, b in zip(route, route[1:]))
+        options.append((travel, pose))
     return min(options, key=lambda pair: pair[0])[1] if options else None
 
 
@@ -403,6 +414,77 @@ def local_guidance(world, own, route, opponent=None, clearance=0.0,
     return [own] + [Pose2(own.x + (visible.x - own.x) * i / steps,
                           own.y + (visible.y - own.y) * i / steps, yaw)
                     for i in range(1, steps + 1)]
+
+
+def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
+    """Join the current heading to a visible corridor without stopping to turn.
+
+    A tight bend or an obstructed swept path keeps the straight reference so
+    the controller can turn in place before entering it.
+    """
+    if len(straight) < 3:
+        return straight
+    end = straight[-1]
+    dx, dy = end.x - own.x, end.y - own.y
+    distance = hypot(dx, dy)
+    if distance < 0.65:
+        return straight
+    heading = atan2(dy, dx)
+    error = angle_error(heading, own.yaw)
+    if abs(error) < 0.18 or abs(error) > 1.15:
+        return straight
+    # The first control point follows the robot heading; the last one joins
+    # the original collision-checked corridor tangentially.
+    handle = min(0.65, max(0.32, 0.48 * distance))
+    p1 = (own.x + handle * cos(own.yaw), own.y + handle * sin(own.yaw))
+    p2 = (end.x - handle * cos(heading), end.y - handle * sin(heading))
+    steps = max(12, ceil(distance / 0.06))
+    path = [own]
+    for index in range(1, steps + 1):
+        t = index / steps
+        u = 1.0 - t
+        x = (u ** 3 * own.x + 3 * u * u * t * p1[0] +
+             3 * u * t * t * p2[0] + t ** 3 * end.x)
+        y = (u ** 3 * own.y + 3 * u * u * t * p1[1] +
+             3 * u * t * t * p2[1] + t ** 3 * end.y)
+        point = Pose2(x, y)
+        if not safe_segment(world, path[-1], point, opponent, clearance):
+            return straight
+        if len(path) >= 2:
+            first, middle = path[-2:]
+            ax, ay = middle.x - first.x, middle.y - first.y
+            bx, by = point.x - middle.x, point.y - middle.y
+            chord = hypot(point.x - first.x, point.y - first.y)
+            curvature = (2.0 * abs(ax * by - ay * bx) /
+                         max(hypot(ax, ay) * hypot(bx, by) * chord, 1e-9))
+            if curvature > 1.15:
+                return straight
+        path.append(point)
+    return path
+
+
+def reusable_local_guidance(world, own, path, opponent=None, clearance=0.0):
+    """Keep fixed path geometry while it remains reachable and unobstructed."""
+    if len(path) < 3:
+        return []
+    end = path[-1]
+    if hypot(end.x - own.x, end.y - own.y) < 0.35:
+        return []
+    closest_index = min(range(len(path)),
+                        key=lambda i: hypot(path[i].x - own.x,
+                                            path[i].y - own.y))
+    if closest_index == len(path) - 1:
+        return []
+    nearest = path[closest_index]
+    if hypot(nearest.x - own.x, nearest.y - own.y) > 0.12:
+        return []
+    if not safe_segment(world, own, nearest, opponent, clearance):
+        return []
+    # Fresh scans may reveal an obstacle absent when the path was created.
+    for first, second in zip(path[closest_index:-1], path[closest_index + 1:]):
+        if not safe_segment(world, first, second, opponent, clearance):
+            return []
+    return path
 
 
 def recovery_step(world, own, opponent=None, clearance=0.0):

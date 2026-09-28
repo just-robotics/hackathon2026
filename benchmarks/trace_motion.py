@@ -41,6 +41,12 @@ def main():
         latest["path"] = (message, time.monotonic())
         if not latest.get("allowed", False):
             return
+        samples["path_updates"] += 1
+        if (not previous or len(previous[0].poses) != len(message.poses) or
+                any((old.pose.position.x != new.pose.position.x or
+                     old.pose.position.y != new.pose.position.y)
+                    for old, new in zip(previous[0].poses, message.poses))):
+            samples["path_geometry_changes"] += 1
         if not previous or len(message.poses) < 2 or len(previous[0].poses) < 2:
             return
         first = message.poses[0].pose.position
@@ -195,6 +201,9 @@ def main():
               "path_heading_error_median_rad": percentile(path_errors, 0.5),
               "path_heading_error_p90_rad": percentile(path_errors, 0.9),
               "gate_clipped_heading_error_median_rad": percentile(clipped_errors, 0.5),
+              "path_geometry_change_fraction": round(
+                  samples["path_geometry_changes"] /
+                  max(1, samples["path_updates"]), 3),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
               "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}
     print(json.dumps(report, indent=2, sort_keys=True))

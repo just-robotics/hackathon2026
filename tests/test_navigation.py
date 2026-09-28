@@ -13,8 +13,10 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
+                               curved_guidance,
                                local_guidance, local_rollout, reachable_target,
-                               recovery_heading, recovery_step, reusable_route)
+                               recovery_heading, recovery_step,
+                               reusable_local_guidance, reusable_route)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, opponent_visible
@@ -97,7 +99,7 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(result.behavior, SEARCH)
         self.assertEqual((result.target.x, result.target.y), (2, 1))
 
-    def test_guardian_sweeps_after_reaching_last_seen_and_stops_on_capture(self):
+    def test_guardian_sweeps_and_does_not_assume_capture_through_wall(self):
         policy = DecisionPolicy("guardian", self.area)
         policy.step(self.observation(now=10, opponent=DecisionPose(2, 0)))
         lost = Observation(12, DecisionPose(2, 0), 12,
@@ -110,7 +112,7 @@ class DecisionTests(unittest.TestCase):
         self.assertIsNone(policy.step(moved).target)
         captured = Observation(14, DecisionPose(0, 0, 0), 14,
                                DecisionPose(0.4, 0), 14, 14, 14, True)
-        self.assertEqual(policy.step(captured).reason, "opponent captured")
+        self.assertEqual(policy.step(captured).behavior, CAPTURE)
 
     def test_hysteresis_prevents_immediate_switch_back(self):
         policy = DecisionPolicy("explorer", self.area, min_dwell=1.0,
@@ -137,6 +139,34 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(all(abs(point.y) < 1e-9 for point in local))
         self.assertTrue(all(later.x > earlier.x for earlier, later in
                             zip(local, local[1:])))
+
+    def test_local_straight_reference_is_stable_until_done_or_blocked(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([], [], None, map_bounds=(-1, -1, 4, 1))
+        path = local_guidance(world, Pose2(0, 0),
+                              [Pose2(0.5, 0), Pose2(1.5, 0)])
+        self.assertIs(reusable_local_guidance(world, Pose2(0.4, 0.02), path), path)
+        self.assertFalse(reusable_local_guidance(world, Pose2(0.4, 0.2), path))
+        self.assertFalse(reusable_local_guidance(world, Pose2(1.25, 0), path))
+        world.update([(0.8, 0, 0.3)], [], None, map_bounds=(-1, -1, 4, 1))
+        self.assertFalse(reusable_local_guidance(world, Pose2(0.4, 0), path))
+
+    def test_smooth_curve_starts_forward_and_reuses_safe_geometry(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0.4)
+        straight = local_guidance(world, own, [Pose2(1.5, 0)])
+        curve = curved_guidance(world, own, straight)
+        self.assertNotEqual(curve, straight)
+        self.assertGreater(curve[1].x, own.x)
+        self.assertGreater(curve[1].y, own.y)
+        self.assertAlmostEqual(
+            (curve[1].y - own.y) / (curve[1].x - own.x),
+            sin(own.yaw) / cos(own.y), delta=0.1)
+        self.assertIs(reusable_local_guidance(world, curve[8], curve), curve)
+        world.update([(curve[14].x, curve[14].y, 0.3)], [], None,
+                     map_bounds=(-1, -1, 3, 2))
+        self.assertFalse(reusable_local_guidance(world, curve[8], curve))
 
     def test_local_guidance_does_not_cut_wall_and_recovery_turns_inward(self):
         world = VoxelWorld(0.1, 0.2)
