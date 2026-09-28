@@ -31,15 +31,19 @@ services:
             - localization
             - simulation
 
+    # Детектор соперника: каждый робот дуэли ищет другого в облаке своего
+    # лидара и публикует его в /<робот>/opponent/odom. Нужно облако, то есть
+    # LIDAR=true. В профиле simulation сервиса нет: там робот один и искать
+    # некого.
     perception:
-        command: $CMD "sleep infinity"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_perception.launch.xml map:=${DUEL_MAP:-totami}"
         extends:
             file: common.yaml
             service: app
         profiles:
             - all
             - perception
-            - simulation
+            - duel
 
     # Планировщик MPC: строит опорную траекторию в /planning/trajectory.
     # Ноды приходят из подмодуля mpc_motion_control и появляются в образе

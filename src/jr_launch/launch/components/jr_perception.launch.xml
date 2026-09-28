@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Детектор соперника: по ноде на каждого робота дуэли.
+
+     Нода живёт в пространстве имён своего робота, берёт его облако
+     livox/lidar и позу localization/pose и публикует найденного соперника в
+     opponent/odom (nav_msgs/Odometry во фрейме world).
+
+     Пустой полигон, который вычитается из облака, считается из того же
+     .world, что грузит симулятор, как и карта в jr_map. Облако есть только
+     при LIDAR=true. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <arg name="map" default="totami" description="имя мира из sim_kobuki/worlds"/>
+  <arg name="world"
+       default="$(find-pkg-share sim_kobuki)/worlds/$(var map).world"/>
+  <arg name="params_file"
+       default="$(find-pkg-share jr_launch)/config/perception/robot_detector.param.yaml"/>
+
+  <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector"
+        namespace="defender" output="screen">
+    <param from="$(var params_file)"/>
+    <param name="world" value="$(var world)"/>
+    <param name="use_sim_time" value="$(var simulation)"/>
+  </node>
+
+  <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector"
+        namespace="attacker" output="screen">
+    <param from="$(var params_file)"/>
+    <param name="world" value="$(var world)"/>
+    <param name="use_sim_time" value="$(var simulation)"/>
+  </node>
+</launch>

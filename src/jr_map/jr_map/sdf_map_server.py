@@ -71,7 +71,7 @@ def state_link_poses(world) -> dict:
     return poses
 
 
-def collect_boxes(world_path: str, z_slice: float) -> list:
+def collect_boxes(world_path: str, z_slice: float, models=None) -> list:
     """Собрать box-коллизии мира как прямоугольники на плоскости XY
 
     Размеры боксов берутся из определения <model>, а позы -- из <state>, где
@@ -83,6 +83,7 @@ def collect_boxes(world_path: str, z_slice: float) -> list:
 
     :world_path путь к .world (SDF)
     :z_slice высота среза в метрах
+    :models имена моделей, из которых берутся боксы; None -- из всех
 
     :return список (cx, cy, half_x, half_y, yaw) в координатах мира
     """
@@ -91,6 +92,9 @@ def collect_boxes(world_path: str, z_slice: float) -> list:
     boxes = []
 
     for model in world.findall("model"):
+        if models is not None and model.get("name") not in models:
+            continue
+
         mx, my, mz, _, _, myaw = pose_of(model)
 
         for link in model.findall("link"):

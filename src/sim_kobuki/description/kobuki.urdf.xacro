@@ -137,7 +137,8 @@
   <xacro:caster name="rear" x="-0.135"/>
 
   <!-- Hexagon standoffs are visual only: they belong to the plate link, so they
-       add no bodies or collision shapes, but the lidar still sees them. -->
+       add no bodies or collision shapes. The Gazebo Classic ray sensor traces
+       collision shapes only, so the lidar does not see them either. -->
   <xacro:macro name="standoffs" params="length">
     <xacro:property name="offset" value="${-(length + 0.006) / 2}"/>
     <xacro:macro name="standoff" params="x y">
