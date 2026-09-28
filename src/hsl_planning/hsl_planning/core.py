@@ -433,6 +433,12 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
     error = angle_error(heading, own.yaw)
     if abs(error) < 0.18 or abs(error) > 1.15:
         return straight
+    # MPC does not follow the reference exactly. Reserve tracking room around
+    # every moving turn, especially beside walls and the arena boundary.
+    curve_margin = world.robot_radius + 0.18
+    if (world.obstacle_clearance(own.x, own.y) < curve_margin or
+            world.map_clearance(own.x, own.y) < curve_margin):
+        return straight
     # The first control point follows the robot heading; the last one joins
     # the original collision-checked corridor tangentially.
     handle = min(0.65, max(0.32, 0.48 * distance))
@@ -448,6 +454,9 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
         y = (u ** 3 * own.y + 3 * u * u * t * p1[1] +
              3 * u * t * t * p2[1] + t ** 3 * end.y)
         point = Pose2(x, y)
+        if (world.obstacle_clearance(x, y) < curve_margin or
+                world.map_clearance(x, y) < curve_margin):
+            return straight
         if not safe_segment(world, path[-1], point, opponent, clearance):
             return straight
         if len(path) >= 2:
@@ -457,7 +466,7 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
             chord = hypot(point.x - first.x, point.y - first.y)
             curvature = (2.0 * abs(ax * by - ay * bx) /
                          max(hypot(ax, ay) * hypot(bx, by) * chord, 1e-9))
-            if curvature > 1.15:
+            if curvature > 2.6:
                 return straight
         path.append(point)
     return path

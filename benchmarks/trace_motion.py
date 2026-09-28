@@ -42,6 +42,16 @@ def main():
         if not latest.get("allowed", False):
             return
         samples["path_updates"] += 1
+        if len(message.poses) >= 3:
+            first = message.poses[0].pose.position
+            last = message.poses[-1].pose.position
+            span = hypot(last.x - first.x, last.y - first.y)
+            if span > 0.02 and max(abs((p.pose.position.x - first.x) *
+                                       (last.y - first.y) -
+                                       (p.pose.position.y - first.y) *
+                                       (last.x - first.x)) / span
+                                   for p in message.poses) > 0.035:
+                samples["curved_path_updates"] += 1
         if (not previous or len(previous[0].poses) != len(message.poses) or
                 any((old.pose.position.x != new.pose.position.x or
                      old.pose.position.y != new.pose.position.y)
@@ -203,6 +213,9 @@ def main():
               "gate_clipped_heading_error_median_rad": percentile(clipped_errors, 0.5),
               "path_geometry_change_fraction": round(
                   samples["path_geometry_changes"] /
+                  max(1, samples["path_updates"]), 3),
+              "curved_path_fraction": round(
+                  samples["curved_path_updates"] /
                   max(1, samples["path_updates"]), 3),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
               "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}

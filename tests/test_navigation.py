@@ -168,6 +168,27 @@ class PlanningTests(unittest.TestCase):
                      map_bounds=(-1, -1, 3, 2))
         self.assertFalse(reusable_local_guidance(world, curve[8], curve))
 
+    def test_curve_handles_moderate_turn_but_falls_back_when_blocked(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0.7)
+        straight = local_guidance(world, own, [Pose2(1.5, 0)])
+        curve = curved_guidance(world, own, straight)
+        self.assertNotEqual(curve, straight)
+        obstacle = curve[len(curve) // 2]
+        world.update([(obstacle.x, obstacle.y, 0.3)], [], None,
+                     map_bounds=(-1, -1, 3, 2))
+        self.assertEqual(curved_guidance(world, own, straight), straight)
+
+    def test_curve_requires_tracking_room_beside_wall(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(x * 0.1, -0.35, 0.3) for x in range(0, 17)]
+        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0.7)
+        straight = local_guidance(world, own, [Pose2(1.5, 0)])
+        self.assertTrue(straight)
+        self.assertEqual(curved_guidance(world, own, straight), straight)
+
     def test_local_guidance_does_not_cut_wall_and_recovery_turns_inward(self):
         world = VoxelWorld(0.1, 0.2)
         wall = [(0.6, y * 0.1, 0.3) for y in range(-5, 6)]
