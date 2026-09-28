@@ -23,13 +23,18 @@ submodules:
 
 start:
   desc: "Поехали: разрешить движение продольному контуру MPC"
+  # без имени робота команда действует на всех найденных
+  long_command: true
+  optional_tail: true
   commands:
-    - "python3 __control_script__ true"
+    - "python3 __control_script__ true __placeholder_1__"
 
 stop:
   desc: "Стоп: запретить движение продольному контуру MPC"
+  long_command: true
+  optional_tail: true
   commands:
-    - "python3 __control_script__ false"
+    - "python3 __control_script__ false __placeholder_1__"
 
 terminate-init:
   desc: "(debug команда) Остановить init сервисы"

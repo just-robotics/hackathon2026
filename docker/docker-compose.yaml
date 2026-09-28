@@ -65,6 +65,44 @@ services:
             - control
             - simulation
 
+    # Планирование и управление для режима двух роботов. По паре сервисов на
+    # робота, а не одна пара на обоих: так каждую роль видно в логах
+    # отдельно и можно перезапустить одну, не трогая другую.
+    #
+    # Ноды кладутся в namespace робота (/defender/control/...), иначе два
+    # контроллера спорили бы за одни имена нод. Топики передаются полными.
+    planning_defender:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_planning.launch.xml ns:=defender trajectory:=${MPC_TRAJECTORY:-lanelet} trajectory_file:=${MPC_TRAJECTORY_FILE:-my_trajectory5.yaml} trajectory_topic:=/defender/planning/trajectory pose_topic:=/defender/odom frame_id:=defender/odom"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    control_defender:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_control.launch.xml ns:=defender lateral:=${MPC_LATERAL:-true} longitudinal:=${MPC_LONGITUDINAL:-cc} trajectory_topic:=/defender/planning/trajectory odom_topic:=/defender/odom cmd_vel_topic:=/defender/cmd_vel"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    planning_attacker:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_planning.launch.xml ns:=attacker trajectory:=${MPC_TRAJECTORY:-lanelet} trajectory_file:=${MPC_TRAJECTORY_FILE:-my_trajectory5.yaml} trajectory_topic:=/attacker/planning/trajectory pose_topic:=/attacker/odom frame_id:=attacker/odom"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    control_attacker:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_control.launch.xml ns:=attacker lateral:=${MPC_LATERAL:-true} longitudinal:=${MPC_LONGITUDINAL:-cc} trajectory_topic:=/attacker/planning/trajectory odom_topic:=/attacker/odom cmd_vel_topic:=/attacker/cmd_vel"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
     api:
         command: $CMD "sleep infinity"
         extends:

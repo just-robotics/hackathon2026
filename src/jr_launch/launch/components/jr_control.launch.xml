@@ -11,17 +11,28 @@
 
   <arg name="lateral" default="true" description="удержание в полосе поверх продольного контура"/>
   <arg name="longitudinal" default="cc" description="cc -- свой профиль скорости, acc -- зазор за лидером"/>
+  <!-- Пространство имён робота. Пустое оставляет прежние имена и один робот
+       работает как раньше. Заданное, например defender, и подставляет
+       префикс в топики, и кладёт сами ноды в /defender/control/..., чтобы
+       два контроллера в одной сети не спорили за имена. -->
+  <arg name="ns" default=""/>
+
+  <!-- Топики задаются полными именами. Так лаунч не гадает, как склеить
+       префикс: вызывающий передаёт /defender/odom или /odom как есть. -->
   <arg name="trajectory_topic" default="/planning/trajectory"/>
   <arg name="odom_topic" default="/odom"/>
   <arg name="cmd_vel_topic" default="/cmd_vel"/>
   <arg name="peer_id" default="leader" description="префикс топиков лидера для acc"/>
 
-  <include file="$(find-pkg-share swarm_controller)/launch/sim_control.launch.py">
-    <arg name="lateral" value="$(var lateral)"/>
-    <arg name="longitudinal" value="$(var longitudinal)"/>
-    <arg name="trajectory_topic" value="$(var trajectory_topic)"/>
-    <arg name="odom_topic" value="$(var odom_topic)"/>
-    <arg name="cmd_vel_topic" value="$(var cmd_vel_topic)"/>
-    <arg name="peer_id" value="$(var peer_id)"/>
-  </include>
+  <group>
+    <push-ros-namespace namespace="$(var ns)"/>
+    <include file="$(find-pkg-share swarm_controller)/launch/sim_control.launch.py">
+      <arg name="lateral" value="$(var lateral)"/>
+      <arg name="longitudinal" value="$(var longitudinal)"/>
+      <arg name="trajectory_topic" value="$(var trajectory_topic)"/>
+      <arg name="odom_topic" value="$(var odom_topic)"/>
+      <arg name="cmd_vel_topic" value="$(var cmd_vel_topic)"/>
+      <arg name="peer_id" value="$(var peer_id)"/>
+    </include>
+  </group>
 </launch>
