@@ -3,14 +3,14 @@ decision_manager:
     role: explorer
     planning_frame: map
     own_start: [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]
-    # Demo start area around world (2.5, 2.5); map origin is own spawn (-0.34, -0.18).
-    opponent_start: [2.59, 2.43, 3.09, 2.43, 3.09, 2.93, 2.59, 2.93]
+    # Demo start area around world (2.5, 2.5); map origin is own spawn (-0.34, 0.4).
+    opponent_start: [2.59, 1.85, 3.09, 1.85, 3.09, 2.35, 2.59, 2.35]
     pose_timeout: 1.2
     scan_timeout: 1.8
     opponent_timeout: 1.0
     switch_margin: 0.15
     min_dwell: 0.5
-    evade_distance: 1.5
+    evade_distance: 1.8
     capture_distance: 0.8
     danger_weight: 2.0
     goal_weight: 1.0

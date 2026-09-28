@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 from copy import deepcopy
-from math import hypot
+from math import atan2, cos, hypot, sin
 
 import rclpy
 from nav_msgs.msg import OccupancyGrid, Odometry
@@ -21,7 +21,7 @@ class SimObservations(Node):
     def __init__(self):
         super().__init__("sim_observations")
         self.declare_parameter("own_spawn_x", -0.34)
-        self.declare_parameter("own_spawn_y", -0.18)
+        self.declare_parameter("own_spawn_y", 0.4)
         self.declare_parameter("own_odom_topic", "/odom")
         self.declare_parameter("opponent_odom_topic", "/opponent/odom")
         self.declare_parameter("own_truth_topic", "/localization/pose")
@@ -38,6 +38,8 @@ class SimObservations(Node):
         self.grid = None
         self.visible = False
         self.last_seen = float("-inf")
+        self.last_visible_position = None
+        self.visible_velocity = (0.0, 0.0)
         self.voxels = OrderedDict()
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -124,8 +126,31 @@ class SimObservations(Node):
         if self.visible:
             enemy = self.as_map_odom(self.opponent_truth, self.opponent_odom,
                                      "opponent/base_footprint")
+            now = self.get_clock().now().nanoseconds * 1e-9
+            position = enemy.pose.pose.position
+            if self.last_visible_position is not None:
+                px, py, previous_time = self.last_visible_position
+                dt = now - previous_time
+                if 0.05 <= dt <= 1.0:
+                    measured = ((position.x - px) / dt,
+                                (position.y - py) / dt)
+                    self.visible_velocity = tuple(
+                        0.5 * old + 0.5 * new
+                        for old, new in zip(self.visible_velocity, measured))
+                elif dt > 1.0:
+                    self.visible_velocity = (0.0, 0.0)
+            else:
+                self.visible_velocity = (0.0, 0.0)
+            self.last_visible_position = (position.x, position.y, now)
+            q = enemy.pose.pose.orientation
+            yaw = atan2(2 * (q.w * q.z + q.x * q.y),
+                        1 - 2 * (q.y * q.y + q.z * q.z))
+            vx, vy = self.visible_velocity
+            enemy.twist.twist.linear.x = cos(yaw) * vx + sin(yaw) * vy
+            enemy.twist.twist.linear.y = -sin(yaw) * vx + cos(yaw) * vy
+            enemy.twist.twist.angular.z = 0.0
             self.opponent_pub.publish(enemy)
-            self.last_seen = self.get_clock().now().nanoseconds * 1e-9
+            self.last_seen = now
         for point in points:
             if (self.grid and 0.08 <= point[2] <= 0.60
                     and self.grid.matches_static(point[0], point[1])):

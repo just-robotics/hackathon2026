@@ -7,6 +7,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/hsl_debug_control"]),
         ("share/hsl_debug_control", ["package.xml"]),
         ("share/hsl_debug_control/launch", glob("launch/*.launch.py")),
+        ("share/hsl_debug_control/config", glob("config/*.rviz")),
     ],
     install_requires=["setuptools"], zip_safe=True,
     maintainer="Just Robotics", maintainer_email="dev@just-robotics.ru",

@@ -30,7 +30,7 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_horizontal_samples", default_value="360"),
         DeclareLaunchArgument("lidar_vertical_samples", default_value="16"),
         DeclareLaunchArgument("spawn_x", default_value="-0.34"),
-        DeclareLaunchArgument("spawn_y", default_value="-0.18"),
+        DeclareLaunchArgument("spawn_y", default_value="0.4"),
         DeclareLaunchArgument("spawn_z", default_value="0.23"),
         DeclareLaunchArgument("opponent_x", default_value="2.5"),
         DeclareLaunchArgument("opponent_y", default_value="2.5"),

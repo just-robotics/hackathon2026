@@ -32,10 +32,10 @@ class DecisionManager(Node):
         defaults = {
             "role": "explorer", "planning_frame": "map",
             "own_start": [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
-            "opponent_start": [2.59, 2.43, 3.09, 2.43, 3.09, 2.93, 2.59, 2.93],
+            "opponent_start": [2.59, 1.85, 3.09, 1.85, 3.09, 2.35, 2.59, 2.35],
             "pose_timeout": 1.2, "scan_timeout": 1.8,
             "opponent_timeout": 1.0, "switch_margin": 0.15,
-            "min_dwell": 0.5, "evade_distance": 1.5,
+            "min_dwell": 0.5, "evade_distance": 1.8,
             "capture_distance": 0.8, "danger_weight": 2.0,
             "goal_weight": 1.0,
         }
@@ -75,7 +75,11 @@ class DecisionManager(Node):
 
     def on_opponent(self, msg):
         if msg.header.frame_id == self.frame:
-            self.opponent = (pose2(msg), stamp_seconds(msg.header.stamp))
+            pose = pose2(msg)
+            twist = msg.twist.twist
+            vx = cos(pose.yaw) * twist.linear.x - sin(pose.yaw) * twist.linear.y
+            vy = sin(pose.yaw) * twist.linear.x + cos(pose.yaw) * twist.linear.y
+            self.opponent = (pose, stamp_seconds(msg.header.stamp), (vx, vy))
 
     def on_scan(self, msg):
         self.scan_stamp = stamp_seconds(msg.header.stamp)
@@ -103,6 +107,7 @@ class DecisionManager(Node):
             own_stamp=self.own[1] if self.own else 0.0,
             opponent=self.opponent[0] if self.opponent else None,
             opponent_stamp=self.opponent[1] if self.opponent else 0.0,
+            opponent_velocity=self.opponent[2] if self.opponent else (0.0, 0.0),
             scan_stamp=self.scan_stamp, map_stamp=self.map_stamp,
             allowed=self.allowed,
         )

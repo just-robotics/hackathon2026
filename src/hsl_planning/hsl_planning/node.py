@@ -1,6 +1,7 @@
 """ROS transport and bounded refresh for the pure planner."""
 
 import struct
+import random
 from math import atan2, cos, hypot, sin
 from time import perf_counter
 
@@ -13,8 +14,8 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32, String
 
-from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
-                   local_rollout, reachable_target)
+from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
+                   local_guidance, reachable_target, recovery_heading, reusable_route)
 
 
 def seconds(stamp):
@@ -75,10 +76,13 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("pose_timeout", 1.2)
         self.declare_parameter("scan_timeout", 1.8)
         self.declare_parameter("intent_timeout", 1.0)
+        self.declare_parameter("random_seed", 0)
         self.frame = self.get_parameter("planning_frame").value
         self.pose_timeout = self.get_parameter("pose_timeout").value
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
+        self.random_seed = int(self.get_parameter("random_seed").value)
+        self.rng = random.Random(self.random_seed)
         self.world = VoxelWorld(self.get_parameter("resolution").value,
                                 self.get_parameter("robot_radius").value)
         self.own = None
@@ -88,12 +92,32 @@ class TrajectoryPlanner(Node):
         self.map_points = []
         self.grid_points = []
         self.grid_free = set()
+        self.grid_bounds = None
+        default_arena_bounds = [-1000000.0, -1000000.0,
+                                1000000.0, 1000000.0]
+        self.declare_parameter("arena_bounds", default_arena_bounds)
+        configured_bounds = list(self.get_parameter("arena_bounds").value)
+        if (len(configured_bounds) != 4 or
+                configured_bounds[0] >= configured_bounds[2] or
+                configured_bounds[1] >= configured_bounds[3]):
+            raise ValueError("arena_bounds must be [min_x,min_y,max_x,max_y]")
+        self.arena_bounds = (tuple(configured_bounds)
+                             if configured_bounds != default_arena_bounds else None)
         self.scan_points = []
         self.dirty = True
         self.global_path = []
-        self.last_global = -1e9
+        self.global_target = None
+        self.route_behavior = None
         self.search_waypoint = None
         self.search_visited = []
+        self.progress_pose = None
+        self.progress_since = None
+        self.progress_behavior = None
+        self.recovery_avoid = None
+        self.recovery_until = 0.0
+        self.recovery_attempt = 0
+        self.recovery_goal = None
+        self.recovery_origin = None
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
         self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
@@ -145,6 +169,10 @@ class TrajectoryPlanner(Node):
         resolution = msg.info.resolution
         width = msg.info.width
         origin = msg.info.origin.position
+        self.grid_bounds = self.arena_bounds or (
+            origin.x, origin.y,
+            origin.x + width * resolution,
+            origin.y + msg.info.height * resolution)
         points = []
         free = set()
         for index, value in enumerate(msg.data):
@@ -183,6 +211,31 @@ class TrajectoryPlanner(Node):
             self.publish_empty("STALE_INPUT")
             return
         own = self.own[0]
+        intent = self.intent
+        if (self.progress_pose is None or self.progress_since is None or
+                now < self.progress_since or intent.behavior != self.progress_behavior or
+                hypot(own.x - self.progress_pose.x,
+                      own.y - self.progress_pose.y) >= 0.2):
+            self.progress_pose = own
+            self.progress_since = now
+            self.progress_behavior = intent.behavior
+        elif now - self.progress_since >= 4.0:
+            blocked_ahead = next((point for point in self.global_path
+                                  if hypot(point.x - own.x,
+                                           point.y - own.y) >= 0.35), None)
+            self.recovery_avoid = blocked_ahead or self.global_target
+            self.recovery_until = now + 8.0
+            self.recovery_attempt += 1
+            self.global_path = []
+            heading = recovery_heading(self.world, own)
+            self.recovery_goal = (Pose2(own.x + 0.6 * cos(heading),
+                                        own.y + 0.6 * sin(heading))
+                                  if heading is not None else None)
+            self.recovery_origin = own
+            self.progress_pose = own
+            self.progress_since = now
+            self.get_logger().warn("No translation for 4 s; retrying another corridor")
+        recovery_avoid = self.recovery_avoid if now < self.recovery_until else None
         enemy = (self.opponent[0] if self.opponent and now - self.opponent[1] <= 2.0
                  else None)
         enemy_velocity = (0.0, 0.0)
@@ -202,10 +255,10 @@ class TrajectoryPlanner(Node):
                                  if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
                 scan_points = [p for p in scan_points
                                if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
-            self.world.update(static_points, scan_points, own, self.grid_free)
+            self.world.update(static_points, scan_points, own,
+                              self.grid_free, self.grid_bounds)
             self.dirty = False
-        intent = self.intent
-        if intent.behavior in (6, 7) and enemy:
+        if intent.behavior == 7 and enemy:
             target = capture_goal(self.world, own, enemy) or Pose2(
                 intent.target.position.x, intent.target.position.y)
         elif intent.has_target:
@@ -219,38 +272,97 @@ class TrajectoryPlanner(Node):
                               own.y - self.search_waypoint.y) < 0.4):
                     self.search_visited.append(own)
                     self.search_waypoint = coverage_target(
-                        self.world, own, self.search_visited)
+                        self.world, own, self.search_visited,
+                        rng=self.rng, tie_seed=self.random_seed)
                 target = self.search_waypoint
             else:
-                target = self.world.frontier(own)
+                target = self.world.frontier(own, tie_seed=self.random_seed)
+        requested_target = target
         target = reachable_target(self.world, own, target,
-                                  explore=intent.behavior == 3)
+                                  explore=intent.behavior == 3,
+                                  tie_seed=self.random_seed + self.recovery_attempt,
+                                  avoid=recovery_avoid)
+        if (target is not None and requested_target is not None and
+                intent.behavior in (2, 4, 6, 7) and
+                hypot(target.x - requested_target.x,
+                      target.y - requested_target.y) > 0.3 and
+                hypot(target.x - own.x, target.y - own.y) <= intent.target_tolerance):
+            target = (self.world.frontier(
+                own, requested_target,
+                tie_seed=self.random_seed + self.recovery_attempt,
+                min_travel=max(0.6, intent.target_tolerance + 0.2),
+                avoid=target) or target)
         if target is None and intent.behavior == 3:
             target = Pose2(own.x, own.y, own.yaw + 1.2)
         if target is None:
             self.publish_empty("NO_TARGET_OR_FRONTIER")
             return
-        if now - self.last_global >= 1.0 or not self.global_path:
+        route = (reusable_route(self.world, own, self.global_path,
+                                self.global_target, target, enemy_future,
+                                intent.opponent_clearance)
+                 if self.route_behavior == intent.behavior else [])
+        if not route:
             route = astar(self.world, own, target, enemy_future,
-                          intent.opponent_clearance, intent.opponent_cost_weight)
+                          intent.opponent_clearance, intent.opponent_cost_weight,
+                          tie_seed=self.random_seed + self.recovery_attempt,
+                          avoid=recovery_avoid)
             if not route:
-                frontier = self.world.frontier(own, target)
+                frontier = (self.world.frontier(
+                    own, target, tie_seed=self.random_seed, min_travel=0.6)
+                    or self.world.frontier(own, target,
+                                           tie_seed=self.random_seed))
                 if frontier:
                     route = astar(self.world, own, frontier, enemy_future,
-                                  intent.opponent_clearance, intent.opponent_cost_weight)
+                                  intent.opponent_clearance, intent.opponent_cost_weight,
+                                  tie_seed=self.random_seed + self.recovery_attempt,
+                                  avoid=recovery_avoid)
             self.global_path = route
-            self.last_global = now
-        if not self.global_path:
-            self.publish_empty("NO_GLOBAL_PATH")
-            return
-        if hypot(own.x - target.x, own.y - target.y) <= intent.target_tolerance:
+            self.global_target = target
+            self.route_behavior = intent.behavior
+        else:
+            self.global_path = route
+        if (self.recovery_goal is not None and self.recovery_origin is not None and
+                (hypot(own.x - self.recovery_origin.x,
+                       own.y - self.recovery_origin.y) >= 0.45 or
+                 hypot(own.x - self.recovery_goal.x,
+                       own.y - self.recovery_goal.y) < 0.06)):
+            self.recovery_goal = None
+        if not self.global_path and self.recovery_goal is None:
+            escape = recovery_heading(self.world, own, enemy,
+                                      intent.opponent_clearance)
+            if escape is not None:
+                self.recovery_goal = Pose2(own.x + 0.2 * cos(escape),
+                                           own.y + 0.2 * sin(escape))
+                self.recovery_origin = own
+            else:
+                self.publish_empty("NO_GLOBAL_PATH")
+                return
+        if self.recovery_goal is not None:
+            local = local_guidance(self.world, own, [self.recovery_goal], enemy,
+                                   intent.opponent_clearance, min_step=0.04)
+            if not local:
+                self.recovery_goal = None
+        elif hypot(own.x - target.x, own.y - target.y) <= intent.target_tolerance:
             local = [own, Pose2(own.x, own.y, target.yaw)]
         else:
-            local = local_rollout(self.world, own, self.global_path, enemy,
-                                  intent.opponent_clearance, intent.opponent_cost_weight,
-                                  max_speed=intent.max_speed,
-                                  opponent_velocity=enemy_velocity)
+            local = local_guidance(self.world, own, self.global_path, enemy,
+                                   intent.opponent_clearance)
         if not local:
+            self.global_path = []
+            escape = recovery_heading(self.world, own, enemy,
+                                      intent.opponent_clearance)
+            if escape is not None:
+                self.recovery_goal = Pose2(own.x + 0.2 * cos(escape),
+                                           own.y + 0.2 * sin(escape))
+                self.recovery_origin = own
+                local = local_guidance(self.world, own, [self.recovery_goal],
+                                       enemy, intent.opponent_clearance,
+                                       min_step=0.04)
+                if not local:
+                    local = [own, Pose2(own.x, own.y, escape)]
+                self.local_pub.publish(make_path(self, local))
+                self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
+                return
             self.local_pub.publish(make_path(self, []))
             self.status_pub.publish(String(data="NO_LOCAL_PATH"))
             return

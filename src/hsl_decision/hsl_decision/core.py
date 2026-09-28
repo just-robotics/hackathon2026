@@ -1,7 +1,7 @@
 """Pure behavior logic; ROS transport lives in node.py."""
 
 from dataclasses import dataclass
-from math import atan2, hypot, pi
+from math import atan2, hypot, pi, sqrt
 
 
 WAIT, STOP, GOAL, EXPLORE, EVADE, SEARCH, PURSUE, CAPTURE = range(8)
@@ -24,6 +24,7 @@ class Observation:
     scan_stamp: float
     map_stamp: float
     allowed: bool
+    opponent_velocity: tuple[float, float] = (0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -62,10 +63,34 @@ def distance_to_polygon(point, flat_vertices):
     return 0.0 if inside else best
 
 
+def intercept_point(guardian, explorer, velocity, pursuer_speed=0.3,
+                    horizon=3.0):
+    """Bounded constant-velocity interception estimate in the map frame."""
+    rx, ry = explorer.x - guardian.x, explorer.y - guardian.y
+    vx, vy = velocity
+    a = vx * vx + vy * vy - pursuer_speed * pursuer_speed
+    b = 2.0 * (rx * vx + ry * vy)
+    c = rx * rx + ry * ry
+    roots = []
+    if abs(a) < 1e-9:
+        if abs(b) > 1e-9:
+            roots.append(-c / b)
+    else:
+        discriminant = b * b - 4.0 * a * c
+        if discriminant >= 0:
+            roots.extend(((-b - sqrt(discriminant)) / (2.0 * a),
+                          (-b + sqrt(discriminant)) / (2.0 * a)))
+    positive = [value for value in roots if value > 0]
+    estimate = min(positive) if positive else hypot(rx, ry) / pursuer_speed
+    lead_time = min(horizon, max(0.0, estimate))
+    return Pose2(explorer.x + vx * lead_time,
+                 explorer.y + vy * lead_time, explorer.yaw)
+
+
 class DecisionPolicy:
     def __init__(self, role, opponent_start, *, own_start=None, pose_timeout=0.5,
                  scan_timeout=1.0, opponent_timeout=1.0, switch_margin=0.15,
-                 min_dwell=0.5, evade_distance=1.5, capture_distance=0.8,
+                 min_dwell=0.5, evade_distance=1.8, capture_distance=0.8,
                  danger_weight=2.0, goal_weight=1.0):
         if role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
@@ -119,26 +144,33 @@ class DecisionPolicy:
                 self.previous = STOP
                 return Decision(STOP, None, 0, 0, 0, 0,
                                 "guardian start area reached")
-            danger = max(0.0, 1.0 - distance / self.evade_distance)
-            scores = {GOAL: self.goal_weight, EVADE: self.danger_weight * danger + 0.35}
+            threat_age = obs.now - obs.opponent_stamp
+            threat_pose = obs.opponent if obs.opponent is not None and threat_age <= 2.0 else None
+            threat_distance = (hypot(threat_pose.x - obs.own.x,
+                                     threat_pose.y - obs.own.y)
+                               if threat_pose is not None else float("inf"))
+            danger = max(0.0, 1.0 - threat_distance / self.evade_distance)
+            scores = {GOAL: self.goal_weight,
+                      EVADE: self.danger_weight * danger + 0.35 +
+                      (0.3 if self.previous == EVADE and threat_pose else 0.0)}
             if obs.map_stamp <= 0:
                 scores[EXPLORE] = self.goal_weight + 0.05
             chosen = self._select(scores, obs.now)
             if chosen == EVADE:
-                dx = obs.own.x - obs.opponent.x
-                dy = obs.own.y - obs.opponent.y
+                dx = obs.own.x - threat_pose.x
+                dy = obs.own.y - threat_pose.y
                 norm = max(hypot(dx, dy), 0.01)
-                target = Pose2(obs.own.x + 1.2 * dx / norm,
-                               obs.own.y + 1.2 * dy / norm,
+                target = Pose2(obs.own.x + 1.5 * dx / norm,
+                               obs.own.y + 1.5 * dy / norm,
                                atan2(dy, dx))
-                result = Decision(EVADE, target, 0.25, 0.50, 0.85, 6.0,
-                                  "opponent within evasion range")
+                result = Decision(EVADE, target, 0.25, 0.65, 1.0, 8.0,
+                                  "escaping guardian along a safe route")
             elif chosen == EXPLORE:
-                result = Decision(EXPLORE, self.goal, 0.35, 0.35, 0.65, 3.0,
+                result = Decision(EXPLORE, self.goal, 0.35, 0.55, 0.65, 3.0,
                                   "map not available")
             else:
-                result = Decision(GOAL, self.goal, 0.35, 0.50, 0.65, 4.0,
-                                  "moving toward guardian start")
+                result = Decision(GOAL, self.goal, 0.35, 0.65, 0.85, 6.0,
+                                  "moving toward guardian start around danger")
         elif not opponent_fresh:
             anchor = obs.opponent if obs.opponent else self.goal
             if self.search_anchor != anchor:
@@ -147,7 +179,7 @@ class DecisionPolicy:
             if hypot(anchor.x - obs.own.x, anchor.y - obs.own.y) <= 0.35:
                 self.search_exploring = True
             result = Decision(SEARCH, None if self.search_exploring else anchor,
-                              0.3, 0.35, 0.0, 0.0,
+                              0.3, 0.55, 0.0, 0.0,
                               "sweeping known free space" if self.search_exploring
                               else "searching last seen position" if obs.opponent
                               else "searching opponent start area")
@@ -162,14 +194,20 @@ class DecisionPolicy:
                 return Decision(STOP, None, 0, 0, 0, 0, "opponent captured")
             scores = {PURSUE: 1.0, CAPTURE: 1.0 + max(0.0, 1.0 - distance / self.capture_distance)}
             chosen = self._select(scores, obs.now)
-            dx = obs.own.x - obs.opponent.x
-            dy = obs.own.y - obs.opponent.y
+            predicted = (intercept_point(obs.own, obs.opponent,
+                                         obs.opponent_velocity)
+                         if chosen == PURSUE else obs.opponent)
+            dx = obs.own.x - predicted.x
+            dy = obs.own.y - predicted.y
             norm = max(hypot(dx, dy), 0.01)
-            target = Pose2(obs.opponent.x + 0.41 * dx / norm,
-                           obs.opponent.y + 0.41 * dy / norm,
+            target = Pose2(predicted.x + 0.42 * dx / norm,
+                           predicted.y + 0.42 * dy / norm,
                            atan2(-dy, -dx))
-            result = Decision(chosen, target, 0.08 if chosen == CAPTURE else 0.25,
-                              0.25 if chosen == CAPTURE else 0.55, 0.0, 0.0,
-                              "orient for capture" if chosen == CAPTURE else "pursuing opponent")
+            approach_speed = min(0.35 if chosen == CAPTURE else 0.65,
+                                 max(0.08, 0.55 * (distance - 0.35)))
+            result = Decision(chosen, target, 0.015 if chosen == CAPTURE else 0.25,
+                              approach_speed, 0.0, 0.0,
+                              "orient for capture" if chosen == CAPTURE else
+                              "intercepting moving opponent")
         self.previous = result.behavior
         return result

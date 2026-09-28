@@ -7,7 +7,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/hsl_decision"]),
         ("share/hsl_decision", ["package.xml"]),
-        ("share/hsl_decision/config", ["config/decision.yaml"]),
+        ("share/hsl_decision/config", ["config/decision.yaml", "config/decision_opponent.yaml"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

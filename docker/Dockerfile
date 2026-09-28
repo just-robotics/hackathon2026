@@ -62,6 +62,7 @@ RUN \
       ros-humble-xacro \
       ros-humble-tf-transformations \
       ros-humble-rosbag2-storage-mcap \
+      ros-humble-rviz2 \
       && rm -rf /var/lib/apt/lists/*
 
 # Gazebo Classic 11. Формально EOL с января 2025, но выбран сознательно:

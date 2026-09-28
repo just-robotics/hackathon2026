@@ -6,3 +6,5 @@ scripts
 *.egg-info
 .vscode
 results/*.json
+results/**/*.json
+results/series-*/

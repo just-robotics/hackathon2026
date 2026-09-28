@@ -2,6 +2,8 @@
 
 from math import atan2, hypot, isfinite, pi, sqrt
 
+from hsl_decision.core import Pose2, distance_to_polygon
+
 
 def timing_summary(values, budget_ms=None):
     if not values:
@@ -31,6 +33,22 @@ def capture_possible(guardian, explorer, grid):
         guardian[:2], explorer[:2], endpoint_radius=0.1)
 
 
+def duel_outcome(first_role, first_pose, second_pose, first_start, second_start, grid):
+    """Return the first geometric result; the caller handles elapsed time."""
+    if first_role == "explorer":
+        explorer, guardian, goal_area = first_pose, second_pose, second_start
+    elif first_role == "guardian":
+        explorer, guardian, goal_area = second_pose, first_pose, first_start
+    else:
+        raise ValueError("first_role must be explorer or guardian")
+    if capture_possible(guardian, explorer, grid):
+        return "guardian_capture"
+    if explorer is not None and distance_to_polygon(
+            Pose2(explorer[0], explorer[1]), goal_area) <= 0.178:
+        return "explorer_goal"
+    return None
+
+
 class RunMetrics:
     def __init__(self, max_speed=0.7):
         self.max_speed = max_speed
@@ -44,6 +62,14 @@ class RunMetrics:
         self.distance_m = 0.0
         self.pose_jumps = 0
         self.moving_s = 0.0
+        self.turning_s = 0.0
+        self.behavior_s = {}
+        self.turning_by_behavior_s = {}
+        self.idle_by_behavior_s = {}
+        self.commanded_motion_s = 0.0
+        self.commanded_while_still_s = 0.0
+        self.planner_status_s = {}
+        self.planner_failure_by_behavior_s = {}
         self.visible_s = 0.0
         self.planner_ok_s = 0.0
         self.accel_squared_s = 0.0
@@ -54,6 +80,7 @@ class RunMetrics:
         self.collisions = 0
         self.wall_collisions = 0
         self.robot_collisions = 0
+        self.collision_points = []
         self.contact_active = False
         self.last_contact_at = float("-inf")
         self.capture_at = None
@@ -93,7 +120,8 @@ class RunMetrics:
         elif name == "command" and self.last_scan_at is not None:
             self.record_timing("scan_to_command_wall", (wall_now - self.last_scan_at) * 1000)
 
-    def sample(self, now, x, y, speed, angular_speed, visible=False, planner_ok=False):
+    def sample(self, now, x, y, speed, angular_speed, visible=False, planner_ok=False,
+               behavior=None, command=None, planner_status=None):
         if not self.active:
             return
         if self.last_sample is not None:
@@ -107,8 +135,32 @@ class RunMetrics:
                 else:
                     self.distance_m += step
                 self.moving_s += dt if speed >= 0.05 else 0.0
+                turning = speed < 0.05 and abs(angular_speed) >= 0.15 and planner_ok
+                self.turning_s += dt if turning else 0.0
+                still = speed < 0.05 and abs(angular_speed) < 0.15
+                if behavior is not None:
+                    self.behavior_s[behavior] = self.behavior_s.get(behavior, 0.0) + dt
+                    if turning:
+                        self.turning_by_behavior_s[behavior] = (
+                            self.turning_by_behavior_s.get(behavior, 0.0) + dt)
+                    if still and planner_ok:
+                        self.idle_by_behavior_s[behavior] = (
+                            self.idle_by_behavior_s.get(behavior, 0.0) + dt)
+                if command is not None:
+                    commanded = abs(command[0]) >= 0.05 or abs(command[1]) >= 0.15
+                    if commanded:
+                        self.commanded_motion_s += dt
+                        if still:
+                            self.commanded_while_still_s += dt
                 self.visible_s += dt if visible else 0.0
                 self.planner_ok_s += dt if planner_ok else 0.0
+                if planner_status is not None:
+                    self.planner_status_s[planner_status] = (
+                        self.planner_status_s.get(planner_status, 0.0) + dt)
+                    if not planner_ok and behavior is not None:
+                        key = f"{behavior}:{planner_status}"
+                        self.planner_failure_by_behavior_s[key] = (
+                            self.planner_failure_by_behavior_s.get(key, 0.0) + dt)
                 acceleration = (speed - last_speed) / dt
                 angular_acceleration = (angular_speed - last_angular) / dt
                 self.accel_squared_s += acceleration ** 2 * dt
@@ -124,7 +176,7 @@ class RunMetrics:
             self.moving = False
         self.last_sample = (now, x, y, speed, angular_speed)
 
-    def contact(self, now, kind=None):
+    def contact(self, now, kind=None, position=None):
         """Count a new body impact after separation, with a debounce window."""
         if not self.active:
             return
@@ -137,6 +189,13 @@ class RunMetrics:
                 self.robot_collisions += 1
             else:
                 self.wall_collisions += 1
+            if position is not None and len(self.collision_points) < 50:
+                self.collision_points.append({
+                    "at_s": round(now - self.started_at, 2),
+                    "x": round(position[0], 3),
+                    "y": round(position[1], 3),
+                    "kind": kind,
+                })
             self.last_contact_at = now
         self.contact_active = True
 
@@ -164,6 +223,32 @@ class RunMetrics:
             "speed_utilization": round(mean_speed / self.max_speed, 3),
             "max_reference_speed_mps": self.max_speed,
             "moving_fraction": round(self.moving_s / elapsed, 3) if elapsed else 0.0,
+            "turning_fraction": round(self.turning_s / elapsed, 3) if elapsed else 0.0,
+            "active_motion_fraction": round((self.moving_s + self.turning_s) / elapsed, 3)
+            if elapsed else 0.0,
+            "behavior_fraction": {str(key): round(value / elapsed, 3)
+                                  for key, value in sorted(self.behavior_s.items())}
+            if elapsed else {},
+            "turning_by_behavior_fraction": {
+                str(key): round(value / elapsed, 3)
+                for key, value in sorted(self.turning_by_behavior_s.items())}
+            if elapsed else {},
+            "idle_by_behavior_fraction": {
+                str(key): round(value / elapsed, 3)
+                for key, value in sorted(self.idle_by_behavior_s.items())}
+            if elapsed else {},
+            "commanded_motion_fraction": round(self.commanded_motion_s / elapsed, 3)
+            if elapsed else 0.0,
+            "commanded_while_still_fraction": round(
+                self.commanded_while_still_s / elapsed, 3) if elapsed else 0.0,
+            "planner_status_fraction": {
+                key: round(value / elapsed, 3)
+                for key, value in sorted(self.planner_status_s.items())}
+            if elapsed else {},
+            "planner_failure_by_behavior_fraction": {
+                key: round(value / elapsed, 3)
+                for key, value in sorted(self.planner_failure_by_behavior_s.items())}
+            if elapsed else {},
             "linear_accel_rms_mps2": round(sqrt(self.accel_squared_s / self.accel_time_s), 3)
             if self.accel_time_s else 0.0,
             "angular_accel_rms_radps2": round(sqrt(self.angular_accel_squared_s / self.accel_time_s), 3)
@@ -172,6 +257,7 @@ class RunMetrics:
             "collisions": self.collisions,
             "wall_collisions": self.wall_collisions,
             "robot_collisions": self.robot_collisions,
+            "collision_points": self.collision_points,
             "opponent_visible_fraction": round(self.visible_s / elapsed, 3) if elapsed else 0.0,
             "planner_ok_fraction": round(self.planner_ok_s / elapsed, 3) if elapsed else 0.0,
             "capture_at_s": round(self.capture_at - self.started_at, 2)
