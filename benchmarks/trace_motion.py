@@ -12,7 +12,8 @@ from geometry_msgs.msg import Twist
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
-from std_msgs.msg import Float64, String
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import Bool, Float64, String
 
 
 def main():
@@ -26,6 +27,9 @@ def main():
     latest = {}
     samples = Counter()
     sums = Counter()
+    path_lengths = []
+    path_errors = []
+    clipped_errors = []
     subscriptions = []
 
     def remember(name):
@@ -34,6 +38,8 @@ def main():
     def on_path(message):
         previous = latest.get("path")
         latest["path"] = (message, time.monotonic())
+        if not latest.get("allowed", False):
+            return
         if not previous or len(message.poses) < 2 or len(previous[0].poses) < 2:
             return
         first = message.poses[0].pose.position
@@ -53,6 +59,8 @@ def main():
             samples["rotation_target_flips"] += 1
 
     def on_global_path(message):
+        if not latest.get("allowed", False):
+            return
         pose = latest.get("pose")
         if not pose or not message.poses:
             return
@@ -81,11 +89,17 @@ def main():
         subscriptions.append(node.create_subscription(
             kind, prefix + "/" + topic, remember(name), 10))
     subscriptions.append(node.create_subscription(
+        Bool, prefix + "/match/allowed",
+        lambda message: latest.__setitem__("allowed", message.data),
+        QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+    subscriptions.append(node.create_subscription(
         Path, prefix + "/navigation/local_path", on_path, 10))
     subscriptions.append(node.create_subscription(
         Path, prefix + "/navigation/global_path", on_global_path, 10))
 
     def on_command(message):
+        if not latest.get("allowed", False):
+            return
         now = time.monotonic()
         samples["total"] += 1
         sums["cmd_linear"] += message.linear.x
@@ -99,6 +113,21 @@ def main():
         path = latest.get("path")
         mpc = latest.get("mpc")
         status = latest.get("status")
+        if path and len(path[0].poses) >= 2:
+            first = path[0].poses[0].pose.position
+            last = path[0].poses[-1].pose.position
+            length = hypot(last.x - first.x, last.y - first.y)
+            path_lengths.append(length)
+            pose = latest.get("pose")
+            if pose and length >= 0.02:
+                q = pose[0].pose.pose.orientation
+                own_yaw = atan2(2 * (q.w * q.z + q.x * q.y),
+                                1 - 2 * (q.y * q.y + q.z * q.z))
+                error = abs((atan2(last.y - first.y, last.x - first.x) -
+                             own_yaw + pi) % (2 * pi) - pi)
+                path_errors.append(error)
+                if message.linear.x <= 0.02 and mpc and mpc[0].linear.x > 0.02:
+                    clipped_errors.append(error)
         if not intent or now - intent[1] > 1.0 or intent[0].behavior in (0, 1):
             reason = "intent_wait_stop_stale"
         elif not path or now - path[1] > 1.0 or not path[0].poses:
@@ -137,12 +166,24 @@ def main():
     while time.monotonic() < deadline:
         rclpy.spin_once(node, timeout_sec=0.2)
     total = max(1, samples["total"])
+    def percentile(values, fraction):
+        if not values:
+            return None
+        ordered = sorted(values)
+        return round(ordered[min(len(ordered) - 1,
+                                 int(fraction * (len(ordered) - 1)))], 3)
+
     report = {"namespace": prefix or "/", "wall_seconds": args.wall_seconds,
               "counts": dict(samples),
               "fractions": {key: round(value / total, 3)
                             for key, value in samples.items() if key != "total"},
               "mean_cmd_linear": round(sums["cmd_linear"] / total, 3),
               "mean_cmd_angular_abs": round(sums["cmd_angular_abs"] / total, 3),
+              "path_length_median_m": percentile(path_lengths, 0.5),
+              "path_length_p90_m": percentile(path_lengths, 0.9),
+              "path_heading_error_median_rad": percentile(path_errors, 0.5),
+              "path_heading_error_p90_rad": percentile(path_errors, 0.9),
+              "gate_clipped_heading_error_median_rad": percentile(clipped_errors, 0.5),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
               "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}
     print(json.dumps(report, indent=2, sort_keys=True))
