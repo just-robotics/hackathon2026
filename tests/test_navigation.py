@@ -17,7 +17,7 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                local_guidance, local_rollout, reachable_target,
                                reachable_intercept,
                                recovery_heading, recovery_step,
-                               reusable_local_guidance, reusable_route)
+                               reusable_local_guidance, reusable_route, safe_segment)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, opponent_visible
@@ -194,7 +194,7 @@ class PlanningTests(unittest.TestCase):
 
     def test_curve_requires_tracking_room_beside_wall(self):
         world = VoxelWorld(0.1, 0.2)
-        wall = [(x * 0.1, -0.35, 0.3) for x in range(0, 17)]
+        wall = [(x * 0.1, 0.35, 0.3) for x in range(0, 17)]
         world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
         own = Pose2(0, 0, 0.7)
         straight = local_guidance(world, own, [Pose2(1.5, 0)])
@@ -211,9 +211,17 @@ class PlanningTests(unittest.TestCase):
         self.assertNotEqual(revised, blocked_prediction)
         self.assertLess(revised.x, 1.0)
         self.assertTrue(world.inside_map(revised.x, revised.y, 0.3))
-        visible_prediction = Pose2(0.7, 0.1)
+        visible_prediction = Pose2(0.65, 0.1)
         self.assertEqual(reachable_intercept(world, own, opponent,
                                              visible_prediction), visible_prediction)
+
+    def test_local_path_must_increase_clearance_if_already_near_wall(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(x * 0.1, 0.27, 0.3) for x in range(16)]
+        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0)
+        self.assertFalse(safe_segment(world, own, Pose2(1, 0)))
+        self.assertTrue(safe_segment(world, own, Pose2(0.3, -0.3)))
 
     def test_local_guidance_does_not_cut_wall_and_recovery_turns_inward(self):
         world = VoxelWorld(0.1, 0.2)

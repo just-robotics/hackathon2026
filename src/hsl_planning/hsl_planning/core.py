@@ -379,13 +379,19 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0):
         y = start.y + fraction * (end.y - start.y)
         wall = world.obstacle_clearance(x, y)
         map_margin = world.map_clearance(x, y)
-        required = world.robot_radius + 0.07
-        if (wall < required and
-                (initial_wall >= required or wall < initial_wall - 0.01)):
-            return False
-        if (map_margin < required and
-                (initial_map >= required or map_margin < initial_map - 0.01)):
-            return False
+        required = world.robot_radius + 0.12
+        travel = hypot(x - start.x, y - start.y)
+        # A path beginning too close to a wall must actually leave it. Merely
+        # holding the same small clearance allowed MPC tracking error to scrape
+        # along a wall until physical contact.
+        if wall < required:
+            gain = min(0.04, 0.15 * travel)
+            if initial_wall >= required or wall + 0.005 < initial_wall + gain:
+                return False
+        if map_margin < required:
+            gain = min(0.04, 0.15 * travel)
+            if initial_map >= required or map_margin + 0.005 < initial_map + gain:
+                return False
         if (world.blocked(x, y) and
                 hypot(x - start.x, y - start.y) > 0.25):
             return False
