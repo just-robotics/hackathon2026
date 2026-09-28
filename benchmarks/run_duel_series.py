@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 from collections import Counter
@@ -129,6 +130,35 @@ def finish_traces(traces):
             output.close()
 
 
+def start_probes(series_dir, index, status, env):
+    command(["docker", "cp", str(ROOT / "benchmarks" / "planner_probe.py"),
+             "docker-hsl-adapter-1:/tmp/hsl_planner_probe.py"], env, timeout=15)
+    probes = []
+    for role, namespace in (("first", ""), ("second", " --namespace opponent")):
+        destination = series_dir / f"{index:02d}-probe-{role}.json"
+        output = destination.open("w")
+        script = ("source /autoware/install/setup.bash && python3 "
+                  f"/tmp/hsl_planner_probe.py --on-status {status} --wait-s 1200" +
+                  namespace)
+        process = subprocess.Popen(
+            ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
+            cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
+        probes.append((process, output, destination))
+    return probes
+
+
+def finish_probes(probes):
+    for process, output, _ in probes:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        output.close()
+
+
 def summary(runs):
     complete = [run for run in runs if "outcome" in run]
     counts = Counter(run["outcome"]["event"] for run in complete)
@@ -176,10 +206,14 @@ def main():
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--trace", action="store_true",
                         help="record active cmd/path diagnostics for each robot")
+    parser.add_argument("--probe-status", default="",
+                        help="save the first planner snapshot with this status")
     parser.add_argument("--scenario", type=int, choices=SCENARIOS, default=1)
     args = parser.parse_args()
     if args.runs < 1 or args.active_s <= 0:
         parser.error("runs and active-s must be positive")
+    if args.probe_status and not re.fullmatch(r"[A-Z_]+", args.probe_status):
+        parser.error("probe-status must be an uppercase planner status")
     series_id = datetime.now(timezone.utc).strftime("series-%Y%m%dT%H%M%SZ")
     series_dir = RESULTS / series_id
     series_dir.mkdir(parents=True, exist_ok=True)
@@ -207,6 +241,7 @@ def main():
         print(f"[{index + 1}/{args.runs}] {run_id} "
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []
+        probes = []
         try:
             for attempt in range(3):
                 suffix = f"{index:02d}" if attempt == 0 else f"{index:02d}-retry{attempt}"
@@ -222,6 +257,8 @@ def main():
                         raise
             if args.trace:
                 traces = start_traces(series_dir, index, env)
+            if args.probe_status:
+                probes = start_probes(series_dir, index, args.probe_status, env)
             command(["helm", "start_match"], env, timeout=45,
                     log=series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
@@ -252,6 +289,8 @@ def main():
         finally:
             if traces:
                 finish_traces(traces)
+            if probes:
+                finish_probes(probes)
         runs.append(record)
         (series_dir / "index.json").write_text(json.dumps(
             runs, indent=2, sort_keys=True) + "\n")

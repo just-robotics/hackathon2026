@@ -1,6 +1,6 @@
 import sys
 import unittest
-from math import cos, hypot
+from math import cos, hypot, pi, sin
 from pathlib import Path
 
 
@@ -14,7 +14,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                distance_to_polygon, intercept_point)
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
                                local_guidance, local_rollout, reachable_target,
-                               recovery_heading, reusable_route)
+                               recovery_heading, recovery_step, reusable_route)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, opponent_visible
@@ -155,6 +155,19 @@ class PlanningTests(unittest.TestCase):
         self.assertIsNotNone(recovery_heading(world, Pose2(0, 0)))
         self.assertTrue(local_guidance(world, Pose2(0, 0),
                                        [Pose2(0.09, 0)], min_step=0.04))
+
+    def test_recovery_uses_the_length_it_actually_checked(self):
+        world = VoxelWorld(0.1, 0.2)
+        walls = [(x, y, 0.3) for x, y in
+                 ((0.28, 0), (-0.43, 0), (0, 0.28), (0, -0.28))]
+        world.update(walls, [], None, map_bounds=(-1, -1, 1, 1))
+        own = Pose2(0, 0, pi)
+        step = recovery_step(world, own)
+        self.assertIsNotNone(step)
+        heading, length = step
+        self.assertLessEqual(length, 0.15)
+        target = Pose2(length * cos(heading), length * sin(heading))
+        self.assertTrue(local_guidance(world, own, [target], min_step=0.04))
 
     def test_3d_projection_ignores_ground_but_blocks_robot_height(self):
         world = VoxelWorld(0.1, 0.2)

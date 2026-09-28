@@ -15,7 +15,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32, String
 
 from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
-                   local_guidance, reachable_target, recovery_heading, reusable_route)
+                   local_guidance, reachable_target, recovery_step, reusable_route)
 
 
 def seconds(stamp):
@@ -227,10 +227,10 @@ class TrajectoryPlanner(Node):
             self.recovery_until = now + 8.0
             self.recovery_attempt += 1
             self.global_path = []
-            heading = recovery_heading(self.world, own)
-            self.recovery_goal = (Pose2(own.x + 0.6 * cos(heading),
-                                        own.y + 0.6 * sin(heading))
-                                  if heading is not None else None)
+            step = recovery_step(self.world, own)
+            self.recovery_goal = (Pose2(own.x + step[1] * cos(step[0]),
+                                        own.y + step[1] * sin(step[0]))
+                                  if step else None)
             self.recovery_origin = own
             self.progress_pose = own
             self.progress_since = now
@@ -328,11 +328,11 @@ class TrajectoryPlanner(Node):
                        own.y - self.recovery_goal.y) < 0.06)):
             self.recovery_goal = None
         if not self.global_path and self.recovery_goal is None:
-            escape = recovery_heading(self.world, own, enemy,
-                                      intent.opponent_clearance)
-            if escape is not None:
-                self.recovery_goal = Pose2(own.x + 0.2 * cos(escape),
-                                           own.y + 0.2 * sin(escape))
+            step = recovery_step(self.world, own, enemy,
+                                 intent.opponent_clearance)
+            if step:
+                self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
+                                           own.y + step[1] * sin(step[0]))
                 self.recovery_origin = own
             else:
                 self.publish_empty("NO_GLOBAL_PATH")
@@ -349,17 +349,17 @@ class TrajectoryPlanner(Node):
                                    intent.opponent_clearance)
         if not local:
             self.global_path = []
-            escape = recovery_heading(self.world, own, enemy,
-                                      intent.opponent_clearance)
-            if escape is not None:
-                self.recovery_goal = Pose2(own.x + 0.2 * cos(escape),
-                                           own.y + 0.2 * sin(escape))
+            step = recovery_step(self.world, own, enemy,
+                                 intent.opponent_clearance)
+            if step:
+                self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
+                                           own.y + step[1] * sin(step[0]))
                 self.recovery_origin = own
                 local = local_guidance(self.world, own, [self.recovery_goal],
                                        enemy, intent.opponent_clearance,
                                        min_step=0.04)
                 if not local:
-                    local = [own, Pose2(own.x, own.y, escape)]
+                    local = [own, Pose2(own.x, own.y, step[0])]
                 self.local_pub.publish(make_path(self, local))
                 self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
                 return

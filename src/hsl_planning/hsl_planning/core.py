@@ -405,10 +405,10 @@ def local_guidance(world, own, route, opponent=None, clearance=0.0,
                     for i in range(1, steps + 1)]
 
 
-def recovery_heading(world, own, opponent=None, clearance=0.0):
+def recovery_step(world, own, opponent=None, clearance=0.0):
     """Find a safe escape direction when the nominal corridor cannot be entered."""
     options = []
-    for length in (0.55, 0.3, 0.2):
+    for length in (0.55, 0.3, 0.2, 0.15, 0.1):
         for index in range(24):
             yaw = -pi + 2 * pi * index / 24
             endpoint = Pose2(own.x + length * cos(yaw),
@@ -417,10 +417,15 @@ def recovery_heading(world, own, opponent=None, clearance=0.0):
                 wall = world.obstacle_clearance(endpoint.x, endpoint.y)
                 map_margin = world.map_clearance(endpoint.x, endpoint.y)
                 options.append((min(wall, 0.6) + min(map_margin, 0.6) -
-                                0.05 * abs(angle_error(yaw, own.yaw)), yaw))
+                                0.05 * abs(angle_error(yaw, own.yaw)), yaw, length))
         if options:
             break
-    return max(options)[1] if options else None
+    return max(options)[1:] if options else None
+
+
+def recovery_heading(world, own, opponent=None, clearance=0.0):
+    step = recovery_step(world, own, opponent, clearance)
+    return step[0] if step else None
 
 
 def local_rollout(world, own, global_path, opponent=None, clearance=0.0,
