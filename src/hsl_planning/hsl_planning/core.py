@@ -295,6 +295,16 @@ def capture_goal(world, own, opponent):
     return min(options, key=lambda pair: pair[0])[1] if options else None
 
 
+def reachable_intercept(world, own, opponent, predicted):
+    """Do not pursue an extrapolation that runs through a known wall."""
+    if (predicted is not None and
+            world.inside_map(predicted.x, predicted.y, world.robot_radius + 0.07) and
+            not world.blocked(predicted.x, predicted.y) and
+            safe_segment(world, opponent, predicted)):
+        return predicted
+    return capture_goal(world, own, opponent) or predicted
+
+
 def reachable_target(world, own, target, explore=False, tie_seed=0,
                      avoid=None):
     """Stay inside observed free space until the intended destination is visible."""

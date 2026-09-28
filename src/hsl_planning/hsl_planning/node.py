@@ -16,6 +16,7 @@ from std_msgs.msg import Float32, String
 
 from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
                    curved_guidance,
+                   reachable_intercept,
                    local_guidance, reachable_target, recovery_step,
                    reusable_local_guidance, reusable_route)
 
@@ -271,6 +272,8 @@ class TrajectoryPlanner(Node):
             q = intent.target.orientation
             target = Pose2(intent.target.position.x, intent.target.position.y,
                            atan2(2 * q.w * q.z, 1 - 2 * q.z * q.z))
+            if intent.behavior == 6 and enemy:
+                target = reachable_intercept(self.world, own, enemy, target)
         else:
             if intent.behavior == 5:
                 if (self.search_waypoint is None or

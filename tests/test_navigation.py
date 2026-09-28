@@ -15,6 +15,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
                                curved_guidance,
                                local_guidance, local_rollout, reachable_target,
+                               reachable_intercept,
                                recovery_heading, recovery_step,
                                reusable_local_guidance, reusable_route)
 from hsl_sim_adapter.cloud import transform
@@ -188,6 +189,20 @@ class PlanningTests(unittest.TestCase):
         straight = local_guidance(world, own, [Pose2(1.5, 0)])
         self.assertTrue(straight)
         self.assertEqual(curved_guidance(world, own, straight), straight)
+
+    def test_guardian_does_not_chase_prediction_through_wall(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(1.0, y * 0.1, 0.3) for y in range(-10, 11)]
+        world.update(wall, [], None, map_bounds=(-1, -2, 2, 2))
+        own, opponent = Pose2(0, 0), Pose2(0.55, 0)
+        blocked_prediction = Pose2(1.4, 0)
+        revised = reachable_intercept(world, own, opponent, blocked_prediction)
+        self.assertNotEqual(revised, blocked_prediction)
+        self.assertLess(revised.x, 1.0)
+        self.assertTrue(world.inside_map(revised.x, revised.y, 0.3))
+        visible_prediction = Pose2(0.7, 0.1)
+        self.assertEqual(reachable_intercept(world, own, opponent,
+                                             visible_prediction), visible_prediction)
 
     def test_local_guidance_does_not_cut_wall_and_recovery_turns_inward(self):
         world = VoxelWorld(0.1, 0.2)
