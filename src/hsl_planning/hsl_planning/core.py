@@ -462,7 +462,7 @@ def circle_segment_intersection(start, end, radius):
 def regulated_pure_pursuit_guidance(world, own, route, speed=0.0,
                                     opponent=None, clearance=0.0,
                                     lookahead_time=1.5,
-                                    min_lookahead=0.5,
+                                    min_lookahead=0.8,
                                     max_lookahead=1.3,
                                     max_curvature=2.6,
                                     safety_margin=0.12,

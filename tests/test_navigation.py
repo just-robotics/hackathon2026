@@ -178,9 +178,25 @@ class PlanningTests(unittest.TestCase):
         route = [Pose2(index * 0.1, 0) for index in range(31)]
         slow = regulated_pure_pursuit_guidance(world, Pose2(0, 0), route, 0.2)
         fast = regulated_pure_pursuit_guidance(world, Pose2(0, 0), route, 0.6)
-        self.assertAlmostEqual(slow[-1].x, 0.5, places=6)
+        self.assertAlmostEqual(slow[-1].x, 0.8, places=6)
         self.assertAlmostEqual(fast[-1].x, 0.9, places=6)
         self.assertTrue(all(abs(point.y) < 1e-8 for point in fast))
+
+    def test_rpp_minimum_lookahead_accepts_a_smooth_moderate_turn(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([], [], None, map_bounds=(-2, -2, 3, 3))
+        heading = 1.2
+        route = [Pose2(0, 0)] + [
+            Pose2(index * 0.1 * cos(heading), index * 0.1 * sin(heading))
+            for index in range(1, 31)]
+        diagnostics = {}
+        path = regulated_pure_pursuit_guidance(
+            world, Pose2(0, 0, 0), route, 0.2, diagnostics=diagnostics)
+        self.assertGreater(len(path), 5)
+        self.assertLess(path_heading_error(Pose2(0, 0, 0), path), 0.5)
+        self.assertLessEqual(diagnostics["rpp_curvature_1pm"], 2.6)
+        self.assertTrue(all(safe_segment(world, first, second)
+                            for first, second in zip(path, path[1:])))
 
     def test_rpp_guidance_emits_a_smooth_checked_arc_tangent_to_robot_heading(self):
         world = VoxelWorld(0.1, 0.2)
