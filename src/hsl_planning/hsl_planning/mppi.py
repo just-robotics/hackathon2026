@@ -89,6 +89,18 @@ def _point_at_progress(route, progress):
             ay[indices] + fraction * dy[indices])
 
 
+def _initial_path_angle_errors(own, xs, ys, lookahead_steps=3):
+    """Estimate the published Path's initial tangent error seen by the MPC gate."""
+    lookahead = min(max(1, int(lookahead_steps)), xs.shape[1] - 1)
+    dx = xs[:, lookahead] - own.x
+    dy = ys[:, lookahead] - own.y
+    short = np.hypot(dx, dy) < 0.02
+    dx = np.where(short, xs[:, -1] - own.x, dx)
+    dy = np.where(short, ys[:, -1] - own.y, dy)
+    tangent = np.arctan2(dy, dx)
+    return np.abs((tangent - own.yaw + pi) % (2 * pi) - pi)
+
+
 def _clearance_batch(world, x, y):
     """Conservative obstacle clearance for sampled centres."""
     if world.obstacle_tree is not None:
@@ -228,6 +240,9 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
     follow_distance = np.hypot(xs[:, -1] - target_x, ys[:, -1] - target_y)
     _, _, route_yaw = _project_batch(xs[:, -1], ys[:, -1], route)
     yaw_error = np.abs((yaws[:, -1] - route_yaw + pi) % (2 * pi) - pi)
+    initial_path_angle_error = _initial_path_angle_errors(own, xs, ys)
+    initial_path_angle_cost = np.square(
+        np.maximum(0.0, initial_path_angle_error - 0.65))
 
     # Match Nav2's PathAlign/PathFollow/PathAngle critics and MPPI's control
     # perturbation term. Add a small sequence smoothness cost for this planner's
@@ -239,7 +254,8 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
                   if not path_alignment_enabled else 0.0)
     costs = (align_weight * path_deviation + follow_weight * follow_distance +
              -progress_weight * furthest_progress +
-             1.2 * yaw_error + 4.0 * obstacle_cost + 0.5 * unknown_cost +
+             1.2 * yaw_error + 8.0 * initial_path_angle_cost +
+             4.0 * obstacle_cost + 0.5 * unknown_cost +
              stall_cost)
     dv = np.diff(velocities, axis=1)
     dw = np.diff(omegas, axis=1)
@@ -255,6 +271,8 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
         "path_deviation": float(np.min(path_deviation[valid])) if np.any(valid) else None,
         "obstacle_cost": float(np.min(obstacle_cost[valid])) if np.any(valid) else None,
         "furthest_progress": float(np.max(furthest_progress[valid])) if np.any(valid) else 0.0,
+        "initial_path_angle_error": float(
+            np.median(initial_path_angle_error[valid])) if np.any(valid) else None,
         "path_align_enabled": bool(path_alignment_enabled),
     }
     return costs, valid, xs, ys, yaws, details

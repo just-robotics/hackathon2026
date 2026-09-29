@@ -21,7 +21,8 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                recovery_step, turn_alignment_is_progress,
                                reusable_route, safe_segment,
                                smooth_intercept_target)
-from hsl_planning.mppi import _pruned_route, mppi_local_guidance
+from hsl_planning.mppi import (_initial_path_angle_errors, _pruned_route,
+                               mppi_local_guidance)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, detect_opponent
@@ -194,6 +195,21 @@ class PlanningTests(unittest.TestCase):
         pruned = _pruned_route(Pose2(0, 0.08), route)
         self.assertIsNotNone(pruned)
         self.assertGreater(pruned[2][0], 0.0)
+
+    def test_mppi_initial_path_angle_critic_prefers_gentle_forward_arc(self):
+        own = Pose2(0.0, 0.0, 0.0)
+        xs = np.array([[0.0, 0.1, 0.2, 0.3],
+                       [0.0, 0.05, 0.08, 0.1],
+                       [0.0, 0.0, 0.0, 0.0]])
+        ys = np.array([[0.0, 0.0, 0.0, 0.0],
+                       [0.0, 0.04, 0.09, 0.15],
+                       [0.0, 0.0, 0.0, 0.0]])
+
+        errors = _initial_path_angle_errors(own, xs, ys)
+
+        self.assertAlmostEqual(errors[0], 0.0)
+        self.assertGreater(errors[1], 0.9)
+        self.assertAlmostEqual(errors[2], 0.0)
 
     def test_nav2_mppi_local_path_follows_astar_detour_around_new_obstacle(self):
         world = VoxelWorld(0.1, 0.22)

@@ -12,7 +12,9 @@ from geometry_msgs.msg import Twist
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.qos import (DurabilityPolicy, QoSProfile,
+                       qos_profile_sensor_data)
+from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Bool, Float64, String
 
 
@@ -38,15 +40,20 @@ def main():
     published_chord_errors = []
     global_lengths = []
     clipped_errors = []
+    gate_clipped_tangent_errors = []
     opponent_position_errors = []
     subscriptions = []
 
     def remember(name):
-        return lambda message: latest.__setitem__(name, (message, time.monotonic()))
+        def callback(message):
+            latest[name] = (message, time.monotonic(),
+                            node.get_clock().now().nanoseconds * 1e-9)
+        return callback
 
     def on_path(message):
         previous = latest.get("path")
-        latest["path"] = (message, time.monotonic())
+        latest["path"] = (message, time.monotonic(),
+                           node.get_clock().now().nanoseconds * 1e-9)
         if not latest.get("allowed", False):
             return
         samples["path_updates"] += 1
@@ -146,6 +153,9 @@ def main():
     ):
         subscriptions.append(node.create_subscription(
             kind, prefix + "/" + topic, remember(name), 10))
+    subscriptions.append(node.create_subscription(
+        PointCloud2, prefix + "/navigation/scan", remember("scan"),
+        qos_profile_sensor_data))
     def on_allowed(message):
         latest["allowed"] = message.data
         if message.data:
@@ -249,7 +259,37 @@ def main():
             elif not mpc or now - mpc[1] > 0.5 or mpc[0].linear.x <= 0.02:
                 reason = "mpc_zero_or_stale"
             else:
-                reason = "gate_clipped"
+                sim_now = node.get_clock().now().nanoseconds * 1e-9
+                if not pose or sim_now - pose[2] > 1.2:
+                    reason = "gate_stale_pose"
+                elif not latest.get("scan") or sim_now - latest["scan"][2] > 1.8:
+                    reason = "gate_stale_scan"
+                elif sim_now - path[2] > 1.0:
+                    reason = "gate_stale_path"
+                elif sim_now - intent[2] > 1.0:
+                    reason = "gate_stale_intent"
+                else:
+                    reason = "gate_clipped"
+                    if pose and len(path[0].poses) >= 2:
+                        p = pose[0].pose.pose.position
+                        q = pose[0].pose.pose.orientation
+                        own_yaw = atan2(2 * (q.w * q.z + q.x * q.y),
+                                        1 - 2 * (q.y * q.y + q.z * q.z))
+                        points = [item.pose.position for item in path[0].poses]
+                        nearest = min(range(len(points)), key=lambda i:
+                                      hypot(points[i].x - p.x,
+                                            points[i].y - p.y))
+                        before = points[max(0, nearest - 2)]
+                        after = points[min(len(points) - 1, nearest + 3)]
+                        if hypot(after.x - before.x,
+                                 after.y - before.y) >= 0.02:
+                            tangent = atan2(after.y - before.y,
+                                            after.x - before.x)
+                            error = abs((tangent - own_yaw + pi) % (2 * pi) - pi)
+                            gate_clipped_tangent_errors.append(error)
+                            samples["gate_tangent_over_0_75"] += error > 0.75
+                            samples["gate_tangent_over_1_0"] += error > 1.0
+                            samples["gate_tangent_over_1_2"] += error > 1.2
         samples[reason] += 1
         if status:
             samples["zero_status_" + status[0].data] += 1
@@ -291,6 +331,10 @@ def main():
               "published_chord_error_median_rad": percentile(
                   published_chord_errors, 0.5),
               "gate_clipped_heading_error_median_rad": percentile(clipped_errors, 0.5),
+              "gate_clipped_tangent_error_median_rad": percentile(
+                  gate_clipped_tangent_errors, 0.5),
+              "gate_clipped_tangent_error_p90_rad": percentile(
+                  gate_clipped_tangent_errors, 0.9),
               "opponent_position_error_count": len(opponent_position_errors),
               "opponent_position_error_median_m": percentile(
                   opponent_position_errors, 0.5),
