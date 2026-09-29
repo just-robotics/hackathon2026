@@ -241,6 +241,22 @@ class PlanningTests(unittest.TestCase):
                      [], None, map_bounds=(-1, -1, 3, 2))
         self.assertFalse(route_curve_guidance(world, own, route, straight))
 
+    def test_route_curve_can_replace_a_long_misaligned_chord(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(1.2, y * 0.1, 0.3) for y in range(-15, 3)]
+        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0)
+        route = [Pose2(0.3, 0.3), Pose2(0.6, 0.6),
+                 Pose2(0.9, 0.9), Pose2(1.2, 1.2),
+                 Pose2(1.5, 1.2), Pose2(1.8, 1.2)]
+        straight = local_guidance(world, own, route)
+        self.assertGreater(hypot(straight[-1].x, straight[-1].y), 0.75)
+        curve = route_curve_guidance(world, own, route, straight)
+        self.assertNotEqual(curve, straight)
+        self.assertGreaterEqual(curve[-1].x, 1.0)
+        self.assertTrue(all(safe_segment(world, a, b)
+                            for a, b in zip(curve, curve[1:])))
+
     def test_route_curve_retries_a_different_handle_after_clearance_failure(self):
         world = VoxelWorld(0.1, 0.2)
         world.update([(0.5, -0.2, 0.3)], [], None,

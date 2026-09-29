@@ -516,7 +516,11 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
         return []
     visible = straight[-1]
     visible_distance = hypot(visible.x - own.x, visible.y - own.y)
-    if visible_distance >= 0.75:
+    visible_heading = atan2(visible.y - own.y, visible.x - own.x)
+    heading_error = abs(angle_error(visible_heading, own.yaw))
+    # A long collision-free chord can still force the controller to rotate
+    # in place. Try the next route bend first when its chord is poorly aligned.
+    if visible_distance >= 0.75 and heading_error < 0.65:
         return []
     near = min(range(len(route)), key=lambda i: hypot(route[i].x - visible.x,
                                                        route[i].y - visible.y))
