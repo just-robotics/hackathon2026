@@ -37,7 +37,7 @@ class DecisionManager(Node):
             "opponent_timeout": 1.0, "switch_margin": 0.15,
             "min_dwell": 0.5, "evade_distance": 1.8,
             "capture_distance": 0.8, "danger_weight": 2.0,
-            "goal_weight": 1.0, "evade_target_distance": 1.5,
+            "goal_weight": 1.0,
         }
         for key, value in defaults.items():
             self.declare_parameter(key, value)

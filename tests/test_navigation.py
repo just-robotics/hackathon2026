@@ -47,8 +47,9 @@ class DecisionTests(unittest.TestCase):
         close = self.observation(opponent=DecisionPose(0.3, 0))
         result = policy.step(close)
         self.assertEqual(result.behavior, EVADE)
-        self.assertLess(result.target.x, 0)
-        self.assertAlmostEqual(hypot(result.target.x, result.target.y), 1.5)
+        self.assertEqual(result.target, policy.goal)
+        self.assertEqual(result.opponent_clearance, 1.0)
+        self.assertEqual(result.opponent_cost_weight, 8.0)
         far = self.observation(now=12, opponent=DecisionPose(3, 0))
         self.assertEqual(policy.step(far).behavior, GOAL)
 
@@ -56,7 +57,7 @@ class DecisionTests(unittest.TestCase):
         policy = DecisionPolicy("explorer", self.area)
         first = policy.step(self.observation(opponent=DecisionPose(0.8, 0)))
         self.assertEqual(first.behavior, EVADE)
-        self.assertLess(first.target.x, 0)
+        self.assertEqual(first.target, policy.goal)
         self.assertEqual(policy.step(
             self.observation(now=12, opponent=DecisionPose(1.35, 0))).behavior,
             EVADE)
@@ -415,6 +416,23 @@ class PlanningTests(unittest.TestCase):
         distances = [hypot(point.x - 0.4, point.y) for point in route]
         self.assertTrue(all(later > earlier for earlier, later in
                             zip(distances, distances[1:]) if earlier < 0.65))
+
+    def test_astar_escapes_threat_then_continues_to_the_goal(self):
+        world = VoxelWorld(0.1, 0.2)
+        known = {(x, y) for x in range(-20, 31) for y in range(-20, 21)}
+        world.update([], [], None, known_free=known,
+                     map_bounds=(-2, -2, 3, 2))
+        own, opponent, goal = Pose2(0, 0), Pose2(0.5, 0), Pose2(2, 0)
+        route = astar(world, own, goal, opponent, clearance=1.0, weight=8.0)
+        self.assertTrue(route)
+        self.assertAlmostEqual(route[-1].x, goal.x)
+        self.assertAlmostEqual(route[-1].y, goal.y)
+        distances = [hypot(point.x - opponent.x, point.y - opponent.y)
+                     for point in route]
+        self.assertGreater(distances[1], distances[0])
+        cleared = next(i for i, distance in enumerate(distances)
+                       if distance >= 1.0)
+        self.assertTrue(all(distance >= 1.0 for distance in distances[cleared:]))
 
     def test_escape_can_detour_inside_opponent_zone_when_wall_blocks_direct_exit(self):
         world = VoxelWorld(0.1, 0.18)

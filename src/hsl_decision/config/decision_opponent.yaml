@@ -14,4 +14,3 @@
     capture_distance: 0.8
     danger_weight: 2.0
     goal_weight: 1.0
-    evade_target_distance: 1.5

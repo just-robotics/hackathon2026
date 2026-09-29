@@ -91,8 +91,7 @@ class DecisionPolicy:
     def __init__(self, role, opponent_start, *, own_start=None, pose_timeout=0.5,
                  scan_timeout=1.0, opponent_timeout=1.0, switch_margin=0.15,
                  min_dwell=0.5, evade_distance=1.8, capture_distance=0.8,
-                 danger_weight=2.0, goal_weight=1.0,
-                 evade_target_distance=1.5):
+                 danger_weight=2.0, goal_weight=1.0):
         if role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         self.role = role
@@ -109,7 +108,6 @@ class DecisionPolicy:
         self.capture_distance = capture_distance
         self.danger_weight = danger_weight
         self.goal_weight = goal_weight
-        self.evade_target_distance = evade_target_distance
         self.previous = WAIT
         self.last_switch = float("-inf")
         self.search_anchor = None
@@ -159,14 +157,11 @@ class DecisionPolicy:
                 scores[EXPLORE] = self.goal_weight + 0.05
             chosen = self._select(scores, obs.now)
             if chosen == EVADE:
-                dx = obs.own.x - threat_pose.x
-                dy = obs.own.y - threat_pose.y
-                norm = max(hypot(dx, dy), 0.01)
-                target = Pose2(obs.own.x + self.evade_target_distance * dx / norm,
-                               obs.own.y + self.evade_target_distance * dy / norm,
-                               atan2(dy, dx))
-                result = Decision(EVADE, target, 0.25, 0.65, 1.0, 8.0,
-                                  "escaping guardian along a safe route")
+                # Keep the real objective as the target. The planner applies
+                # higher opponent clearance/cost and lets A* first escape a
+                # violated safety radius before continuing toward the goal.
+                result = Decision(EVADE, self.goal, 0.35, 0.65, 1.0, 8.0,
+                                  "moving to goal along a route clear of the guardian")
             elif chosen == EXPLORE:
                 result = Decision(EXPLORE, self.goal, 0.35, 0.55, 0.65, 3.0,
                                   "map not available")
