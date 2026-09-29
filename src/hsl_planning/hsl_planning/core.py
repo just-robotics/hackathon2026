@@ -305,6 +305,19 @@ def reachable_intercept(world, own, opponent, predicted):
     return capture_goal(world, own, opponent) or predicted
 
 
+def smooth_intercept_target(previous, candidate, alpha=0.55,
+                            reset_distance=0.8):
+    """Dampen small pursuit-target jitter without delaying decisive redirects."""
+    if previous is None or candidate is None:
+        return candidate
+    dx, dy = candidate.x - previous.x, candidate.y - previous.y
+    distance = hypot(dx, dy)
+    if distance >= reset_distance:
+        return candidate
+    return Pose2(previous.x + alpha * dx, previous.y + alpha * dy,
+                 candidate.yaw)
+
+
 def reachable_target(world, own, target, explore=False, tie_seed=0,
                      avoid=None):
     """Stay inside observed free space until the intended destination is visible."""

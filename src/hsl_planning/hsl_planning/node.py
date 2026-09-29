@@ -19,7 +19,8 @@ from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage
                    route_curve_guidance,
                    reachable_intercept,
                    local_guidance, reachable_target, recovery_step,
-                   reusable_local_guidance, reusable_route)
+                   reusable_local_guidance, reusable_route,
+                   smooth_intercept_target)
 
 
 def seconds(stamp):
@@ -111,6 +112,7 @@ class TrajectoryPlanner(Node):
         self.dirty = True
         self.global_path = []
         self.global_target = None
+        self.pursuit_target = None
         self.route_behavior = None
         self.local_path = []
         self.local_target = None
@@ -277,6 +279,10 @@ class TrajectoryPlanner(Node):
                            atan2(2 * q.w * q.z, 1 - 2 * q.z * q.z))
             if intent.behavior == 6 and enemy:
                 target = reachable_intercept(self.world, own, enemy, target)
+                target = smooth_intercept_target(self.pursuit_target, target)
+                self.pursuit_target = target
+            else:
+                self.pursuit_target = None
         else:
             if intent.behavior == 5:
                 if (self.search_waypoint is None or

@@ -18,7 +18,8 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                reachable_intercept,
                                recovery_heading, recovery_step,
                                reusable_local_guidance, reusable_route,
-                               route_curve_guidance, safe_segment)
+                               route_curve_guidance, safe_segment,
+                               smooth_intercept_target)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, opponent_visible
@@ -343,6 +344,15 @@ class PlanningTests(unittest.TestCase):
         visible_prediction = Pose2(0.65, 0.1)
         self.assertEqual(reachable_intercept(world, own, opponent,
                                              visible_prediction), visible_prediction)
+
+    def test_small_intercept_updates_are_smoothed_but_large_redirects_are_immediate(self):
+        previous = Pose2(1, 1, 0)
+        updated = smooth_intercept_target(previous, Pose2(1.4, 1, 0.5))
+        self.assertAlmostEqual(updated.x, 1.22)
+        self.assertAlmostEqual(updated.y, 1.0)
+        self.assertAlmostEqual(updated.yaw, 0.5)
+        redirected = Pose2(1, 2, -0.5)
+        self.assertEqual(smooth_intercept_target(previous, redirected), redirected)
 
     def test_local_path_must_increase_clearance_if_already_near_wall(self):
         world = VoxelWorld(0.1, 0.2)
