@@ -48,6 +48,7 @@ class DecisionTests(unittest.TestCase):
         result = policy.step(close)
         self.assertEqual(result.behavior, EVADE)
         self.assertLess(result.target.x, 0)
+        self.assertAlmostEqual(hypot(result.target.x, result.target.y), 1.5)
         far = self.observation(now=12, opponent=DecisionPose(3, 0))
         self.assertEqual(policy.step(far).behavior, GOAL)
 

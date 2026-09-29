@@ -91,7 +91,8 @@ class DecisionPolicy:
     def __init__(self, role, opponent_start, *, own_start=None, pose_timeout=0.5,
                  scan_timeout=1.0, opponent_timeout=1.0, switch_margin=0.15,
                  min_dwell=0.5, evade_distance=1.8, capture_distance=0.8,
-                 danger_weight=2.0, goal_weight=1.0):
+                 danger_weight=2.0, goal_weight=1.0,
+                 evade_target_distance=1.5):
         if role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         self.role = role
@@ -108,6 +109,7 @@ class DecisionPolicy:
         self.capture_distance = capture_distance
         self.danger_weight = danger_weight
         self.goal_weight = goal_weight
+        self.evade_target_distance = evade_target_distance
         self.previous = WAIT
         self.last_switch = float("-inf")
         self.search_anchor = None
@@ -160,8 +162,8 @@ class DecisionPolicy:
                 dx = obs.own.x - threat_pose.x
                 dy = obs.own.y - threat_pose.y
                 norm = max(hypot(dx, dy), 0.01)
-                target = Pose2(obs.own.x + 1.5 * dx / norm,
-                               obs.own.y + 1.5 * dy / norm,
+                target = Pose2(obs.own.x + self.evade_target_distance * dx / norm,
+                               obs.own.y + self.evade_target_distance * dy / norm,
                                atan2(dy, dx))
                 result = Decision(EVADE, target, 0.25, 0.65, 1.0, 8.0,
                                   "escaping guardian along a safe route")
