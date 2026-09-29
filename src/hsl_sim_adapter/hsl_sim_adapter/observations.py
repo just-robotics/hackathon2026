@@ -1,4 +1,4 @@
-"""Gazebo Classic ground truth and lidar converted to navigation inputs."""
+"""Own simulator localization and LiDAR-only opponent observations."""
 
 from collections import OrderedDict
 from copy import deepcopy
@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformListener
 
 from .cloud import make_cloud, read_xyz, transform
-from .visibility import StaticGrid, opponent_visible
+from .visibility import StaticGrid, detect_opponent
 
 
 class SimObservations(Node):
@@ -23,18 +23,14 @@ class SimObservations(Node):
         self.declare_parameter("own_spawn_x", -0.34)
         self.declare_parameter("own_spawn_y", 0.4)
         self.declare_parameter("own_odom_topic", "/odom")
-        self.declare_parameter("opponent_odom_topic", "/opponent/odom")
         self.declare_parameter("own_truth_topic", "/localization/pose")
-        self.declare_parameter("opponent_truth_topic", "/opponent/localization/pose")
         self.declare_parameter("lidar_topic", "/livox/lidar")
         self.declare_parameter("self_filter_radius", 0.25)
         self.spawn = (self.get_parameter("own_spawn_x").value,
                       self.get_parameter("own_spawn_y").value)
         self.self_filter_radius = self.get_parameter("self_filter_radius").value
         self.own_odom = None
-        self.opponent_odom = None
         self.own_truth = None
-        self.opponent_truth = None
         self.grid = None
         self.visible = False
         self.last_seen = float("-inf")
@@ -45,12 +41,8 @@ class SimObservations(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.create_subscription(Odometry, self.get_parameter("own_odom_topic").value,
                                  lambda msg: setattr(self, "own_odom", msg), 10)
-        self.create_subscription(Odometry, self.get_parameter("opponent_odom_topic").value,
-                                 lambda msg: setattr(self, "opponent_odom", msg), 10)
         self.create_subscription(Odometry, self.get_parameter("own_truth_topic").value,
                                  lambda msg: setattr(self, "own_truth", msg), 10)
-        self.create_subscription(Odometry, self.get_parameter("opponent_truth_topic").value,
-                                 lambda msg: setattr(self, "opponent_truth", msg), 10)
         self.create_subscription(PointCloud2, self.get_parameter("lidar_topic").value,
                                  self.on_lidar, qos_profile_sensor_data)
         map_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
@@ -87,12 +79,6 @@ class SimObservations(Node):
         result.twist = deepcopy(odom.twist if odom else truth.twist)
         return result
 
-    def opponent_xy(self):
-        if self.opponent_truth:
-            p = self.opponent_truth.pose.pose.position
-            return p.x - self.spawn[0], p.y - self.spawn[1]
-        return float("inf"), float("inf")
-
     def publish_poses(self):
         own = self.as_map_odom(self.own_truth, self.own_odom, "base_footprint")
         if own:
@@ -121,19 +107,20 @@ class SimObservations(Node):
         header = deepcopy(msg.header)
         header.frame_id = "map"
         self.scan_pub.publish(make_cloud(header, points))
-        ex, ey = self.opponent_xy()
-        self.visible = opponent_visible(self.grid, (sx, sy), (ex, ey), points)
-        if self.visible:
-            enemy = self.as_map_odom(self.opponent_truth, self.opponent_odom,
-                                     "opponent/base_footprint")
-            now = self.get_clock().now().nanoseconds * 1e-9
-            position = enemy.pose.pose.position
+        now = self.get_clock().now().nanoseconds * 1e-9
+        previous = (self.last_visible_position[:2]
+                    if self.last_visible_position is not None and
+                    0 <= now - self.last_visible_position[2] <= 1.0 else None)
+        detection = detect_opponent(points, self.grid, (sx, sy), previous)
+        self.visible = detection is not None
+        if detection is not None:
+            position = (detection.x, detection.y)
             if self.last_visible_position is not None:
                 px, py, previous_time = self.last_visible_position
                 dt = now - previous_time
                 if 0.05 <= dt <= 1.0:
-                    measured = ((position.x - px) / dt,
-                                (position.y - py) / dt)
+                    measured = ((position[0] - px) / dt,
+                                (position[1] - py) / dt)
                     self.visible_velocity = tuple(
                         0.5 * old + 0.5 * new
                         for old, new in zip(self.visible_velocity, measured))
@@ -141,11 +128,16 @@ class SimObservations(Node):
                     self.visible_velocity = (0.0, 0.0)
             else:
                 self.visible_velocity = (0.0, 0.0)
-            self.last_visible_position = (position.x, position.y, now)
-            q = enemy.pose.pose.orientation
-            yaw = atan2(2 * (q.w * q.z + q.x * q.y),
-                        1 - 2 * (q.y * q.y + q.z * q.z))
+            self.last_visible_position = (position[0], position[1], now)
             vx, vy = self.visible_velocity
+            yaw = atan2(vy, vx) if hypot(vx, vy) > 0.03 else 0.0
+            enemy = Odometry()
+            enemy.header = deepcopy(header)
+            enemy.child_frame_id = "opponent/base_footprint"
+            enemy.pose.pose.position.x = position[0]
+            enemy.pose.pose.position.y = position[1]
+            enemy.pose.pose.orientation.z = sin(yaw / 2)
+            enemy.pose.pose.orientation.w = cos(yaw / 2)
             enemy.twist.twist.linear.x = cos(yaw) * vx + sin(yaw) * vy
             enemy.twist.twist.linear.y = -sin(yaw) * vx + cos(yaw) * vy
             enemy.twist.twist.angular.z = 0.0

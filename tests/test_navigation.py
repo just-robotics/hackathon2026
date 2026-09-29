@@ -24,7 +24,7 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                smooth_intercept_target)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
-from hsl_sim_adapter.visibility import StaticGrid, opponent_visible
+from hsl_sim_adapter.visibility import StaticGrid, detect_opponent
 from hsl_sim_adapter.metrics import RunMetrics, capture_possible, duel_outcome, timing_summary
 
 
@@ -121,6 +121,16 @@ class DecisionTests(unittest.TestCase):
         result = policy.step(lost)
         self.assertEqual(result.behavior, SEARCH)
         self.assertEqual((result.target.x, result.target.y), (2, 1))
+
+    def test_guardian_search_projects_recently_lost_track_using_measured_velocity(self):
+        policy = DecisionPolicy("guardian", self.area)
+        lost = Observation(11.6, DecisionPose(0, 0), 11.6,
+                           DecisionPose(2, 1), 10.0, 11.6, 11.6, True,
+                           (0.5, -0.25))
+        result = policy.step(lost)
+        self.assertEqual(result.behavior, SEARCH)
+        self.assertAlmostEqual(result.target.x, 2.3)
+        self.assertAlmostEqual(result.target.y, 0.85)
 
     def test_guardian_sweeps_and_does_not_assume_capture_through_wall(self):
         policy = DecisionPolicy("guardian", self.area)
@@ -723,23 +733,34 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(transform((1, 2, 3), (4, 5, 6), (0, 0, 0, 1)),
                          (5, 7, 9))
 
-    def test_opponent_requires_clear_map_line_and_lidar_cluster(self):
+    def test_opponent_position_is_estimated_from_nonstatic_lidar_cluster(self):
         data = [0] * (40 * 30)
         grid = StaticGrid(0.1, 40, 30, 0, 0, data)
-        own, enemy = (0.5, 1.0), (1.5, 1.0)
-        hits = [(1.4, 0.9, 0.3), (1.4, 1.0, 0.3), (1.4, 1.1, 0.3)]
-        self.assertFalse(opponent_visible(grid, own, enemy, []))
-        self.assertTrue(opponent_visible(grid, own, enemy, hits))
+        own = (0.5, 1.0)
+        hits = [(1.322, 0.95, 0.3), (1.32, 1.0, 0.3),
+                (1.322, 1.05, 0.3)]
+        self.assertIsNone(detect_opponent([], grid, own))
+        detection = detect_opponent(hits, grid, own)
+        self.assertIsNotNone(detection)
+        self.assertEqual(detection.hits, 3)
+        self.assertAlmostEqual(detection.x, 1.5, delta=0.015)
+        self.assertAlmostEqual(detection.y, 1.0, delta=0.02)
+
+    def test_lidar_opponent_cluster_behind_static_wall_is_rejected(self):
+        data = [0] * (40 * 30)
         for row in range(30):
             data[row * 40 + 10] = 100
-        self.assertFalse(opponent_visible(grid, own, enemy, hits))
+        grid = StaticGrid(0.1, 40, 30, 0, 0, data)
+        hits = [(1.322, 0.95, 0.3), (1.32, 1.0, 0.3),
+                (1.322, 1.05, 0.3)]
+        self.assertIsNone(detect_opponent(hits, grid, (0.5, 1.0)))
 
-    def test_static_wall_returns_are_not_opponent_detections(self):
+    def test_lidar_static_wall_returns_are_not_opponent_detections(self):
         data = [0] * (40 * 30)
         data[10 * 40 + 10] = 100
         grid = StaticGrid(0.1, 40, 30, 0, 0, data)
         wall_hits = [(1.04, 1.04, 0.3)] * 3
-        self.assertFalse(opponent_visible(grid, (0.5, 1.0), (0.85, 1.0), wall_hits))
+        self.assertIsNone(detect_opponent(wall_hits, grid, (0.5, 1.0)))
 
     def test_scripted_opponent_patrol_turns_then_drives(self):
         linear, angular, reached = patrol_command(2.5, 2.5, 0, 1.0, 2.5)

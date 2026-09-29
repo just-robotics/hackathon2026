@@ -102,11 +102,14 @@ def start_traces(series_dir, index, env):
     command(["docker", "cp", str(ROOT / "benchmarks" / "trace_motion.py"),
              "docker-hsl-adapter-1:/tmp/hsl_trace_motion.py"], env, timeout=15)
     traces = []
+    spawn_x = float(env.get("SPAWN_X", "-0.34"))
+    spawn_y = float(env.get("DUEL_SPAWN_Y", "0.4"))
     for role, namespace in (("first", ""), ("second", " --namespace opponent")):
         destination = series_dir / f"{index:02d}-trace-{role}.json"
         output = destination.open("w")
         script = ("source /autoware/install/setup.bash && python3 "
-                  "/tmp/hsl_trace_motion.py --wall-seconds 1200" + namespace)
+                  f"/tmp/hsl_trace_motion.py --wall-seconds 1200 "
+                  f"--spawn-x {spawn_x} --spawn-y {spawn_y}" + namespace)
         process = subprocess.Popen(
             ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
             cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)

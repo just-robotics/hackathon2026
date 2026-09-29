@@ -20,6 +20,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="")
     parser.add_argument("--wall-seconds", type=float, default=60)
+    parser.add_argument("--spawn-x", type=float, default=-0.34)
+    parser.add_argument("--spawn-y", type=float, default=0.4)
     args = parser.parse_args()
     prefix = "/" + args.namespace.strip("/") if args.namespace else ""
     rclpy.init()
@@ -31,6 +33,7 @@ def main():
     path_lengths = []
     path_errors = []
     clipped_errors = []
+    opponent_position_errors = []
     subscriptions = []
 
     def remember(name):
@@ -124,6 +127,32 @@ def main():
     subscriptions.append(node.create_subscription(
         Path, prefix + "/navigation/global_path", on_global_path, 10))
 
+    truth_topic = ("/opponent/localization/pose" if not prefix
+                   else "/localization/pose")
+    subscriptions.append(node.create_subscription(
+        Odometry, truth_topic, remember("opponent_truth"), 10))
+
+    def on_opponent_estimate(message):
+        latest["opponent_estimate"] = (message, time.monotonic())
+        truth = latest.get("opponent_truth")
+        if not match["started"] or not truth:
+            return
+        truth_message = truth[0]
+        estimate_stamp = (message.header.stamp.sec * 1_000_000_000 +
+                          message.header.stamp.nanosec)
+        truth_stamp = (truth_message.header.stamp.sec * 1_000_000_000 +
+                       truth_message.header.stamp.nanosec)
+        if abs(estimate_stamp - truth_stamp) > 150_000_000:
+            return
+        estimated = message.pose.pose.position
+        actual = truth_message.pose.pose.position
+        opponent_position_errors.append(hypot(
+            estimated.x - (actual.x - args.spawn_x),
+            estimated.y - (actual.y - args.spawn_y)))
+
+    subscriptions.append(node.create_subscription(
+        Odometry, prefix + "/navigation/opponent", on_opponent_estimate, 10))
+
     def on_command(message):
         if not latest.get("allowed", False):
             return
@@ -211,6 +240,13 @@ def main():
               "path_heading_error_median_rad": percentile(path_errors, 0.5),
               "path_heading_error_p90_rad": percentile(path_errors, 0.9),
               "gate_clipped_heading_error_median_rad": percentile(clipped_errors, 0.5),
+              "opponent_position_error_count": len(opponent_position_errors),
+              "opponent_position_error_median_m": percentile(
+                  opponent_position_errors, 0.5),
+              "opponent_position_error_p90_m": percentile(
+                  opponent_position_errors, 0.9),
+              "opponent_position_error_max_m": (round(max(opponent_position_errors), 3)
+                                                  if opponent_position_errors else None),
               "path_geometry_change_fraction": round(
                   samples["path_geometry_changes"] /
                   max(1, samples["path_updates"]), 3),

@@ -170,6 +170,17 @@ class DecisionPolicy:
                                   "moving toward guardian start around danger")
         elif not opponent_fresh:
             anchor = obs.opponent if obs.opponent else self.goal
+            if obs.opponent is not None:
+                # When LiDAR loses line of sight, search slightly ahead of the
+                # last measured point instead of repeatedly driving to where a
+                # moving opponent was. Bound time, not opponent speed: velocity
+                # is the last observed estimate and is never clamped to a
+                # guessed rival speed.
+                age = max(0.0, obs.now - obs.opponent_stamp)
+                lead = min(max(0.0, age - self.opponent_timeout), 1.0)
+                anchor = Pose2(obs.opponent.x + obs.opponent_velocity[0] * lead,
+                               obs.opponent.y + obs.opponent_velocity[1] * lead,
+                               obs.opponent.yaw)
             if self.search_anchor != anchor:
                 self.search_anchor = anchor
                 self.search_exploring = False
