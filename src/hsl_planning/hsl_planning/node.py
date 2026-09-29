@@ -18,7 +18,8 @@ from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage
                    curved_guidance,
                    route_curve_guidance,
                    reachable_intercept,
-                   local_guidance, reachable_target, recovery_step,
+                   local_guidance, path_heading_error, reachable_target,
+                   recovery_step, turn_alignment_is_progress,
                    reusable_local_guidance, reusable_route,
                    smooth_intercept_target)
 
@@ -127,6 +128,7 @@ class TrajectoryPlanner(Node):
         self.progress_pose = None
         self.progress_since = None
         self.progress_behavior = None
+        self.progress_heading_error = None
         self.recovery_avoid = None
         self.recovery_until = 0.0
         self.recovery_attempt = 0
@@ -229,6 +231,7 @@ class TrajectoryPlanner(Node):
             return
         own = self.own[0]
         intent = self.intent
+        heading_error = path_heading_error(own, self.local_path)
         if (self.progress_pose is None or self.progress_since is None or
                 now < self.progress_since or intent.behavior != self.progress_behavior or
                 hypot(own.x - self.progress_pose.x,
@@ -236,7 +239,19 @@ class TrajectoryPlanner(Node):
             self.progress_pose = own
             self.progress_since = now
             self.progress_behavior = intent.behavior
-        elif now - self.progress_since >= 4.0:
+            self.progress_heading_error = heading_error
+        else:
+            turning_progress = (
+                turn_alignment_is_progress(self.role, intent.behavior) and
+                heading_error is not None and
+                self.progress_heading_error is not None and
+                heading_error < self.progress_heading_error - 0.02)
+            if turning_progress:
+                self.progress_pose = own
+                self.progress_since = now
+            self.progress_heading_error = heading_error
+        if (self.progress_since is not None and
+                now - self.progress_since >= 4.0):
             blocked_ahead = next((point for point in self.global_path
                                   if hypot(point.x - own.x,
                                            point.y - own.y) >= 0.35), None)
@@ -251,6 +266,7 @@ class TrajectoryPlanner(Node):
             self.recovery_origin = own
             self.progress_pose = own
             self.progress_since = now
+            self.progress_heading_error = heading_error
             self.get_logger().warn("No translation for 4 s; retrying another corridor")
         recovery_avoid = self.recovery_avoid if now < self.recovery_until else None
         enemy = (self.opponent[0] if self.opponent and now - self.opponent[1] <= 2.0

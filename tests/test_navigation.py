@@ -17,7 +17,8 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                curved_guidance,
                                local_guidance, local_rollout, reachable_target,
                                reachable_intercept,
-                               recovery_heading, recovery_step,
+                               path_heading_error, recovery_heading,
+                               recovery_step, turn_alignment_is_progress,
                                reusable_local_guidance, reusable_route,
                                route_curve_guidance, safe_segment,
                                smooth_intercept_target)
@@ -151,6 +152,18 @@ class DecisionTests(unittest.TestCase):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_path_heading_error_reports_alignment_progress(self):
+        path = [Pose2(0, 0), Pose2(0.1, 0), Pose2(0.2, 0), Pose2(0.5, 0)]
+        self.assertAlmostEqual(path_heading_error(Pose2(0, 0, 1.0), path), 1.0)
+        self.assertAlmostEqual(path_heading_error(Pose2(0, 0, 0.7), path), 0.7)
+        self.assertIsNone(path_heading_error(Pose2(0, 0), [Pose2(0, 0)]))
+
+    def test_only_guardian_chase_turns_count_as_watchdog_progress(self):
+        self.assertTrue(turn_alignment_is_progress("guardian", 6))
+        self.assertTrue(turn_alignment_is_progress("guardian", 7))
+        self.assertFalse(turn_alignment_is_progress("guardian", 5))
+        self.assertFalse(turn_alignment_is_progress("explorer", 6))
+
     def test_local_guidance_is_straight_on_clear_corridor(self):
         world = VoxelWorld(0.1, 0.2)
         world.update([], [], None, map_bounds=(-1, -1, 4, 1))

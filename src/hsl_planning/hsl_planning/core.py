@@ -21,6 +21,25 @@ def angle_error(a, b):
     return (a - b + pi) % (2 * pi) - pi
 
 
+def path_heading_error(own, path):
+    """Return angular error to a nearby local-path lookahead, if available."""
+    if len(path) < 2:
+        return None
+    nearest = min(range(min(len(path), 8)),
+                  key=lambda index: hypot(path[index].x - own.x,
+                                          path[index].y - own.y))
+    target = path[min(nearest + 3, len(path) - 1)]
+    if hypot(target.x - own.x, target.y - own.y) < 0.05:
+        return None
+    desired = atan2(target.y - own.y, target.x - own.x)
+    return abs(angle_error(desired, own.yaw))
+
+
+def turn_alignment_is_progress(role, behavior):
+    """Only delay watchdog recovery while a guardian aligns for pursuit."""
+    return role == "guardian" and behavior in (6, 7)
+
+
 def cell_tie(seed, cell):
     """Stable per-run tie breaker; it cannot outweigh a better path cost."""
     value = ((seed & 0xffffffff) ^ ((cell[0] & 0xffffffff) * 0x9e3779b1)
