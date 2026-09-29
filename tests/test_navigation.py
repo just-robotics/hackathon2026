@@ -3,6 +3,8 @@ import unittest
 from math import atan2, cos, hypot, pi, sin
 from pathlib import Path
 
+import numpy as np
+
 
 ROOT = Path(__file__).resolve().parents[1] / "src"
 for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_adapter"):
@@ -14,17 +16,12 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
-                               curved_guidance,
-                               local_guidance, local_rollout, reachable_target,
-                               reachable_intercept,
-                               path_heading_error, recovery_heading,
-                               max_curve_heading_error,
+                               local_guidance, reachable_target,
+                               reachable_intercept, path_heading_error,
                                recovery_step, turn_alignment_is_progress,
-                               reusable_local_guidance, reusable_route,
-                               circle_segment_intersection,
-                               regulated_pure_pursuit_guidance,
-                               route_curve_guidance, safe_segment,
+                               reusable_route, safe_segment,
                                smooth_intercept_target)
+from hsl_planning.mppi import _pruned_route, mppi_local_guidance
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, detect_opponent
@@ -165,90 +162,60 @@ class DecisionTests(unittest.TestCase):
 
 
 class PlanningTests(unittest.TestCase):
-    def test_rpp_lookahead_interpolates_exact_circle_segment_intersection(self):
-        point = circle_segment_intersection((0.0, 0.0), (1.0, 1.0), 1.0)
-        self.assertIsNotNone(point)
-        self.assertAlmostEqual(point[0], 2 ** -0.5)
-        self.assertAlmostEqual(point[1], 2 ** -0.5)
-        self.assertIsNone(circle_segment_intersection((1, 0), (2, 0), 0.5))
-
-    def test_rpp_guidance_scales_lookahead_with_speed_on_a_straight_path(self):
-        world = VoxelWorld(0.1, 0.2)
+    def test_nav2_mppi_local_path_tracks_straight_route_smoothly(self):
+        world = VoxelWorld(0.1, 0.22)
         world.update([], [], None, map_bounds=(-2, -2, 5, 2))
-        route = [Pose2(index * 0.1, 0) for index in range(31)]
-        slow = regulated_pure_pursuit_guidance(world, Pose2(0, 0), route, 0.2)
-        fast = regulated_pure_pursuit_guidance(world, Pose2(0, 0), route, 0.6)
-        self.assertAlmostEqual(slow[-1].x, 0.8, places=6)
-        self.assertAlmostEqual(fast[-1].x, 0.9, places=6)
-        self.assertTrue(all(abs(point.y) < 1e-8 for point in fast))
+        route = [Pose2(index * 0.15, 0.0) for index in range(21)]
 
-    def test_rpp_minimum_lookahead_accepts_a_smooth_moderate_turn(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-2, -2, 3, 3))
-        heading = 1.2
-        route = [Pose2(0, 0)] + [
-            Pose2(index * 0.1 * cos(heading), index * 0.1 * sin(heading))
-            for index in range(1, 31)]
-        diagnostics = {}
-        path = regulated_pure_pursuit_guidance(
-            world, Pose2(0, 0, 0), route, 0.2, diagnostics=diagnostics)
-        self.assertGreater(len(path), 5)
-        self.assertLess(path_heading_error(Pose2(0, 0, 0), path), 0.5)
-        self.assertLessEqual(diagnostics["rpp_curvature_1pm"], 2.6)
-        self.assertTrue(all(safe_segment(world, first, second)
+        path, controls, diagnostics = mppi_local_guidance(
+            world, Pose2(0.0, 0.0), route,
+            rng=np.random.default_rng(12), batch_size=256)
+
+        self.assertEqual(diagnostics["result"], "ok")
+        self.assertGreater(len(path), 3)
+        self.assertGreater(diagnostics["optimized_path_points"], len(path))
+        self.assertIsNotNone(controls)
+        self.assertGreater(path[-1].x, 0.8)
+        self.assertLessEqual(sum(hypot(b.x - a.x, b.y - a.y)
+                                 for a, b in zip(path, path[1:])), 1.21)
+        self.assertLess(max(abs(point.y) for point in path), 0.2)
+        self.assertLess(path_heading_error(Pose2(0, 0), path), 0.25)
+        self.assertTrue(all(safe_segment(world, first, second, safety_margin=0.18)
                             for first, second in zip(path, path[1:])))
+        alternate, _, _ = mppi_local_guidance(
+            world, Pose2(0, 0), route,
+            rng=np.random.default_rng(2), batch_size=256,
+            safety_margin=0.18)
+        self.assertNotEqual(path, alternate)
 
-    def test_rpp_guidance_emits_a_smooth_checked_arc_tangent_to_robot_heading(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-2, -2, 5, 3))
-        own = Pose2(0, 0, 0)
-        route = [Pose2(0, 0), Pose2(0.3, 0.1), Pose2(0.6, 0.2),
-                 Pose2(1.0, 0.4), Pose2(1.5, 0.7), Pose2(2.0, 0.9)]
-        diagnostics = {}
-        path = regulated_pure_pursuit_guidance(
-            world, own, route, 0.3, safety_margin=0.12,
-            diagnostics=diagnostics)
-        self.assertGreater(len(path), 5)
-        self.assertLess(path_heading_error(own, path), 0.12)
-        self.assertGreater(path[-1].y, 0.1)
-        self.assertEqual(diagnostics.get("rpp_accepted"), 1)
-        self.assertTrue(all(safe_segment(world, first, second)
-                            for first, second in zip(path, path[1:])))
+    def test_mppi_prunes_route_near_its_start_instead_of_later_loop(self):
+        route = [Pose2(0, 0), Pose2(1, 0), Pose2(1, 1),
+                 Pose2(0, 1), Pose2(0, 0.1), Pose2(-1, 0.1)]
+        pruned = _pruned_route(Pose2(0, 0.08), route)
+        self.assertIsNotNone(pruned)
+        self.assertGreater(pruned[2][0], 0.0)
 
-    def test_rpp_guidance_rejects_an_arc_that_crosses_a_new_obstacle(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([(0.3, 0, 0.3)], [], None,
+    def test_nav2_mppi_local_path_follows_astar_detour_around_new_obstacle(self):
+        world = VoxelWorld(0.1, 0.22)
+        free = {world.cell(x * 0.1, y * 0.1)
+                for x in range(-20, 41) for y in range(-20, 21)}
+        world.update([(0.65, 0.0, 0.3)], [], Pose2(0, 0), free,
                      map_bounds=(-2, -2, 4, 2))
-        diagnostics = {}
-        path = regulated_pure_pursuit_guidance(
-            world, Pose2(0, 0), [Pose2(0, 0), Pose2(1, 0), Pose2(2, 0)],
-            0.3, diagnostics=diagnostics)
-        self.assertFalse(path)
-        self.assertEqual(diagnostics.get("rpp_collision"), 1)
+        route = astar(world, Pose2(0, 0), Pose2(2, 0))
+        self.assertTrue(route)
+        self.assertGreater(max(abs(point.y) for point in route), 0.2)
 
-    def test_curve_entry_angle_grows_only_when_measured_room_increases(self):
-        open_world = VoxelWorld(0.1, 0.2)
-        open_world.update([], [], None, map_bounds=(-2, -2, 5, 2))
-        tight_world = VoxelWorld(0.1, 0.2)
-        tight_world.update([], [], None, map_bounds=(-2, -0.5, 5, 0.5))
-        open_angle = max_curve_heading_error(open_world, Pose2(0, 0))
-        tight_angle = max_curve_heading_error(tight_world, Pose2(0, 0))
-        self.assertGreater(open_angle, 1.65)
-        self.assertLess(tight_angle, 1.65)
+        path, controls, diagnostics = mppi_local_guidance(
+            world, Pose2(0, 0), route,
+            rng=np.random.default_rng(1), batch_size=256,
+            safety_margin=0.18)
 
-    def test_open_space_turn_uses_longer_checked_curve_before_route_join(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-2, -2, 5, 2))
-        own = Pose2(0, 0, -1.65)
-        route = [Pose2(i * 0.2, 0) for i in range(1, 26)]
-        straight = local_guidance(world, own, route)
-        curve = route_curve_guidance(world, own, route, straight,
-                                     max_distance=2.5)
-        self.assertTrue(curve)
-        self.assertNotEqual(curve, straight)
-        self.assertGreaterEqual(curve[-1].x, 3.5)
-        self.assertTrue(all(safe_segment(world, first, second)
-                            for first, second in zip(curve, curve[1:])))
+        self.assertEqual(diagnostics["result"], "ok")
+        self.assertIsNotNone(controls)
+        self.assertGreater(path[-1].x, 0.2)
+        self.assertGreater(path[-1].y, 0.1)
+        self.assertTrue(all(safe_segment(world, first, second, safety_margin=0.18)
+                            for first, second in zip(path, path[1:])))
 
     def test_path_heading_error_reports_alignment_progress(self):
         path = [Pose2(0, 0), Pose2(0.1, 0), Pose2(0.2, 0), Pose2(0.5, 0)]
@@ -272,214 +239,6 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(all(abs(point.y) < 1e-9 for point in local))
         self.assertTrue(all(later.x > earlier.x for earlier, later in
                             zip(local, local[1:])))
-
-    def test_local_straight_reference_is_stable_until_done_or_blocked(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 4, 1))
-        path = local_guidance(world, Pose2(0, 0),
-                              [Pose2(0.5, 0), Pose2(1.5, 0)])
-        self.assertIs(reusable_local_guidance(world, Pose2(0.4, 0.02), path), path)
-        self.assertFalse(reusable_local_guidance(world, Pose2(0.4, 0.2), path))
-        self.assertFalse(reusable_local_guidance(world, Pose2(1.25, 0), path))
-        world.update([(0.8, 0, 0.3)], [], None, map_bounds=(-1, -1, 4, 1))
-        self.assertFalse(reusable_local_guidance(world, Pose2(0.4, 0), path))
-
-    def test_smooth_curve_starts_forward_and_reuses_safe_geometry(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0.4)
-        straight = local_guidance(world, own, [Pose2(1.5, 0)])
-        decisions = {}
-        curve = curved_guidance(world, own, straight, diagnostics=decisions)
-        self.assertEqual(decisions, {"accepted": 1})
-        self.assertNotEqual(curve, straight)
-        self.assertGreater(curve[1].x, own.x)
-        self.assertGreater(curve[1].y, own.y)
-        self.assertAlmostEqual(
-            (curve[1].y - own.y) / (curve[1].x - own.x),
-            sin(own.yaw) / cos(own.y), delta=0.1)
-        self.assertIs(reusable_local_guidance(world, curve[8], curve), curve)
-        world.update([(curve[14].x, curve[14].y, 0.3)], [], None,
-                     map_bounds=(-1, -1, 3, 2))
-        self.assertFalse(reusable_local_guidance(world, curve[8], curve))
-
-    def test_smooth_curve_handles_a_large_but_forward_heading_error(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 4, 2))
-        own = Pose2(0, 0, 1.4)
-        route = [Pose2(i * 0.2, 0) for i in range(16)]
-        straight = local_guidance(world, own, route)
-        curve = route_curve_guidance(world, own, route, straight,
-                                     max_distance=3.0)
-        self.assertTrue(curve)
-        self.assertNotEqual(curve, straight)
-        self.assertGreater(curve[1].x, own.x)
-        self.assertGreater(curve[1].y, own.y)
-        self.assertTrue(all(safe_segment(world, a, b)
-                            for a, b in zip(curve, curve[1:])))
-
-    def test_curve_handles_moderate_turn_but_falls_back_when_blocked(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0.7)
-        straight = local_guidance(world, own, [Pose2(1.5, 0)])
-        curve = curved_guidance(world, own, straight)
-        self.assertNotEqual(curve, straight)
-        obstacle = curve[len(curve) // 2]
-        world.update([(obstacle.x, obstacle.y, 0.3)], [], None,
-                     map_bounds=(-1, -1, 3, 2))
-        self.assertEqual(curved_guidance(world, own, straight), straight)
-
-    def test_smooth_curve_can_leave_a_tight_spot_with_clearance_gain(self):
-        world = VoxelWorld(0.1, 0.2)
-        wall = [(0.0, y * 0.1, 0.3) for y in range(-15, 16)]
-        world.update(wall, [], None, map_bounds=(-1, -2, 3, 2))
-        own = Pose2(0.35, 0, 0)
-        route = [Pose2(0.6 + i * 0.1, i * 0.04)
-                 for i in range(11)]
-        straight = local_guidance(world, own, route)
-        diagnostics = {}
-        curve = curved_guidance(world, own, straight,
-                                diagnostics=diagnostics)
-        self.assertEqual(diagnostics, {"accepted": 1})
-        self.assertGreater(curve[-1].x, own.x + 0.6)
-        self.assertTrue(all(safe_segment(world, a, b)
-                            for a, b in zip(curve, curve[1:])))
-        self.assertGreater(world.obstacle_clearance(curve[-1].x,
-                                                    curve[-1].y),
-                           world.obstacle_clearance(own.x, own.y))
-
-    def test_curve_requires_tracking_room_beside_wall(self):
-        world = VoxelWorld(0.1, 0.2)
-        wall = [(x * 0.1, 0.35, 0.3) for x in range(0, 17)]
-        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0.7)
-        straight = local_guidance(world, own, [Pose2(1.5, 0)])
-        self.assertTrue(straight)
-        self.assertEqual(curved_guidance(world, own, straight), straight)
-
-    def test_checked_curve_can_pass_the_next_global_bend(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([(0.7, 0, 0.3)], [], None,
-                     map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0.6)
-        route = [Pose2(0.2, 0), Pose2(0.4, 0), Pose2(0.6, 0.15),
-                 Pose2(0.8, 0.4), Pose2(1, 0.6), Pose2(1.2, 0.6),
-                 Pose2(1.4, 0.6)]
-        straight = local_guidance(world, own, route)
-        self.assertLess(straight[-1].x, 0.4)
-        curve = route_curve_guidance(world, own, route, straight)
-        self.assertGreaterEqual(curve[-1].x, 1.0)
-        self.assertTrue(all(safe_segment(world, a, b) for a, b in
-                            zip(curve, curve[1:])))
-        world.update([(curve[8].x, curve[8].y, 0.3), (0.7, 0, 0.3)],
-                     [], None, map_bounds=(-1, -1, 3, 2))
-        self.assertFalse(route_curve_guidance(world, own, route, straight))
-
-    def test_route_curve_can_replace_a_long_misaligned_chord(self):
-        world = VoxelWorld(0.1, 0.2)
-        wall = [(1.2, y * 0.1, 0.3) for y in range(-15, 3)]
-        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0)
-        route = [Pose2(0.3, 0.3), Pose2(0.6, 0.6),
-                 Pose2(0.9, 0.9), Pose2(1.2, 1.2),
-                 Pose2(1.5, 1.2), Pose2(1.8, 1.2)]
-        straight = local_guidance(world, own, route)
-        self.assertGreater(hypot(straight[-1].x, straight[-1].y), 0.75)
-        curve = route_curve_guidance(world, own, route, straight)
-        self.assertNotEqual(curve, straight)
-        self.assertGreaterEqual(curve[-1].x, 1.0)
-        self.assertTrue(all(safe_segment(world, a, b)
-                            for a, b in zip(curve, curve[1:])))
-
-    def test_route_curve_smooths_a_moderate_chord_into_a_straight_exit(self):
-        world = VoxelWorld(0.1, 0.2)
-        wall = [(1.2, y * 0.1, 0.3) for y in range(-15, 3)]
-        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0)
-        route = [Pose2(0.2, 0.1), Pose2(0.4, 0.2),
-                 Pose2(0.6, 0.3), Pose2(0.8, 0.4),
-                 Pose2(1.0, 0.55), Pose2(1.2, 0.8),
-                 Pose2(1.5, 0.8)]
-        straight = local_guidance(world, own, route)
-        self.assertGreater(hypot(straight[-1].x, straight[-1].y), 0.75)
-        self.assertAlmostEqual(atan2(straight[-1].y, straight[-1].x),
-                               0.588, delta=0.01)
-        curve = route_curve_guidance(world, own, route, straight)
-        self.assertNotEqual(curve, straight)
-        self.assertGreaterEqual(curve[-1].x, 1.4)
-        self.assertTrue(all(safe_segment(world, a, b)
-                            for a, b in zip(curve, curve[1:])))
-
-    def test_route_curve_can_reach_a_farther_checked_waypoint(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0)
-        route = [Pose2(0.3, 0.25), Pose2(0.6, 0.5),
-                 Pose2(0.9, 0.75), Pose2(1.2, 1.0),
-                 Pose2(1.5, 1.25), Pose2(1.8, 1.4),
-                 Pose2(2.0, 1.4)]
-        straight = local_guidance(world, own, route)
-        self.assertAlmostEqual(hypot(straight[-1].x, straight[-1].y),
-                               1.562, delta=0.01)
-        curve = route_curve_guidance(world, own, route, straight,
-                                     max_distance=2.2)
-        self.assertNotEqual(curve, straight)
-        self.assertGreaterEqual(hypot(curve[-1].x, curve[-1].y), 1.9)
-        self.assertTrue(all(safe_segment(world, a, b)
-                            for a, b in zip(curve, curve[1:])))
-
-    def test_route_curve_obeys_shorter_range_for_non_pursuit_behavior(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0)
-        route = [Pose2(0.3, 0.25), Pose2(0.6, 0.5),
-                 Pose2(0.9, 0.75), Pose2(1.2, 1.0),
-                 Pose2(1.5, 1.25), Pose2(1.8, 1.4),
-                 Pose2(2.0, 1.4)]
-        straight = local_guidance(world, own, route)
-        self.assertEqual(route_curve_guidance(
-            world, own, route, straight, max_distance=1.8), [])
-
-    def test_route_curve_retries_a_different_handle_after_clearance_failure(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([(0.5, -0.2, 0.3)], [], None,
-                     map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0.2)
-        route = [Pose2(0.2, 0), Pose2(0.4, 0), Pose2(0.6, 0.15),
-                 Pose2(0.8, 0.4), Pose2(1, 0.6), Pose2(1.2, 0.6),
-                 Pose2(1.4, 0.6)]
-        straight = local_guidance(world, own, route)
-        diagnostics = {}
-        curve = route_curve_guidance(world, own, route, straight,
-                                     diagnostics=diagnostics)
-        self.assertGreaterEqual(curve[-1].x, 1.0)
-        self.assertGreater(diagnostics.get("route_accepted", 0) +
-                           diagnostics.get("route_handle_accepted", 0), 0)
-        self.assertTrue(all(safe_segment(world, a, b) for a, b in
-                            zip(curve, curve[1:])))
-
-    def test_route_curve_tries_tighter_handle_without_relaxing_safety(self):
-        world = VoxelWorld(0.1, 0.2)
-        walls = [(1.085, 0.777, 0.3), (0.334, -0.691, 0.3),
-                 (0.624, -0.176, 0.3), (0.917, -0.532, 0.3),
-                 (1.213, -0.193, 0.3), (1.290, -0.206, 0.3)]
-        world.update(walls, [], None, map_bounds=(-1, -1, 3, 2))
-        own = Pose2(0, 0, 0.127)
-        route = [Pose2(0.2, 0), Pose2(0.4, 0), Pose2(0.6, 0.15),
-                 Pose2(0.8, 0.4), Pose2(1, 0.6), Pose2(1.2, 0.6),
-                 Pose2(1.4, 0.6)]
-        straight = local_guidance(world, own, route)
-        diagnostics = {}
-        curve = route_curve_guidance(world, own, route, straight,
-                                     diagnostics=diagnostics)
-        self.assertNotEqual(curve, straight)
-        self.assertGreater(diagnostics.get("route_accepted", 0) +
-                           diagnostics.get("route_handle_accepted", 0), 0)
-        self.assertTrue(all(safe_segment(world, a, b) for a, b in
-                            zip(curve, curve[1:])))
-        self.assertTrue(all(world.obstacle_clearance(p.x, p.y) >= 0.38
-                            for p in curve[1:]))
 
     def test_guardian_does_not_chase_prediction_through_wall(self):
         world = VoxelWorld(0.1, 0.2)
@@ -527,14 +286,14 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(local_guidance(world, Pose2(0, 0),
                                         [Pose2(1, 0)]))
         near_boundary = Pose2(1.72, 0, 0)
-        heading = recovery_heading(world, near_boundary)
-        self.assertIsNotNone(heading)
-        self.assertLess(cos(heading), 0)
+        step = recovery_step(world, near_boundary)
+        self.assertIsNotNone(step)
+        self.assertLess(cos(step[0]), 0)
 
     def test_recovery_can_choose_a_short_step_in_a_tight_free_pocket(self):
         world = VoxelWorld(0.1, 0.2)
         world.update([], [], None, map_bounds=(-0.45, -0.45, 0.45, 0.45))
-        self.assertIsNotNone(recovery_heading(world, Pose2(0, 0)))
+        self.assertIsNotNone(recovery_step(world, Pose2(0, 0)))
         self.assertTrue(local_guidance(world, Pose2(0, 0),
                                        [Pose2(0.09, 0)], min_step=0.04))
 
@@ -616,9 +375,6 @@ class PlanningTests(unittest.TestCase):
         self.assertLess(hypot(route[1].x - opponent.x,
                               route[1].y - opponent.y),
                         hypot(own.x - opponent.x, own.y - opponent.y))
-        local = local_rollout(world, own, route, opponent,
-                              clearance=0.85, weight=6.0)
-        self.assertGreater(local[-1].x, own.x)
 
     def test_equal_cost_astar_routes_vary_reproducibly_by_seed(self):
         world = VoxelWorld(0.1, 0.18)
@@ -689,16 +445,6 @@ class PlanningTests(unittest.TestCase):
         self.assertLessEqual(frontier.x, 0.7)
         self.assertFalse(astar(world, Pose2(0, 0), Pose2(2, 0)))
 
-    def test_local_rollout_recovers_after_tracking_crosses_safety_margin(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-0.5, -0.5, 1.0, 0.5))
-        own = Pose2(0.75, 0.0, 3.14159265359)
-        self.assertFalse(world.inside_map(own.x, own.y, 0.3))
-        route = local_rollout(world, own, [own, Pose2(0.1, 0)],
-                              max_speed=0.3)
-        self.assertTrue(route)
-        self.assertLess(route[-1].x, own.x)
-
     def test_guardian_coverage_target_is_free_and_reachable(self):
         world = VoxelWorld(0.15, 0.2)
         world.update([], [], Pose2(0, 0),
@@ -708,96 +454,6 @@ class PlanningTests(unittest.TestCase):
         self.assertIsNotNone(target)
         self.assertIn(world.cell(target.x, target.y), world.free)
         self.assertTrue(astar(world, Pose2(0, 0), target))
-
-    def test_local_rollout_avoids_immediate_obstacle(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([(0.45, 0, 0.3)], [], None)
-        path = local_rollout(world, Pose2(0, 0), [Pose2(0, 0), Pose2(1, 0)],
-                             max_speed=0.4)
-        self.assertTrue(path)
-        self.assertTrue(all(not world.blocked(p.x, p.y) for p in path))
-
-    def test_local_rollout_can_track_a_large_turn_with_forward_motion(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-2, -2, 3, 2))
-        path = local_rollout(world, Pose2(0, 0, 0),
-                             [Pose2(0, 0), Pose2(0, 1)],
-                             max_speed=1.0, horizon=2.4)
-        self.assertGreater(len(path), 2)
-        self.assertGreater(hypot(path[-1].x, path[-1].y), 0.5)
-        chord = hypot(path[-1].x, path[-1].y)
-        deviation = max(abs(point.x * path[-1].y -
-                            point.y * path[-1].x) / chord
-                        for point in path)
-        self.assertGreater(deviation, 0.035)
-        self.assertTrue(all(safe_segment(world, first, second,
-                                         safety_margin=0.18)
-                            for first, second in zip(path, path[1:])))
-
-    def test_local_rollout_reports_blocked_when_already_facing_obstacle(self):
-        world = VoxelWorld(0.15, 0.23)
-        world.update([(0.25, 0, 0.3)], [], None)
-        self.assertFalse(local_rollout(
-            world, Pose2(0, 0, 0), [Pose2(0, 0), Pose2(1, 0)],
-            max_speed=0.5))
-
-    def test_local_rollout_can_escape_opponent_clearance(self):
-        world = VoxelWorld(0.1, 0.18)
-        world.update([], [], None)
-        path = local_rollout(world, Pose2(0, 0, 3.14159265359),
-                             [Pose2(0, 0), Pose2(-1, 0)],
-                             Pose2(0.4, 0), clearance=0.65,
-                             max_speed=0.4)
-        self.assertLess(path[-1].x, -0.1)
-
-    def test_local_rollout_leaves_quantized_occupied_start(self):
-        world = VoxelWorld(0.15, 0.23)
-        world.occupied.add(world.cell(0, 0))
-        path = local_rollout(world, Pose2(0, 0), [Pose2(0, 0), Pose2(1, 0)],
-                             max_speed=0.3)
-        self.assertGreater(path[-1].x, 0.15)
-        self.assertTrue(all(not world.blocked(p.x, p.y)
-                            for p in path if world.cell(p.x, p.y) != world.cell(0, 0)))
-
-    def test_astar_and_rollout_escape_soft_inflation_near_wall(self):
-        world = VoxelWorld(0.15, 0.23)
-        world.update([(x * 0.05, 1.1, 0.3) for x in range(20)], [], None)
-        own = Pose2(0.6, 0.98, -1.57079632679)
-        self.assertTrue(world.blocked(own.x, own.y))
-        self.assertLess(world.obstacle_clearance(own.x, own.y), 0.19)
-        route = astar(world, own, Pose2(0.6, 0.5))
-        self.assertTrue(route)
-        local = local_rollout(world, own, route, max_speed=0.5)
-        self.assertLess(local[-1].y, own.y - 0.1)
-        self.assertGreater(world.obstacle_clearance(local[-1].x, local[-1].y),
-                           world.obstacle_clearance(own.x, own.y))
-
-    def test_local_rollout_uses_safe_prefix_before_obstacle(self):
-        world = VoxelWorld(0.15, 0.23)
-        world.occupied.add(world.cell(0.45, 0))
-        path = local_rollout(world, Pose2(0, 0), [Pose2(0, 0), Pose2(1, 0)],
-                             max_speed=0.5)
-        self.assertGreater(path[-1].x, 0.0)
-        self.assertTrue(all(not world.blocked(p.x, p.y) for p in path))
-
-    def test_local_rollout_issues_stable_heading_when_turning(self):
-        world = VoxelWorld(0.15, 0.23)
-        path = local_rollout(world, Pose2(0, 0), [Pose2(0, 0), Pose2(0, 1)],
-                             max_speed=0)
-        self.assertEqual(len(path), 2)
-        self.assertAlmostEqual(path[-1].yaw, 1.57079632679)
-
-    def test_local_rollout_targets_corner_before_far_side(self):
-        world = VoxelWorld(0.15, 0.23)
-        world.occupied.update({world.cell(x, 0) for x in (0.15, 0.3, 0.45)})
-        route = [Pose2(0, 0), Pose2(0, -0.15), Pose2(0.15, -0.15),
-                 Pose2(0.3, -0.15), Pose2(0.45, -0.15)]
-        path = local_rollout(world, Pose2(0, 0), route, max_speed=0.5)
-        self.assertEqual(len(path), 2)
-        self.assertAlmostEqual(path[-1].yaw, -1.57079632679)
-        aligned = local_rollout(world, Pose2(0, 0, -1.57079632679),
-                                route, max_speed=0.5)
-        self.assertLess(aligned[-1].y, -0.05)
 
     def test_known_grid_free_cells_do_not_override_inflated_walls(self):
         world = VoxelWorld(0.1, 0.2)
@@ -819,15 +475,6 @@ class PlanningTests(unittest.TestCase):
                                        pose_timeout=1.2, path_timeout=1.0,
                                        intent_timeout=1.0)[0], 0)
 
-    def test_checked_curve_allows_forward_tracking_with_moderate_heading_error(self):
-        curved = [(0.0, 0.0), (0.1, 0.01), (0.2, 0.04), (0.3, 0.1),
-                  (0.4, 0.2)]
-        rotation, turning, is_curve = path_turning_decision(
-            curved, (0.0, 0.0), 0.0, False)
-        self.assertIsNone(rotation)
-        self.assertFalse(turning)
-        self.assertTrue(is_curve)
-
     def test_straight_path_moves_while_aligning_at_moderate_heading_error(self):
         straight = [(0.0, 0.0), (0.1, 0.0), (0.2, 0.0), (0.3, 0.0)]
         rotation, turning, is_curve = path_turning_decision(
@@ -846,6 +493,15 @@ class PlanningTests(unittest.TestCase):
             straight, (0.0, 0.0), 1.2, False)
         self.assertAlmostEqual(rotation, -1.2)
         self.assertTrue(turning)
+        self.assertFalse(is_curve)
+
+    def test_short_local_arc_uses_initial_tangent_instead_of_chord(self):
+        arc = [(0.0, 0.0), (0.02, 0.0), (0.04, 0.005),
+               (0.05, 0.03), (0.05, 0.10)]
+        rotation, turning, is_curve = path_turning_decision(
+            arc, (0.0, 0.0), 0.0, False)
+        self.assertIsNone(rotation)
+        self.assertFalse(turning)
         self.assertFalse(is_curve)
 
     def test_mpc_gate_stops_for_wait_empty_path_or_stale_scan(self):

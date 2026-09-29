@@ -74,14 +74,11 @@ class MpcGate(Node):
     def _tick(self):
         now = self.now()
         rotation_error = None
-        endpoint_distance = None
         if self.path and len(self.path[0]) >= 2:
             start = self.path[0][0].pose.position
             end_pose = self.path[0][-1].pose
             path_span = hypot(end_pose.position.x - start.x,
                               end_pose.position.y - start.y)
-            endpoint_distance = hypot(end_pose.position.x - self.x,
-                                      end_pose.position.y - self.y)
             if path_span < 0.02:
                 q = end_pose.orientation
                 desired = atan2(2 * (q.w * q.z + q.x * q.y),
@@ -98,8 +95,6 @@ class MpcGate(Node):
                                            self.scan_stamp, self.path,
                                            self.intent, self.command,
                                            rotation_error=rotation_error)
-        if endpoint_distance is not None and rotation_error is None:
-            linear = min(linear, max(0.08, 0.8 * endpoint_distance), 0.3)
         msg = Twist()
         msg.linear.x = linear
         msg.angular.z = angular

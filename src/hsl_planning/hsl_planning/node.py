@@ -2,7 +2,8 @@
 
 import struct
 import random
-from math import atan2, cos, hypot, sin
+import numpy as np
+from math import atan2, cos, hypot, pi, sin
 from time import perf_counter
 
 import rclpy
@@ -14,14 +15,12 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32, String
 
-from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
-                   curved_guidance,
-                   route_curve_guidance,
+from .mppi import mppi_local_guidance
+from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
                    reachable_intercept,
                    local_guidance, path_heading_error, reachable_target,
-                   local_rollout, regulated_pure_pursuit_guidance,
                    recovery_step, turn_alignment_is_progress,
-                   reusable_local_guidance, reusable_route,
+                   reusable_route,
                    smooth_intercept_target)
 
 
@@ -84,6 +83,11 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("scan_timeout", 1.8)
         self.declare_parameter("intent_timeout", 1.0)
         self.declare_parameter("random_seed", 0)
+        self.declare_parameter("mppi_batch_size", 192)
+        self.declare_parameter("mppi_iterations", 2)
+        self.declare_parameter("mppi_horizon", 3.0)
+        self.declare_parameter("mppi_model_dt", 0.15)
+        self.declare_parameter("mppi_temperature", 0.3)
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
@@ -94,11 +98,20 @@ class TrajectoryPlanner(Node):
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
         self.random_seed = int(self.get_parameter("random_seed").value)
+        self.mppi_config = {
+            "batch_size": int(self.get_parameter("mppi_batch_size").value),
+            "iterations": int(self.get_parameter("mppi_iterations").value),
+            "horizon": float(self.get_parameter("mppi_horizon").value),
+            "dt": float(self.get_parameter("mppi_model_dt").value),
+            "temperature": float(self.get_parameter("mppi_temperature").value),
+        }
         self.rng = random.Random(self.random_seed)
+        self.mppi_rng = np.random.default_rng(self.random_seed)
         self.world = VoxelWorld(self.get_parameter("resolution").value,
                                 self.get_parameter("robot_radius").value)
         self.own = None
         self.measured_speed = 0.0
+        self.measured_omega = 0.0
         self.opponent = None
         self.intent = None
         self.scan_stamp = 0.0
@@ -125,6 +138,7 @@ class TrajectoryPlanner(Node):
         self.local_path = []
         self.local_target = None
         self.local_behavior = None
+        self.mppi_controls = None
         self.search_waypoint = None
         self.search_visited = []
         self.progress_pose = None
@@ -136,9 +150,8 @@ class TrajectoryPlanner(Node):
         self.recovery_attempt = 0
         self.recovery_goal = None
         self.recovery_origin = None
-        self.last_rollout_omega = None
-        self.curve_diagnostics = {}
-        self.curve_diagnostics_until = 0.0
+        self.mppi_diagnostics = {}
+        self.mppi_diagnostics_until = 0.0
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
         self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
@@ -162,6 +175,7 @@ class TrajectoryPlanner(Node):
         if msg.header.frame_id == self.frame:
             self.own = (odom_pose(msg), seconds(msg.header.stamp))
             self.measured_speed = abs(float(msg.twist.twist.linear.x))
+            self.measured_omega = float(msg.twist.twist.angular.z)
 
     def on_opponent(self, msg):
         if msg.header.frame_id == self.frame:
@@ -170,7 +184,7 @@ class TrajectoryPlanner(Node):
     def on_intent(self, msg):
         if msg.header.frame_id == self.frame:
             if self.local_behavior is not None and msg.behavior != self.local_behavior:
-                self.last_rollout_omega = None
+                self.mppi_controls = None
             if msg.behavior != 5:
                 self.search_waypoint = None
                 self.search_visited = []
@@ -214,9 +228,37 @@ class TrajectoryPlanner(Node):
     def publish_empty(self, reason):
         self.global_path = []
         self.local_path = []
+        self.mppi_controls = None
         self.global_pub.publish(make_path(self, []))
         self.local_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
+
+    def recovery_path(self, own, enemy, enemy_velocity, intent):
+        """Try a short checked arc before a straight escape or in-place turn."""
+        goal = self.recovery_goal
+        if goal is None:
+            return []
+        config = dict(self.mppi_config, horizon=1.65, batch_size=128)
+        arc, _, _ = mppi_local_guidance(
+            self.world, own, [own, goal],
+            max_speed=float(intent.max_speed),
+            measured_speed=self.measured_speed,
+            measured_omega=self.measured_omega,
+            opponent=enemy, opponent_velocity=enemy_velocity,
+            opponent_clearance=float(intent.opponent_clearance),
+            safety_margin=self.local_safety_margin,
+            rng=self.mppi_rng, **config)
+        if arc and (hypot(arc[-1].x - own.x, arc[-1].y - own.y) >= 0.08 or
+                    abs((arc[-1].yaw - own.yaw + pi) % (2 * pi) - pi) >= 0.3):
+            return arc
+        line = local_guidance(self.world, own, [goal], enemy,
+                              intent.opponent_clearance, min_step=0.04,
+                              safety_margin=self.local_safety_margin)
+        if line:
+            dx, dy = goal.x - own.x, goal.y - own.y
+            if dx * cos(own.yaw) + dy * sin(own.yaw) < -0.04:
+                return [own, Pose2(own.x, own.y, atan2(dy, dx))]
+        return line
 
     def tick(self):
         started = perf_counter()
@@ -385,68 +427,44 @@ class TrajectoryPlanner(Node):
                 self.publish_empty("NO_GLOBAL_PATH")
                 return
         if self.recovery_goal is not None:
+            self.mppi_controls = None
             self.local_path = []
-            local = local_guidance(self.world, own, [self.recovery_goal], enemy,
-                                   intent.opponent_clearance, min_step=0.04,
-                                   safety_margin=self.local_safety_margin)
+            local = self.recovery_path(own, enemy, enemy_velocity, intent)
+            self.local_path = local
             if not local:
                 self.recovery_goal = None
         elif hypot(own.x - target.x, own.y - target.y) <= intent.target_tolerance:
+            self.mppi_controls = None
             self.local_path = []
             local = [own, Pose2(own.x, own.y, target.yaw)]
         else:
             same_target = (self.local_target is not None and
                            hypot(target.x - self.local_target.x,
                                  target.y - self.local_target.y) < 0.3)
-            local = regulated_pure_pursuit_guidance(
-                self.world, own, self.global_path, self.measured_speed,
-                enemy, intent.opponent_clearance,
-                safety_margin=self.local_safety_margin + 0.06,
-                diagnostics=self.curve_diagnostics)
-            if local:
-                self.last_rollout_omega = None
-            else:
-                local = (reusable_local_guidance(
-                    self.world, own, self.local_path, enemy,
-                    intent.opponent_clearance, self.local_safety_margin)
-                    if same_target and self.local_behavior == intent.behavior
-                    else [])
-            if not local:
-                straight = local_guidance(self.world, own, self.global_path, enemy,
-                                          intent.opponent_clearance,
-                                          safety_margin=self.local_safety_margin)
-                local = route_curve_guidance(
-                    self.world, own, self.global_path, straight, enemy,
-                    intent.opponent_clearance,
-                    diagnostics=self.curve_diagnostics,
-                    max_distance=2.5)
-                if not local:
-                    local = curved_guidance(self.world, own, straight, enemy,
-                                            intent.opponent_clearance,
-                                            diagnostics=self.curve_diagnostics)
-                entry_error = path_heading_error(own, local) if local else None
-                if entry_error is not None and entry_error > 0.55:
-                    rollout = local_rollout(
-                        self.world, own, self.global_path, enemy_future,
-                        intent.opponent_clearance, intent.opponent_cost_weight,
-                        max_speed=float(intent.max_speed),
-                        horizon=2.4, dt=0.2,
-                        opponent_velocity=enemy_velocity,
-                        previous_omega=self.last_rollout_omega,
-                        safety_margin=self.local_safety_margin + 0.06)
-                    if (len(rollout) >= 3 and
-                            hypot(rollout[-1].x - own.x,
-                                  rollout[-1].y - own.y) >= 0.15):
-                        local = rollout
-                        self.last_rollout_omega = angle_error(
-                            rollout[-1].yaw - rollout[-2].yaw, 0.0) / 0.2
-                        self.curve_diagnostics["kinematic_rollout"] = (
-                            self.curve_diagnostics.get("kinematic_rollout", 0) + 1)
-            if now >= self.curve_diagnostics_until:
+            previous_controls = (
+                self.mppi_controls if same_target and
+                self.local_behavior == intent.behavior else None)
+            local, self.mppi_controls, diagnostics = mppi_local_guidance(
+                self.world, own, self.global_path,
+                max_speed=float(intent.max_speed),
+                measured_speed=self.measured_speed,
+                measured_omega=self.measured_omega,
+                opponent=enemy,
+                opponent_velocity=enemy_velocity,
+                opponent_clearance=float(intent.opponent_clearance),
+                safety_margin=self.local_safety_margin,
+                previous_controls=previous_controls,
+                rng=self.mppi_rng,
+                **self.mppi_config)
+            reason = diagnostics.get("result", "unknown")
+            self.mppi_diagnostics[reason] = (
+                self.mppi_diagnostics.get(reason, 0) + 1)
+            if now >= self.mppi_diagnostics_until:
                 self.get_logger().info(
-                    f"Local curve decisions (10 sim s): {self.curve_diagnostics}")
-                self.curve_diagnostics.clear()
-                self.curve_diagnostics_until = now + 10.0
+                    f"Local MPPI decisions (10 sim s): {self.mppi_diagnostics}; "
+                    f"last={diagnostics}")
+                self.mppi_diagnostics.clear()
+                self.mppi_diagnostics_until = now + 10.0
             self.local_path = local
             self.local_target = target
             self.local_behavior = intent.behavior
@@ -460,12 +478,10 @@ class TrajectoryPlanner(Node):
                 self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
                                            own.y + step[1] * sin(step[0]))
                 self.recovery_origin = own
-                local = local_guidance(self.world, own, [self.recovery_goal],
-                                       enemy, intent.opponent_clearance,
-                                       min_step=0.04,
-                                       safety_margin=self.local_safety_margin)
+                local = self.recovery_path(own, enemy, enemy_velocity, intent)
                 if not local:
                     local = [own, Pose2(own.x, own.y, step[0])]
+                self.local_path = local
                 self.local_pub.publish(make_path(self, local))
                 self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
                 return

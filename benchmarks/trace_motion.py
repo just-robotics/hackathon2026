@@ -5,7 +5,7 @@ import argparse
 import json
 import time
 from collections import Counter
-from math import atan2, hypot, pi
+from math import atan2, cos, hypot, pi, sin
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -32,6 +32,11 @@ def main():
     sums = Counter()
     path_lengths = []
     path_errors = []
+    published_spans = []
+    published_lengths = []
+    published_tangent_errors = []
+    published_chord_errors = []
+    global_lengths = []
     clipped_errors = []
     opponent_position_errors = []
     subscriptions = []
@@ -45,6 +50,35 @@ def main():
         if not latest.get("allowed", False):
             return
         samples["path_updates"] += 1
+        if len(message.poses) >= 2:
+            positions = [pose.pose.position for pose in message.poses]
+            first, last = positions[0], positions[-1]
+            span = hypot(last.x - first.x, last.y - first.y)
+            published_spans.append(span)
+            published_lengths.append(sum(
+                hypot(b.x - a.x, b.y - a.y)
+                for a, b in zip(positions, positions[1:])))
+            pose = latest.get("pose")
+            if pose and span >= 0.02:
+                p = pose[0].pose.pose.position
+                q = pose[0].pose.pose.orientation
+                own_yaw = atan2(2 * (q.w * q.z + q.x * q.y),
+                                1 - 2 * (q.y * q.y + q.z * q.z))
+                nearest = min(range(len(positions)),
+                              key=lambda i: hypot(positions[i].x - p.x,
+                                                  positions[i].y - p.y))
+                before = positions[max(0, nearest - 2)]
+                after = positions[min(len(positions) - 1, nearest + 3)]
+                tangent = atan2(after.y - before.y, after.x - before.x)
+                chord = atan2(last.y - first.y, last.x - first.x)
+                published_tangent_errors.append(
+                    abs((tangent - own_yaw + pi) % (2 * pi) - pi))
+                published_chord_errors.append(
+                    abs((chord - own_yaw + pi) % (2 * pi) - pi))
+                forward = ((last.x - p.x) * cos(own_yaw) +
+                           (last.y - p.y) * sin(own_yaw))
+                if forward < -0.05:
+                    samples["path_ends_behind"] += 1
         if len(message.poses) >= 3:
             first = message.poses[0].pose.position
             last = message.poses[-1].pose.position
@@ -84,6 +118,10 @@ def main():
         pose = latest.get("pose")
         if not pose or not message.poses:
             return
+        global_lengths.append(sum(
+            hypot(b.pose.position.x - a.pose.position.x,
+                  b.pose.position.y - a.pose.position.y)
+            for a, b in zip(message.poses, message.poses[1:])))
         position = pose[0].pose.pose.position
         candidate = next((item.pose.position for item in message.poses
                           if hypot(item.pose.position.x - position.x,
@@ -239,6 +277,19 @@ def main():
               "path_length_p90_m": percentile(path_lengths, 0.9),
               "path_heading_error_median_rad": percentile(path_errors, 0.5),
               "path_heading_error_p90_rad": percentile(path_errors, 0.9),
+              "published_path_span_median_m": percentile(published_spans, 0.5),
+              "published_path_length_median_m": percentile(published_lengths, 0.5),
+              "published_path_length_p90_m": percentile(published_lengths, 0.9),
+              "published_path_length_max_m": (round(max(published_lengths), 3)
+                                              if published_lengths else None),
+              "global_path_length_median_m": percentile(global_lengths, 0.5),
+              "path_ends_behind_fraction": round(
+                  samples["path_ends_behind"] /
+                  max(1, samples["path_updates"]), 3),
+              "published_tangent_error_median_rad": percentile(
+                  published_tangent_errors, 0.5),
+              "published_chord_error_median_rad": percentile(
+                  published_chord_errors, 0.5),
               "gate_clipped_heading_error_median_rad": percentile(clipped_errors, 0.5),
               "opponent_position_error_count": len(opponent_position_errors),
               "opponent_position_error_median_m": percentile(

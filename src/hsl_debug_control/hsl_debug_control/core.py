@@ -17,22 +17,24 @@ def path_turning_decision(points, own, yaw, already_turning,
         return None, False, False
     deviation = max(abs((x - start[0]) * dy - (y - start[1]) * dx) / span
                     for x, y in points)
-    if deviation > 0.035:
-        nearest = min(range(len(points)),
-                      key=lambda i: hypot(points[i][0] - own[0],
-                                          points[i][1] - own[1]))
-        before = points[max(0, nearest - 2)]
-        after = points[min(len(points) - 1, nearest + 3)]
-        desired = atan2(after[1] - before[1], after[0] - before[0])
-        error = angle_error(desired, yaw)
-        if abs(error) > curve_forward_error:
-            return error, True, True
-        return None, False, True
-    desired = atan2(dy, dx)
+    is_curve = deviation > 0.035
+    # A short MPPI arc can have a nearly straight chord even though its first
+    # few poses point somewhere else. Check the tangent that MPC will follow
+    # next, rather than requiring the robot to face the far endpoint first.
+    nearest = min(range(len(points)),
+                  key=lambda i: hypot(points[i][0] - own[0],
+                                      points[i][1] - own[1]))
+    before = points[max(0, nearest - 2)]
+    after = points[min(len(points) - 1, nearest + 3)]
+    tangent_dx, tangent_dy = after[0] - before[0], after[1] - before[1]
+    desired = (atan2(tangent_dy, tangent_dx)
+               if hypot(tangent_dx, tangent_dy) >= 0.02 else atan2(dy, dx))
     error = angle_error(desired, yaw)
-    if abs(error) > (0.75 if already_turning else 1.0):
-        return error, True, False
-    return None, False, False
+    threshold = (curve_forward_error if is_curve else
+                 (0.75 if already_turning else 1.0))
+    if abs(error) > threshold:
+        return error, True, is_curve
+    return None, False, is_curve
 
 
 def follow(own, points, max_speed):
