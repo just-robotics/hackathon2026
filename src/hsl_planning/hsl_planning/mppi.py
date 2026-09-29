@@ -10,7 +10,7 @@ Algorithm reference (ROS 2 Humble):
 https://github.com/ros-navigation/navigation2/tree/humble/nav2_mppi_controller
 """
 
-from math import cos, hypot, inf, pi, sin, sqrt
+from math import hypot, inf, pi, sqrt
 
 import numpy as np
 
@@ -61,16 +61,23 @@ def _pruned_route(own, route):
         lengths, starts, float(np.sum(lengths))
 
 
-def _project_batch(x, y, route):
-    """Return nearest route distance, route progress, and tangent for a batch."""
+def _project_batch(x, y, route, max_progress=None):
+    """Project onto reachable route segments, avoiding nearby later loops."""
     ax, ay, dx, dy, lengths, starts, _ = route
     px = x[:, None] - ax[None, :]
     py = y[:, None] - ay[None, :]
     fractions = np.clip((px * dx[None, :] + py * dy[None, :]) /
                         (lengths[None, :] ** 2), 0.0, 1.0)
+    if max_progress is not None:
+        cap = np.broadcast_to(np.asarray(max_progress, dtype=np.float64), x.shape)
+        fractions = np.minimum(
+            fractions, np.clip((cap[:, None] - starts[None, :]) /
+                               lengths[None, :], 0.0, 1.0))
     nearest_x = ax[None, :] + fractions * dx[None, :]
     nearest_y = ay[None, :] + fractions * dy[None, :]
     squared = (x[:, None] - nearest_x) ** 2 + (y[:, None] - nearest_y) ** 2
+    if max_progress is not None:
+        squared = np.where(starts[None, :] <= cap[:, None], squared, inf)
     indices = np.argmin(squared, axis=1)
     rows = np.arange(x.shape[0])
     lateral = np.sqrt(squared[rows, indices])
@@ -136,9 +143,9 @@ def _simulate(own, initial_speed, initial_omega, velocities, omegas, dt):
     yaw = np.full(batch, own.yaw, dtype=np.float64)
     for step in range(steps):
         v = (np.full(batch, initial_speed, dtype=np.float64)
-             if step == 0 else velocities[:, step])
+             if step == 0 else velocities[:, step - 1])
         w = (np.full(batch, initial_omega, dtype=np.float64)
-             if step == 0 else omegas[:, step])
+             if step == 0 else omegas[:, step - 1])
         next_yaw = yaw + w * dt
         moving_turn = np.abs(w) > 1e-6
         dx = v * np.cos(yaw) * dt
@@ -169,6 +176,9 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
     unknown_cost = np.zeros(batch, dtype=np.float64)
     path_deviation = np.zeros(batch, dtype=np.float64)
     furthest_progress = np.zeros(batch, dtype=np.float64)
+    travelled = np.zeros(batch, dtype=np.float64)
+    previous_x = np.full(batch, own.x, dtype=np.float64)
+    previous_y = np.full(batch, own.y, dtype=np.float64)
     max_route_progress = route[-1]
     required = world.robot_radius + max(0.0, safety_margin)
     initial_wall = world.obstacle_clearance(own.x, own.y)
@@ -180,6 +190,8 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
 
     for step in range(1, steps + 1):
         x, y = xs[:, step], ys[:, step]
+        travelled += np.hypot(x - previous_x, y - previous_y)
+        previous_x, previous_y = x, y
         time += dt
         wall_clearance = _clearance_batch(world, x, y)
         map_clearance = np.full(batch, inf, dtype=np.float64)
@@ -224,7 +236,8 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
                                for cell in cells), dtype=np.float64, count=batch)
         unknown_cost += unknown
 
-        lateral, progress, _ = _project_batch(x, y, route)
+        lateral, progress, _ = _project_batch(
+            x, y, route, max_progress=travelled + 0.35)
         path_deviation += lateral
         furthest_progress = np.maximum(furthest_progress, progress)
 
@@ -238,7 +251,8 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
     target_x, target_y = _point_at_progress(
         route, min(batch_furthest + 0.45, max_route_progress))
     follow_distance = np.hypot(xs[:, -1] - target_x, ys[:, -1] - target_y)
-    _, _, route_yaw = _project_batch(xs[:, -1], ys[:, -1], route)
+    _, _, route_yaw = _project_batch(
+        xs[:, -1], ys[:, -1], route, max_progress=travelled + 0.35)
     yaw_error = np.abs((yaws[:, -1] - route_yaw + pi) % (2 * pi) - pi)
     initial_path_angle_error = _initial_path_angle_errors(own, xs, ys)
     initial_path_angle_cost = np.square(
@@ -305,20 +319,34 @@ def _reference_prefix(path, max_length=1.2):
     if len(path) < 3:
         return path
     origin = path[0]
-    forward_x, forward_y = cos(origin.yaw), sin(origin.yaw)
     prefix = [origin]
     travelled = 0.0
     for point in path[1:]:
         step = hypot(point.x - prefix[-1].x, point.y - prefix[-1].y)
         if travelled + step > max_length and len(prefix) >= 2:
             break
-        forward = ((point.x - origin.x) * forward_x +
-                   (point.y - origin.y) * forward_y)
-        if forward < -0.04 and len(prefix) >= 2:
-            break
         prefix.append(point)
         travelled += step
     return prefix
+
+
+def _spaced_reference(path, minimum_step=0.06):
+    """Remove near-coincident poses before Lat-MPC estimates path curvature."""
+    if len(path) < 4:
+        return path
+    spaced = [path[0]]
+    for point in path[1:-1]:
+        if hypot(point.x - spaced[-1].x,
+                 point.y - spaced[-1].y) >= minimum_step:
+            spaced.append(point)
+    last = path[-1]
+    if (len(spaced) > 1 and
+            hypot(last.x - spaced[-1].x,
+                  last.y - spaced[-1].y) < 0.5 * minimum_step):
+        spaced[-1] = last
+    else:
+        spaced.append(last)
+    return spaced if len(spaced) >= 3 else path
 
 
 def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
@@ -478,9 +506,12 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                                  for i in range(1, steps + 1)]
             if _safe_path(world, mean_path, opponent, opponent_velocity,
                           opponent_clearance, safety_margin, dt):
+                mean_distance = sum(hypot(b.x - a.x, b.y - a.y)
+                                    for a, b in zip(mean_path, mean_path[1:]))
                 _, mean_progress, _ = _project_batch(
                     np.array([mean_path[-1].x]),
-                    np.array([mean_path[-1].y]), route)
+                    np.array([mean_path[-1].y]), route,
+                    max_progress=mean_distance + 0.35)
                 candidate = (float(mean_costs[0]), float(mean_progress[0]),
                              mean_path, np.column_stack((velocities, omegas)).tolist())
                 if best_mean is None or candidate[0] < best_mean[0]:
@@ -499,8 +530,11 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                             for i in range(1, steps + 1)]
             if _safe_path(world, path, opponent, opponent_velocity,
                           opponent_clearance, safety_margin, dt):
+                distance = sum(hypot(b.x - a.x, b.y - a.y)
+                               for a, b in zip(path, path[1:]))
                 _, progress, _ = _project_batch(
-                    np.array([path[-1].x]), np.array([path[-1].y]), route)
+                    np.array([path[-1].x]), np.array([path[-1].y]), route,
+                    max_progress=distance + 0.35)
                 candidate = (float(costs[i]), float(progress[0]), path,
                              np.column_stack((candidate_v, candidate_w)).tolist())
                 if best_sample is None or candidate[0] < best_sample[0]:
@@ -542,6 +576,11 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
     selected_cost, selected_progress, best_trajectory, best_controls = selected
     optimized_points = len(best_trajectory)
     best_trajectory = _reference_prefix(best_trajectory)
+    candidate = _spaced_reference(best_trajectory)
+    if (candidate != best_trajectory and
+            _safe_path(world, candidate, opponent, opponent_velocity,
+                       opponent_clearance, safety_margin, dt)):
+        best_trajectory = candidate
     best_details.update({"result": "ok", "selected_cost": selected_cost,
                          "selected_progress": selected_progress,
                          "selected_type": selected_type,

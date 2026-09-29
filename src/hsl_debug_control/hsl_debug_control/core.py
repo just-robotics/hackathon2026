@@ -94,4 +94,4 @@ def safe_mpc_command(now, pose_stamp, scan_stamp, path, intent, command,
     linear, angular, command_stamp = command
     if now - command_stamp > command_timeout:
         return 0.0, 0.0
-    return max(-max_speed, min(max_speed, linear)), max(-1.2, min(1.2, angular))
+    return max(-max_speed, min(max_speed, linear)), angular

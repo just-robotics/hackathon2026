@@ -21,7 +21,9 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                recovery_step, turn_alignment_is_progress,
                                reusable_route, safe_segment,
                                smooth_intercept_target)
-from hsl_planning.mppi import (_initial_path_angle_errors, _pruned_route,
+from hsl_planning.mppi import (_initial_path_angle_errors, _project_batch,
+                               _pruned_route,
+                               _reference_prefix, _simulate, _spaced_reference,
                                mppi_local_guidance)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
@@ -195,6 +197,57 @@ class PlanningTests(unittest.TestCase):
         pruned = _pruned_route(Pose2(0, 0.08), route)
         self.assertIsNotNone(pruned)
         self.assertGreater(pruned[2][0], 0.0)
+
+    def test_mppi_progress_cannot_jump_to_nearby_later_loop(self):
+        route = [Pose2(0, 0), Pose2(1, 0), Pose2(1, 1),
+                 Pose2(0, 1), Pose2(0, 0.1), Pose2(-1, 0.1)]
+        pruned = _pruned_route(Pose2(0, 0.08), route)
+        self.assertIsNotNone(pruned)
+        _, unconstrained, _ = _project_batch(
+            np.array([0.02]), np.array([0.08]), pruned)
+        _, constrained, _ = _project_batch(
+            np.array([0.02]), np.array([0.08]), pruned,
+            max_progress=np.array([0.35]))
+        self.assertGreater(unconstrained[0], 3.0)
+        self.assertLessEqual(constrained[0], 0.35)
+
+    def test_mppi_rollout_uses_first_control_after_measured_initial_step(self):
+        own = Pose2(0.0, 0.0, 0.0)
+        velocities = np.array([[0.4, 0.1, 0.1]])
+        omegas = np.array([[0.0, 0.0, 0.0]])
+        xs, _, _ = _simulate(own, 0.2, 0.0, velocities, omegas, 1.0)
+        self.assertTrue(np.allclose(xs[0], [0.0, 0.2, 0.6, 0.7]))
+
+    def test_mppi_prefix_keeps_forward_driven_u_turn(self):
+        points = [Pose2(0.0, 0.0, 0.0), Pose2(0.2, 0.0, 0.4),
+                  Pose2(0.3, 0.2, 1.7), Pose2(0.2, 0.4, 2.5),
+                  Pose2(0.0, 0.5, 3.0), Pose2(-0.15, 0.5, 3.1)]
+        prefix = _reference_prefix(points)
+        self.assertEqual(prefix, points)
+        self.assertLess(prefix[-1].x, points[0].x)
+
+    def test_mppi_reference_removes_tiny_curvature_spikes_for_mpc(self):
+        dense = [Pose2(0.0, 0.0), Pose2(0.003, 0.002),
+                 Pose2(0.009, -0.001), Pose2(0.045, 0.0),
+                 Pose2(0.09, 0.0), Pose2(0.14, 0.0), Pose2(0.2, 0.0)]
+        spaced = _spaced_reference(dense)
+
+        def maximum_curvature(points):
+            result = 0.0
+            for a, b, c in zip(points, points[1:], points[2:]):
+                ab = hypot(b.x - a.x, b.y - a.y)
+                bc = hypot(c.x - b.x, c.y - b.y)
+                ac = hypot(c.x - a.x, c.y - a.y)
+                if ab * bc * ac > 1e-9:
+                    cross = ((b.x - a.x) * (c.y - a.y) -
+                             (b.y - a.y) * (c.x - a.x))
+                    result = max(result, abs(2 * cross / (ab * bc * ac)))
+            return result
+
+        self.assertEqual(spaced[0], dense[0])
+        self.assertEqual(spaced[-1], dense[-1])
+        self.assertGreater(maximum_curvature(dense), 20.0)
+        self.assertLess(maximum_curvature(spaced), 1.0)
 
     def test_mppi_initial_path_angle_critic_prefers_gentle_forward_arc(self):
         own = Pose2(0.0, 0.0, 0.0)
@@ -519,6 +572,13 @@ class PlanningTests(unittest.TestCase):
         self.assertIsNone(rotation)
         self.assertFalse(turning)
         self.assertFalse(is_curve)
+
+    def test_mpc_gate_preserves_controller_angular_range(self):
+        for angular in (-1.5, 1.5):
+            self.assertEqual(safe_mpc_command(
+                10.0, 10.0, 10.0, ([object()], 10.0),
+                (GOAL, 1.0, 10.0), (0.5, angular, 10.0)),
+                (0.5, angular))
 
     def test_mpc_gate_stops_for_wait_empty_path_or_stale_scan(self):
         path = ([object()], 10.0)

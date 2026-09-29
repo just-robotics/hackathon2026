@@ -29,17 +29,12 @@ def control_nodes(context):
              parameters=[config("cc_mpc.param.yaml"), {
                  "start": True,
                  "use_sim_time": True,
-                 "v_ref": 0.3,
-                 "v_cmd_max": 0.3,
                  "odom_topic": prefix + "/navigation/self",
                  "cmd_vel_topic": prefix + "/navigation/long_cmd",
              }]),
         Node(package="swarm_controller", executable="swarm_lat_mpc_node",
              namespace=namespace, name="hsl_lat_mpc", output="screen",
              parameters=[config("lat_mpc.param.yaml"), {
-                 "a_lat_max": 0.08,
-                 "v_min": 0.12,
-                 "curve_lookahead": 1.0,
                  "long_cmd_topic": prefix + "/navigation/long_cmd",
                  "use_sim_time": True,
                  "cmd_vel_topic": prefix + "/navigation/mpc_cmd_vel",

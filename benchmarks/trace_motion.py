@@ -12,6 +12,7 @@ from geometry_msgs.msg import Twist
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import (DurabilityPolicy, QoSProfile,
                        qos_profile_sensor_data)
 from sensor_msgs.msg import PointCloud2
@@ -27,7 +28,8 @@ def main():
     args = parser.parse_args()
     prefix = "/" + args.namespace.strip("/") if args.namespace else ""
     rclpy.init()
-    node = Node("trace_motion")
+    node = Node("trace_motion", parameter_overrides=[
+        Parameter("use_sim_time", value=True)])
     latest = {}
     match = {"started": False, "finished": False}
     samples = Counter()
@@ -36,24 +38,37 @@ def main():
     path_errors = []
     published_spans = []
     published_lengths = []
+    published_max_curvatures = []
+    published_short_steps = []
     published_tangent_errors = []
     published_chord_errors = []
     global_lengths = []
     clipped_errors = []
     gate_clipped_tangent_errors = []
     opponent_position_errors = []
+    controller_speed_references = []
+    controller_curve_limits = []
     subscriptions = []
+
+    def stamp(message):
+        if hasattr(message, "header"):
+            return message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        return node.get_clock().now().nanoseconds * 1e-9
 
     def remember(name):
         def callback(message):
             latest[name] = (message, time.monotonic(),
-                            node.get_clock().now().nanoseconds * 1e-9)
+                            stamp(message))
+            if latest.get("allowed", False) and name == "v_ref":
+                controller_speed_references.append(float(message.data))
+            elif latest.get("allowed", False) and name == "v_curve":
+                controller_curve_limits.append(float(message.data))
         return callback
 
     def on_path(message):
         previous = latest.get("path")
         latest["path"] = (message, time.monotonic(),
-                           node.get_clock().now().nanoseconds * 1e-9)
+                           stamp(message))
         if not latest.get("allowed", False):
             return
         samples["path_updates"] += 1
@@ -65,6 +80,30 @@ def main():
             published_lengths.append(sum(
                 hypot(b.x - a.x, b.y - a.y)
                 for a, b in zip(positions, positions[1:])))
+            steps = [hypot(b.x - a.x, b.y - a.y)
+                     for a, b in zip(positions, positions[1:])]
+            published_short_steps.append(sum(step < 0.02 for step in steps) /
+                                         max(1, len(steps)))
+            if len(positions) >= 3:
+                mean_spacing = sum(steps) / len(steps)
+                cyclic = (mean_spacing > 0 and
+                          span < 2 * mean_spacing)
+                maximum = 0.0
+                for i in range(len(positions)):
+                    if not cyclic and i in (0, len(positions) - 1):
+                        continue
+                    a, b, c = (positions[(i - 1) % len(positions)],
+                               positions[i],
+                               positions[(i + 1) % len(positions)])
+                    ab = hypot(b.x - a.x, b.y - a.y)
+                    bc = hypot(c.x - b.x, c.y - b.y)
+                    ac = hypot(c.x - a.x, c.y - a.y)
+                    if ab * bc * ac > 1e-9:
+                        area2 = ((b.x - a.x) * (c.y - a.y) -
+                                 (b.y - a.y) * (c.x - a.x))
+                        maximum = max(maximum, abs(2 * area2 /
+                                                    (ab * bc * ac)))
+                published_max_curvatures.append(maximum)
             pose = latest.get("pose")
             if pose and span >= 0.02:
                 p = pose[0].pose.pose.position
@@ -204,7 +243,8 @@ def main():
     def on_command(message):
         if not latest.get("allowed", False):
             return
-        now = time.monotonic()
+        sim_now = node.get_clock().now().nanoseconds * 1e-9
+        pose = latest.get("pose")
         samples["total"] += 1
         sums["cmd_linear"] += message.linear.x
         sums["cmd_angular_abs"] += abs(message.angular.z)
@@ -232,10 +272,14 @@ def main():
                 path_errors.append(error)
                 if message.linear.x <= 0.02 and mpc and mpc[0].linear.x > 0.02:
                     clipped_errors.append(error)
-        if not intent or now - intent[1] > 1.0 or intent[0].behavior in (0, 1):
+        if not intent or sim_now - intent[2] > 1.0 or intent[0].behavior in (0, 1):
             reason = "intent_wait_stop_stale"
-        elif not path or now - path[1] > 1.0 or not path[0].poses:
+        elif not path or sim_now - path[2] > 1.0 or not path[0].poses:
             reason = "empty_or_stale_path"
+        elif not pose or sim_now - pose[2] > 1.2:
+            reason = "gate_stale_pose"
+        elif not latest.get("scan") or sim_now - latest["scan"][2] > 1.8:
+            reason = "gate_stale_scan"
         else:
             first = path[0].poses[0].pose.position
             last = path[0].poses[-1].pose.position
@@ -256,40 +300,30 @@ def main():
                         samples["rotate_error_under_0_5"] += 1
                     else:
                         samples["rotate_error_over_0_5"] += 1
-            elif not mpc or now - mpc[1] > 0.5 or mpc[0].linear.x <= 0.02:
+            elif not mpc or sim_now - mpc[2] > 0.5 or mpc[0].linear.x <= 0.02:
                 reason = "mpc_zero_or_stale"
             else:
-                sim_now = node.get_clock().now().nanoseconds * 1e-9
-                if not pose or sim_now - pose[2] > 1.2:
-                    reason = "gate_stale_pose"
-                elif not latest.get("scan") or sim_now - latest["scan"][2] > 1.8:
-                    reason = "gate_stale_scan"
-                elif sim_now - path[2] > 1.0:
-                    reason = "gate_stale_path"
-                elif sim_now - intent[2] > 1.0:
-                    reason = "gate_stale_intent"
-                else:
-                    reason = "gate_clipped"
-                    if pose and len(path[0].poses) >= 2:
-                        p = pose[0].pose.pose.position
-                        q = pose[0].pose.pose.orientation
-                        own_yaw = atan2(2 * (q.w * q.z + q.x * q.y),
-                                        1 - 2 * (q.y * q.y + q.z * q.z))
-                        points = [item.pose.position for item in path[0].poses]
-                        nearest = min(range(len(points)), key=lambda i:
-                                      hypot(points[i].x - p.x,
-                                            points[i].y - p.y))
-                        before = points[max(0, nearest - 2)]
-                        after = points[min(len(points) - 1, nearest + 3)]
-                        if hypot(after.x - before.x,
-                                 after.y - before.y) >= 0.02:
-                            tangent = atan2(after.y - before.y,
-                                            after.x - before.x)
-                            error = abs((tangent - own_yaw + pi) % (2 * pi) - pi)
-                            gate_clipped_tangent_errors.append(error)
-                            samples["gate_tangent_over_0_75"] += error > 0.75
-                            samples["gate_tangent_over_1_0"] += error > 1.0
-                            samples["gate_tangent_over_1_2"] += error > 1.2
+                reason = "gate_clipped"
+                if pose and len(path[0].poses) >= 2:
+                    p = pose[0].pose.pose.position
+                    q = pose[0].pose.pose.orientation
+                    own_yaw = atan2(2 * (q.w * q.z + q.x * q.y),
+                                    1 - 2 * (q.y * q.y + q.z * q.z))
+                    points = [item.pose.position for item in path[0].poses]
+                    nearest = min(range(len(points)), key=lambda i:
+                                  hypot(points[i].x - p.x,
+                                        points[i].y - p.y))
+                    before = points[max(0, nearest - 2)]
+                    after = points[min(len(points) - 1, nearest + 3)]
+                    if hypot(after.x - before.x,
+                             after.y - before.y) >= 0.02:
+                        tangent = atan2(after.y - before.y,
+                                        after.x - before.x)
+                        error = abs((tangent - own_yaw + pi) % (2 * pi) - pi)
+                        gate_clipped_tangent_errors.append(error)
+                        samples["gate_tangent_over_0_75"] += error > 0.75
+                        samples["gate_tangent_over_1_0"] += error > 1.0
+                        samples["gate_tangent_over_1_2"] += error > 1.2
         samples[reason] += 1
         if status:
             samples["zero_status_" + status[0].data] += 1
@@ -320,6 +354,12 @@ def main():
               "published_path_span_median_m": percentile(published_spans, 0.5),
               "published_path_length_median_m": percentile(published_lengths, 0.5),
               "published_path_length_p90_m": percentile(published_lengths, 0.9),
+              "published_max_curvature_median_inv_m": percentile(
+                  published_max_curvatures, 0.5),
+              "published_max_curvature_p90_inv_m": percentile(
+                  published_max_curvatures, 0.9),
+              "published_short_step_fraction_median": percentile(
+                  published_short_steps, 0.5),
               "published_path_length_max_m": (round(max(published_lengths), 3)
                                               if published_lengths else None),
               "global_path_length_median_m": percentile(global_lengths, 0.5),
@@ -348,6 +388,15 @@ def main():
               "curved_path_fraction": round(
                   samples["curved_path_updates"] /
                   max(1, samples["path_updates"]), 3),
+              "v_ref_p10_mps": percentile(controller_speed_references, 0.1),
+              "v_ref_median_mps": percentile(controller_speed_references, 0.5),
+              "v_ref_p90_mps": percentile(controller_speed_references, 0.9),
+              "v_curve_p10_mps": percentile(controller_curve_limits, 0.1),
+              "v_curve_median_mps": percentile(controller_curve_limits, 0.5),
+              "v_curve_p90_mps": percentile(controller_curve_limits, 0.9),
+              "v_curve_below_0_2_fraction": round(
+                  sum(value < 0.2 for value in controller_curve_limits) /
+                  max(1, len(controller_curve_limits)), 3),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
               "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}
     print(json.dumps(report, indent=2, sort_keys=True))
