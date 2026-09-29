@@ -528,7 +528,7 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
     for index in range(near + 1, len(route)):
         point = route[index]
         distance = hypot(point.x - own.x, point.y - own.y)
-        if distance > 1.8:
+        if distance > 2.2:
             break
         if distance < max(0.65, visible_distance + 0.2):
             continue
