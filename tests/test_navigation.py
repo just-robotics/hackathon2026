@@ -362,6 +362,14 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(safe_segment(world, own, Pose2(1, 0)))
         self.assertTrue(safe_segment(world, own, Pose2(0.3, -0.3)))
 
+    def test_local_segment_keeps_extra_margin_for_tracking_error(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(x * 0.05, 0.33, 0.3) for x in range(-10, 31)]
+        world.update(wall, [], None, map_bounds=(-1, -1, 2, 1))
+        self.assertTrue(safe_segment(world, Pose2(0, 0), Pose2(0.5, 0)))
+        self.assertFalse(safe_segment(world, Pose2(0, 0), Pose2(0.5, 0),
+                                      safety_margin=0.14))
+
     def test_local_guidance_does_not_cut_wall_and_recovery_turns_inward(self):
         world = VoxelWorld(0.1, 0.2)
         wall = [(0.6, y * 0.1, 0.3) for y in range(-5, 6)]

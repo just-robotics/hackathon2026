@@ -82,7 +82,12 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("scan_timeout", 1.8)
         self.declare_parameter("intent_timeout", 1.0)
         self.declare_parameter("random_seed", 0)
+        self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
+        self.role = self.get_parameter("role").value
+        if self.role not in ("explorer", "guardian"):
+            raise ValueError("role must be explorer or guardian")
+        self.local_safety_margin = 0.14 if self.role == "explorer" else 0.12
         self.pose_timeout = self.get_parameter("pose_timeout").value
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
@@ -358,7 +363,8 @@ class TrajectoryPlanner(Node):
         if self.recovery_goal is not None:
             self.local_path = []
             local = local_guidance(self.world, own, [self.recovery_goal], enemy,
-                                   intent.opponent_clearance, min_step=0.04)
+                                   intent.opponent_clearance, min_step=0.04,
+                                   safety_margin=self.local_safety_margin)
             if not local:
                 self.recovery_goal = None
         elif hypot(own.x - target.x, own.y - target.y) <= intent.target_tolerance:
@@ -370,11 +376,12 @@ class TrajectoryPlanner(Node):
                                  target.y - self.local_target.y) < 0.3)
             local = (reusable_local_guidance(
                 self.world, own, self.local_path, enemy,
-                intent.opponent_clearance)
+                intent.opponent_clearance, self.local_safety_margin)
                 if same_target and self.local_behavior == intent.behavior else [])
             if not local:
                 straight = local_guidance(self.world, own, self.global_path, enemy,
-                                          intent.opponent_clearance)
+                                          intent.opponent_clearance,
+                                          safety_margin=self.local_safety_margin)
                 local = route_curve_guidance(
                     self.world, own, self.global_path, straight, enemy,
                     intent.opponent_clearance,
@@ -403,7 +410,8 @@ class TrajectoryPlanner(Node):
                 self.recovery_origin = own
                 local = local_guidance(self.world, own, [self.recovery_goal],
                                        enemy, intent.opponent_clearance,
-                                       min_step=0.04)
+                                       min_step=0.04,
+                                       safety_margin=self.local_safety_margin)
                 if not local:
                     local = [own, Pose2(own.x, own.y, step[0])]
                 self.local_pub.publish(make_path(self, local))

@@ -378,7 +378,8 @@ def reusable_route(world, own, route, previous_target, target,
     return remaining
 
 
-def safe_segment(world, start, end, opponent=None, clearance=0.0):
+def safe_segment(world, start, end, opponent=None, clearance=0.0,
+                 safety_margin=0.12):
     """Check the swept robot centre, not just the raster cells at endpoints."""
     distance = hypot(end.x - start.x, end.y - start.y)
     steps = max(1, ceil(distance / 0.05))
@@ -392,7 +393,7 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0):
         y = start.y + fraction * (end.y - start.y)
         wall = world.obstacle_clearance(x, y)
         map_margin = world.map_clearance(x, y)
-        required = world.robot_radius + 0.12
+        required = world.robot_radius + safety_margin
         travel = hypot(x - start.x, y - start.y)
         # A path beginning too close to a wall must actually leave it. Merely
         # holding the same small clearance allowed MPC tracking error to scrape
@@ -418,7 +419,7 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0):
 
 
 def local_guidance(world, own, route, opponent=None, clearance=0.0,
-                   max_lookahead=1.6, min_step=0.12):
+                   max_lookahead=1.6, min_step=0.12, safety_margin=0.12):
     """Give MPC a straight, collision-checked corridor instead of a new arc each tick."""
     if not route:
         return []
@@ -431,7 +432,7 @@ def local_guidance(world, own, route, opponent=None, clearance=0.0,
             break
         if distance > max_lookahead + 0.3:
             break
-        if safe_segment(world, own, point, opponent, clearance):
+        if safe_segment(world, own, point, opponent, clearance, safety_margin):
             visible = point
         elif visible is not None:
             break
@@ -575,7 +576,8 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
     return []
 
 
-def reusable_local_guidance(world, own, path, opponent=None, clearance=0.0):
+def reusable_local_guidance(world, own, path, opponent=None, clearance=0.0,
+                            safety_margin=0.12):
     """Keep fixed path geometry while it remains reachable and unobstructed."""
     if len(path) < 3:
         return []
@@ -590,11 +592,13 @@ def reusable_local_guidance(world, own, path, opponent=None, clearance=0.0):
     nearest = path[closest_index]
     if hypot(nearest.x - own.x, nearest.y - own.y) > 0.12:
         return []
-    if not safe_segment(world, own, nearest, opponent, clearance):
+    if not safe_segment(world, own, nearest, opponent, clearance,
+                        safety_margin):
         return []
     # Fresh scans may reveal an obstacle absent when the path was created.
     for first, second in zip(path[closest_index:-1], path[closest_index + 1:]):
-        if not safe_segment(world, first, second, opponent, clearance):
+        if not safe_segment(world, first, second, opponent, clearance,
+                            safety_margin):
             return []
     return path
 
