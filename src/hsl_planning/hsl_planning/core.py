@@ -582,8 +582,14 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
             return path
         if reason in ("curve_clearance", "curvature"):
             distance = hypot(route[index].x - own.x, route[index].y - own.y)
-            for handle in (max(0.18, 0.30 * distance),
-                           min(0.75, 0.66 * distance)):
+            # The usual middle handles can both fail in a narrow but open
+            # corridor. Try the two extremes as well; checked_cubic still
+            # enforces curvature and swept-clearance limits on every sample.
+            handles = (max(0.18, 0.30 * distance),
+                       min(0.75, 0.66 * distance),
+                       max(0.18, 0.18 * distance),
+                       min(0.75, 0.82 * distance))
+            for handle in dict.fromkeys(handles):
                 path, reason = checked_cubic(
                     world, own, route[index], end_heading, opponent,
                     clearance, handle=handle)

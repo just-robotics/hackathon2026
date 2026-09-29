@@ -345,6 +345,27 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(all(safe_segment(world, a, b) for a, b in
                             zip(curve, curve[1:])))
 
+    def test_route_curve_tries_tighter_handle_without_relaxing_safety(self):
+        world = VoxelWorld(0.1, 0.2)
+        walls = [(1.085, 0.777, 0.3), (0.334, -0.691, 0.3),
+                 (0.624, -0.176, 0.3), (0.917, -0.532, 0.3),
+                 (1.213, -0.193, 0.3), (1.290, -0.206, 0.3)]
+        world.update(walls, [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0.127)
+        route = [Pose2(0.2, 0), Pose2(0.4, 0), Pose2(0.6, 0.15),
+                 Pose2(0.8, 0.4), Pose2(1, 0.6), Pose2(1.2, 0.6),
+                 Pose2(1.4, 0.6)]
+        straight = local_guidance(world, own, route)
+        diagnostics = {}
+        curve = route_curve_guidance(world, own, route, straight,
+                                     diagnostics=diagnostics)
+        self.assertNotEqual(curve, straight)
+        self.assertGreater(diagnostics.get("route_handle_accepted", 0), 0)
+        self.assertTrue(all(safe_segment(world, a, b) for a, b in
+                            zip(curve, curve[1:])))
+        self.assertTrue(all(world.obstacle_clearance(p.x, p.y) >= 0.38
+                            for p in curve[1:]))
+
     def test_guardian_does_not_chase_prediction_through_wall(self):
         world = VoxelWorld(0.1, 0.2)
         wall = [(1.0, y * 0.1, 0.3) for y in range(-10, 11)]
