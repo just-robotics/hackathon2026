@@ -195,6 +195,25 @@ class PlanningTests(unittest.TestCase):
                      map_bounds=(-1, -1, 3, 2))
         self.assertEqual(curved_guidance(world, own, straight), straight)
 
+    def test_smooth_curve_can_leave_a_tight_spot_with_clearance_gain(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(0.0, y * 0.1, 0.3) for y in range(-15, 16)]
+        world.update(wall, [], None, map_bounds=(-1, -2, 3, 2))
+        own = Pose2(0.35, 0, 0)
+        route = [Pose2(0.6 + i * 0.1, i * 0.04)
+                 for i in range(11)]
+        straight = local_guidance(world, own, route)
+        diagnostics = {}
+        curve = curved_guidance(world, own, straight,
+                                diagnostics=diagnostics)
+        self.assertEqual(diagnostics, {"accepted": 1})
+        self.assertGreater(curve[-1].x, own.x + 0.6)
+        self.assertTrue(all(safe_segment(world, a, b)
+                            for a, b in zip(curve, curve[1:])))
+        self.assertGreater(world.obstacle_clearance(curve[-1].x,
+                                                    curve[-1].y),
+                           world.obstacle_clearance(own.x, own.y))
+
     def test_curve_requires_tracking_room_beside_wall(self):
         world = VoxelWorld(0.1, 0.2)
         wall = [(x * 0.1, 0.35, 0.3) for x in range(0, 17)]

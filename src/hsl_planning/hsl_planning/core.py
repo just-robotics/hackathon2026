@@ -444,11 +444,12 @@ def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0,
     if abs(error) < 0.18 or abs(error) > 1.15:
         return [], "heading_small" if abs(error) < 0.18 else "heading_large"
     # MPC does not follow the reference exactly. Reserve tracking room around
-    # every moving turn, especially beside walls and the arena boundary.
+    # every moving turn, especially beside walls and the arena boundary. If a
+    # robot starts below that reserve, only accept a curve that measurably
+    # increases both wall and arena clearance as it leaves the tight spot.
     curve_margin = world.robot_radius + 0.18
-    if (world.obstacle_clearance(own.x, own.y) < curve_margin or
-            world.map_clearance(own.x, own.y) < curve_margin):
-        return [], "start_clearance"
+    initial_wall = world.obstacle_clearance(own.x, own.y)
+    initial_map = world.map_clearance(own.x, own.y)
     # The first control point follows the robot heading; the last one joins
     # the original collision-checked corridor tangentially.
     handle = (min(0.65, max(0.32, 0.48 * distance))
@@ -466,8 +467,17 @@ def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0,
         y = (u ** 3 * own.y + 3 * u * u * t * p1[1] +
              3 * u * t * t * p2[1] + t ** 3 * end.y)
         point = Pose2(x, y)
-        if (world.obstacle_clearance(x, y) < curve_margin or
-                world.map_clearance(x, y) < curve_margin):
+        travel = hypot(x - own.x, y - own.y)
+        wall = world.obstacle_clearance(x, y)
+        map_margin = world.map_clearance(x, y)
+        gain = min(0.04, 0.15 * travel)
+        if (wall < curve_margin and
+                (initial_wall >= curve_margin or
+                 wall + 0.005 < initial_wall + gain)):
+            return [], "curve_clearance"
+        if (map_margin < curve_margin and
+                (initial_map >= curve_margin or
+                 map_margin + 0.005 < initial_map + gain)):
             return [], "curve_clearance"
         if not safe_segment(world, path[-1], point, opponent, clearance):
             return [], "curve_segment"
