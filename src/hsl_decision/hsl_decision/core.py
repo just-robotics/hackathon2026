@@ -64,7 +64,7 @@ def distance_to_polygon(point, flat_vertices):
 
 
 def intercept_point(guardian, explorer, velocity, pursuer_speed=0.3,
-                    horizon=3.0):
+                    horizon=2.0):
     """Bounded constant-velocity interception estimate in the map frame."""
     rx, ry = explorer.x - guardian.x, explorer.y - guardian.y
     vx, vy = velocity

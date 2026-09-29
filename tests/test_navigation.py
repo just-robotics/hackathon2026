@@ -78,6 +78,11 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(target.behavior, PURSUE)
         self.assertGreater(target.target.x, opponent.x)
 
+    def test_guardian_caps_intercept_lead_time(self):
+        target = intercept_point(DecisionPose(0, 0), DecisionPose(2, 0),
+                                 (0.35, 0))
+        self.assertAlmostEqual(target.x, 2.7)
+
     def test_guardian_searches_then_pursues_and_captures(self):
         policy = DecisionPolicy("guardian", self.area)
         initial = policy.step(self.observation())
