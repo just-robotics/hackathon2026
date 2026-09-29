@@ -16,14 +16,13 @@ from std_msgs.msg import Float32, String
 
 from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
                    curved_guidance,
-                   dynamic_path_speed_limit,
                    route_curve_guidance,
                    reachable_intercept,
                    local_guidance, path_heading_error, reachable_target,
                    local_rollout, regulated_pure_pursuit_guidance,
                    recovery_step, turn_alignment_is_progress,
                    reusable_local_guidance, reusable_route,
-                   smooth_intercept_target, slew_speed_limit)
+                   smooth_intercept_target)
 
 
 def seconds(stamp):
@@ -86,12 +85,6 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("intent_timeout", 1.0)
         self.declare_parameter("random_seed", 0)
         self.declare_parameter("role", "explorer")
-        self.declare_parameter("speed_limit_max", 1.0)
-        self.declare_parameter("speed_limit_min", 0.12)
-        self.declare_parameter("speed_limit_lateral_accel", 0.08)
-        self.declare_parameter("speed_limit_clearance_ramp", 0.32)
-        self.declare_parameter("speed_limit_accel", 0.45)
-        self.declare_parameter("speed_limit_decel", 0.45)
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
         if self.role not in ("explorer", "guardian"):
@@ -158,18 +151,8 @@ class TrajectoryPlanner(Node):
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
-        self.speed_limit_pub = self.create_publisher(
-            Float32, "navigation/speed_limit", 10)
-        self.speed_clearance_pub = self.create_publisher(
-            Float32, "navigation/speed_clearance", 10)
-        self.speed_curvature_pub = self.create_publisher(
-            Float32, "navigation/speed_curvature", 10)
-        self.speed_alignment_pub = self.create_publisher(
-            Float32, "navigation/speed_alignment", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
-        self.speed_limit_value = 0.0
-        self.speed_limit_stamp = self.now()
         self.create_timer(0.2, self.tick)
 
     def now(self):
@@ -231,45 +214,9 @@ class TrajectoryPlanner(Node):
     def publish_empty(self, reason):
         self.global_path = []
         self.local_path = []
-        self.speed_limit_value = 0.0
-        self.speed_limit_stamp = self.now()
-        self.speed_limit_pub.publish(Float32(data=0.0))
-        for publisher in (self.speed_clearance_pub, self.speed_curvature_pub,
-                          self.speed_alignment_pub):
-            publisher.publish(Float32(data=0.0))
         self.global_pub.publish(make_path(self, []))
         self.local_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
-
-    def publish_speed_limit(self, path, intent, now):
-        requested = min(float(intent.max_speed),
-                        float(self.get_parameter("speed_limit_max").value))
-        profile = {}
-        target = dynamic_path_speed_limit(
-            self.world, path, requested, self.local_safety_margin,
-            max_speed=float(self.get_parameter("speed_limit_max").value),
-            min_speed=float(self.get_parameter("speed_limit_min").value),
-            lateral_accel=float(
-                self.get_parameter("speed_limit_lateral_accel").value),
-            clearance_ramp=float(
-                self.get_parameter("speed_limit_clearance_ramp").value),
-            heading_error=path_heading_error(path[0], path)
-            if path else None,
-            diagnostics=profile)
-        self.speed_clearance_pub.publish(
-            Float32(data=float(profile["clearance_speed"])))
-        self.speed_curvature_pub.publish(
-            Float32(data=float(profile["curvature_speed"])))
-        self.speed_alignment_pub.publish(
-            Float32(data=float(profile["alignment_speed"])))
-        dt = max(0.0, min(0.5, now - self.speed_limit_stamp))
-        self.speed_limit_value = slew_speed_limit(
-            self.speed_limit_value, target, dt,
-            float(self.get_parameter("speed_limit_accel").value),
-            float(self.get_parameter("speed_limit_decel").value))
-        self.speed_limit_stamp = now
-        self.speed_limit_pub.publish(
-            Float32(data=float(self.speed_limit_value)))
 
     def tick(self):
         started = perf_counter()
@@ -482,9 +429,7 @@ class TrajectoryPlanner(Node):
                     rollout = local_rollout(
                         self.world, own, self.global_path, enemy_future,
                         intent.opponent_clearance, intent.opponent_cost_weight,
-                        max_speed=min(
-                            float(intent.max_speed),
-                            float(self.get_parameter("speed_limit_max").value)),
+                        max_speed=float(intent.max_speed),
                         horizon=2.4, dt=0.2,
                         opponent_velocity=enemy_velocity,
                         previous_omega=self.last_rollout_omega,
@@ -521,21 +466,12 @@ class TrajectoryPlanner(Node):
                                        safety_margin=self.local_safety_margin)
                 if not local:
                     local = [own, Pose2(own.x, own.y, step[0])]
-                self.publish_speed_limit(local, intent, now)
                 self.local_pub.publish(make_path(self, local))
                 self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
                 return
-            self.speed_limit_value = 0.0
-            self.speed_limit_stamp = now
-            self.speed_limit_pub.publish(Float32(data=0.0))
-            for publisher in (self.speed_clearance_pub,
-                              self.speed_curvature_pub,
-                              self.speed_alignment_pub):
-                publisher.publish(Float32(data=0.0))
             self.local_pub.publish(make_path(self, []))
             self.status_pub.publish(String(data="NO_LOCAL_PATH"))
             return
-        self.publish_speed_limit(local, intent, now)
         self.global_pub.publish(make_path(self, self.global_path))
         self.local_pub.publish(make_path(self, local))
         self.status_pub.publish(String(data="OK"))

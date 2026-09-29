@@ -207,14 +207,8 @@ class DecisionPolicy:
             target = Pose2(predicted.x + 0.42 * dx / norm,
                            predicted.y + 0.42 * dy / norm,
                            atan2(-dy, -dx))
-            # Brake toward the capture range using a conservative fraction of
-            # the controller's available deceleration (0.5 m/s²). Keep a slow
-            # creep near the referee threshold so orientation can converge.
-            braking_speed = sqrt(2.0 * 0.25 * max(0.0, distance - 0.48))
-            approach_speed = min(0.35 if chosen == CAPTURE else 1.0,
-                                 max(0.08, braking_speed))
             result = Decision(chosen, target, 0.015 if chosen == CAPTURE else 0.25,
-                              approach_speed, 0.0, 0.0,
+                              1.0, 0.0, 0.0,
                               "orient for capture" if chosen == CAPTURE else
                               "intercepting moving opponent")
         self.previous = result.behavior

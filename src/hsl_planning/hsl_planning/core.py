@@ -35,103 +35,6 @@ def path_heading_error(own, path):
     return abs(angle_error(desired, own.yaw))
 
 
-def dynamic_path_speed_limit(world, path, requested_speed, safety_margin=0.12,
-                             max_speed=1.0, min_speed=0.12,
-                             lateral_accel=0.08, clearance_ramp=0.32,
-                             heading_error=None, diagnostics=None):
-    """Limit speed from local-path curvature and swept clearance.
-
-    ``obstacle_clearance`` and ``map_clearance`` measure centre-to-boundary
-    distance. Subtract the robot footprint and the planner's safety reserve,
-    then smoothly open the speed envelope as usable lateral room increases.
-    Curvature applies a lateral-acceleration bound over the complete local
-    path, so a bend slows the robot before it reaches the bend.
-    """
-    requested_speed = min(max_speed, max(0.0, float(requested_speed)))
-    if requested_speed <= 0.0 or len(path) < 2:
-        if diagnostics is not None:
-            diagnostics.update(clearance_speed=0.0, curvature_speed=0.0,
-                               alignment_speed=0.0, max_curvature=0.0,
-                               min_clearance=float("inf"))
-        return 0.0
-
-    points = [(float(point.x), float(point.y)) for point in path]
-    path_length = sum(hypot(b[0] - a[0], b[1] - a[1])
-                      for a, b in zip(points, points[1:]))
-    if path_length < 0.05:
-        if diagnostics is not None:
-            diagnostics.update(clearance_speed=0.0, curvature_speed=0.0,
-                               alignment_speed=0.0, max_curvature=0.0,
-                               min_clearance=float("inf"))
-        return 0.0
-
-    max_curvature = 0.0
-    for a, b, c in zip(points, points[1:], points[2:]):
-        ab = hypot(b[0] - a[0], b[1] - a[1])
-        bc = hypot(c[0] - b[0], c[1] - b[1])
-        ac = hypot(c[0] - a[0], c[1] - a[1])
-        denominator = ab * bc * ac
-        if denominator <= 1e-9:
-            continue
-        cross = ((b[0] - a[0]) * (c[1] - b[1]) -
-                 (b[1] - a[1]) * (c[0] - b[0]))
-        max_curvature = max(max_curvature, 2.0 * abs(cross) / denominator)
-
-    # Sample between path vertices as well: local paths are not all generated
-    # at the same spacing, and obstacle clearance must cover the swept centre.
-    min_clearance = float("inf")
-    for a, b in zip(points, points[1:]):
-        distance = hypot(b[0] - a[0], b[1] - a[1])
-        steps = max(1, ceil(distance / 0.10))
-        for index in range(steps + 1):
-            fraction = index / steps
-            x = a[0] + fraction * (b[0] - a[0])
-            y = a[1] + fraction * (b[1] - a[1])
-            clearance = min(world.obstacle_clearance(x, y),
-                            world.map_clearance(x, y))
-            min_clearance = min(min_clearance, clearance)
-
-    speed_floor = min(requested_speed, max(0.0, min_speed))
-    if min_clearance == float("inf"):
-        clearance_speed = requested_speed
-    else:
-        usable_clearance = max(
-            0.0, min_clearance - world.robot_radius - safety_margin)
-        ratio = min(1.0, usable_clearance / max(clearance_ramp, 1e-6))
-        clearance_speed = speed_floor + (requested_speed - speed_floor) * sqrt(ratio)
-
-    if max_curvature > 1e-4 and lateral_accel > 0.0:
-        curve_speed = max(speed_floor, sqrt(lateral_accel / max_curvature))
-    else:
-        curve_speed = requested_speed
-    if heading_error is None:
-        alignment_speed = requested_speed
-    else:
-        # A path can be geometrically straight but still require a turn-in.
-        # Reduce speed while letting the lateral controller combine turning
-        # and forward motion for moderate errors.
-        aligned_fraction = max(0.15, min(1.0, cos(min(abs(heading_error), pi / 2))))
-        alignment_speed = speed_floor + (requested_speed - speed_floor) * aligned_fraction
-    if diagnostics is not None:
-        diagnostics.update(clearance_speed=clearance_speed,
-                           curvature_speed=curve_speed,
-                           alignment_speed=alignment_speed,
-                           max_curvature=max_curvature,
-                           min_clearance=min_clearance)
-    return min(requested_speed, clearance_speed, curve_speed, alignment_speed)
-
-
-def slew_speed_limit(current, target, dt, accel_limit=0.45,
-                     decel_limit=0.45):
-    """Rate-limit speed-target changes to match the longitudinal controller."""
-    current = max(0.0, float(current))
-    target = max(0.0, float(target))
-    dt = max(0.0, float(dt))
-    rate = accel_limit if target >= current else decel_limit
-    change = max(0.0, rate) * dt
-    return min(current + change, max(current - change, target))
-
-
 def turn_alignment_is_progress(role, behavior):
     """Only delay watchdog recovery while a guardian aligns for pursuit."""
     return role == "guardian" and behavior in (6, 7)
@@ -307,21 +210,8 @@ def opponent_cost(x, y, opponent, clearance, weight):
     return weight * max(0.0, 1.2 - d) / 1.2
 
 
-def clearance_speed_cost_factor(clearance, robot_radius, safety_margin=0.12,
-                                min_speed=0.12, max_speed=1.0,
-                                clearance_ramp=0.32, weight=0.5):
-    """Convert low wall clearance into a travel-time multiplier for A*."""
-    min_speed = max(0.01, min(float(max_speed), float(min_speed)))
-    max_speed = max(min_speed, float(max_speed))
-    usable = max(0.0, float(clearance) - robot_radius - safety_margin)
-    ratio = min(1.0, usable / max(clearance_ramp, 1e-6))
-    speed = min_speed + (max_speed - min_speed) * sqrt(ratio)
-    return 1.0 + max(0.0, weight) * max(0.0, max_speed / speed - 1.0)
-
-
 def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
-          max_cells=8000, tie_seed=0, avoid=None,
-          clearance_time_weight=0.5):
+          max_cells=8000, tie_seed=0, avoid=None):
     source, target = world.cell(start.x, start.y), world.cell(goal.x, goal.y)
     source_blocked = source in world.occupied
     source_opponent_distance = (hypot(start.x - opponent.x, start.y - opponent.y)
@@ -382,17 +272,12 @@ def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
                           3.0 * weight * (clearance - next_distance) / clearance)
             unknown = (3.0 if neighbor in world.occupied else
                        1.8 if neighbor not in world.free else 1.0)
-            wall_clearance = min(world.cell_clearance(neighbor),
-                                 world.map_clearance(p.x, p.y))
-            wall_margin = max(0.0, world.robot_radius + 0.12 - wall_clearance)
-            edge_length = hypot(dx, dy)
-            clearance_factor = clearance_speed_cost_factor(
-                wall_clearance, world.robot_radius,
-                weight=clearance_time_weight)
+            wall_margin = max(0.0, world.robot_radius + 0.12 -
+                              world.cell_clearance(neighbor))
             recovery_cost = (8.0 * max(0.0, 0.5 - hypot(p.x - avoid.x,
                                                        p.y - avoid.y)) / 0.5
                              if avoid is not None else 0.0)
-            tentative = (cost[current] + edge_length * unknown * clearance_factor + threat
+            tentative = (cost[current] + hypot(dx, dy) * unknown + threat
                          + 4.0 * wall_margin + recovery_cost)
             if tentative >= cost.get(neighbor, float("inf")):
                 continue

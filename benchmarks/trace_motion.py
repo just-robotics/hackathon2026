@@ -13,7 +13,7 @@ from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
-from std_msgs.msg import Bool, Float32, Float64, String
+from std_msgs.msg import Bool, Float64, String
 
 
 def main():
@@ -34,10 +34,6 @@ def main():
     path_errors = []
     clipped_errors = []
     opponent_position_errors = []
-    speed_caps = []
-    clearance_caps = []
-    curvature_caps = []
-    alignment_caps = []
     subscriptions = []
 
     def remember(name):
@@ -108,10 +104,6 @@ def main():
         ("mpc", Twist, "navigation/mpc_cmd_vel"),
         ("v_ref", Float64, "v_ref"),
         ("v_curve", Float64, "v_curve"),
-        ("speed_limit", Float32, "navigation/speed_limit"),
-        ("speed_clearance", Float32, "navigation/speed_clearance"),
-        ("speed_curvature", Float32, "navigation/speed_curvature"),
-        ("speed_alignment", Float32, "navigation/speed_alignment"),
         ("pose", Odometry, "navigation/self"),
     ):
         subscriptions.append(node.create_subscription(
@@ -168,15 +160,6 @@ def main():
         samples["total"] += 1
         sums["cmd_linear"] += message.linear.x
         sums["cmd_angular_abs"] += abs(message.angular.z)
-        speed_cap = latest.get("speed_limit")
-        if speed_cap and now - speed_cap[1] <= 0.5:
-            speed_caps.append(float(speed_cap[0].data))
-        for key, values in (("speed_clearance", clearance_caps),
-                            ("speed_curvature", curvature_caps),
-                            ("speed_alignment", alignment_caps)):
-            sample = latest.get(key)
-            if sample and now - sample[1] <= 0.5:
-                values.append(float(sample[0].data))
         if message.linear.x > 0.3:
             samples["cmd_over_0_3"] += 1
         if abs(message.linear.x) > 0.02:
@@ -271,23 +254,7 @@ def main():
                   samples["curved_path_updates"] /
                   max(1, samples["path_updates"]), 3),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
-              "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None,
-              "speed_limit_mean_mps": (round(sum(speed_caps) / len(speed_caps), 3)
-                                        if speed_caps else None),
-              "speed_limit_min_mps": percentile(speed_caps, 0.0),
-              "speed_limit_p90_mps": percentile(speed_caps, 0.9),
-              "speed_limit_over_0_3_fraction": round(
-                  sum(value > 0.3 for value in speed_caps) /
-                  max(1, len(speed_caps)), 3),
-              "mean_clearance_speed_mps": (round(
-                  sum(clearance_caps) / len(clearance_caps), 3)
-                  if clearance_caps else None),
-              "mean_curvature_speed_mps": (round(
-                  sum(curvature_caps) / len(curvature_caps), 3)
-                  if curvature_caps else None),
-              "mean_alignment_speed_mps": (round(
-                  sum(alignment_caps) / len(alignment_caps), 3)
-                  if alignment_caps else None)}
+              "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}
     print(json.dumps(report, indent=2, sort_keys=True))
     node.destroy_node()
     rclpy.shutdown()
