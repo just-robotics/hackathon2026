@@ -292,11 +292,24 @@ class PlanningTests(unittest.TestCase):
         straight = local_guidance(world, own, route)
         self.assertAlmostEqual(hypot(straight[-1].x, straight[-1].y),
                                1.562, delta=0.01)
-        curve = route_curve_guidance(world, own, route, straight)
+        curve = route_curve_guidance(world, own, route, straight,
+                                     max_distance=2.2)
         self.assertNotEqual(curve, straight)
         self.assertGreaterEqual(hypot(curve[-1].x, curve[-1].y), 1.9)
         self.assertTrue(all(safe_segment(world, a, b)
                             for a, b in zip(curve, curve[1:])))
+
+    def test_route_curve_obeys_shorter_range_for_non_pursuit_behavior(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([], [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0)
+        route = [Pose2(0.3, 0.25), Pose2(0.6, 0.5),
+                 Pose2(0.9, 0.75), Pose2(1.2, 1.0),
+                 Pose2(1.5, 1.25), Pose2(1.8, 1.4),
+                 Pose2(2.0, 1.4)]
+        straight = local_guidance(world, own, route)
+        self.assertEqual(route_curve_guidance(
+            world, own, route, straight, max_distance=1.8), [])
 
     def test_route_curve_retries_a_different_handle_after_clearance_failure(self):
         world = VoxelWorld(0.1, 0.2)

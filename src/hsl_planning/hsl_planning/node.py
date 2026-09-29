@@ -371,7 +371,9 @@ class TrajectoryPlanner(Node):
                                           intent.opponent_clearance)
                 local = route_curve_guidance(
                     self.world, own, self.global_path, straight, enemy,
-                    intent.opponent_clearance, diagnostics=self.curve_diagnostics)
+                    intent.opponent_clearance,
+                    diagnostics=self.curve_diagnostics,
+                    max_distance=2.2 if intent.behavior == 6 else 1.8)
                 if not local:
                     local = curved_guidance(self.world, own, straight, enemy,
                                             intent.opponent_clearance,

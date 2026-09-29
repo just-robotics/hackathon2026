@@ -510,7 +510,7 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0,
 
 
 def route_curve_guidance(world, own, route, straight, opponent=None,
-                         clearance=0.0, diagnostics=None):
+                         clearance=0.0, diagnostics=None, max_distance=1.8):
     """Try a checked curve through the next global bend when sight ends early."""
     if not route or len(straight) < 2:
         return []
@@ -528,7 +528,7 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
     for index in range(near + 1, len(route)):
         point = route[index]
         distance = hypot(point.x - own.x, point.y - own.y)
-        if distance > 2.2:
+        if distance > max_distance:
             break
         if distance < max(0.65, visible_distance + 0.2):
             continue
