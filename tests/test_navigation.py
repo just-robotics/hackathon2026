@@ -17,7 +17,8 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                local_guidance, local_rollout, reachable_target,
                                reachable_intercept,
                                recovery_heading, recovery_step,
-                               reusable_local_guidance, reusable_route, safe_segment)
+                               reusable_local_guidance, reusable_route,
+                               route_curve_guidance, safe_segment)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, opponent_visible
@@ -202,6 +203,24 @@ class PlanningTests(unittest.TestCase):
         straight = local_guidance(world, own, [Pose2(1.5, 0)])
         self.assertTrue(straight)
         self.assertEqual(curved_guidance(world, own, straight), straight)
+
+    def test_checked_curve_can_pass_the_next_global_bend(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([(0.7, 0, 0.3)], [], None,
+                     map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0.6)
+        route = [Pose2(0.2, 0), Pose2(0.4, 0), Pose2(0.6, 0.15),
+                 Pose2(0.8, 0.4), Pose2(1, 0.6), Pose2(1.2, 0.6),
+                 Pose2(1.4, 0.6)]
+        straight = local_guidance(world, own, route)
+        self.assertLess(straight[-1].x, 0.4)
+        curve = route_curve_guidance(world, own, route, straight)
+        self.assertGreater(curve[-1].x, 1.0)
+        self.assertTrue(all(safe_segment(world, a, b) for a, b in
+                            zip(curve, curve[1:])))
+        world.update([(curve[8].x, curve[8].y, 0.3), (0.7, 0, 0.3)],
+                     [], None, map_bounds=(-1, -1, 3, 2))
+        self.assertFalse(route_curve_guidance(world, own, route, straight))
 
     def test_guardian_does_not_chase_prediction_through_wall(self):
         world = VoxelWorld(0.1, 0.2)

@@ -16,6 +16,7 @@ from std_msgs.msg import Float32, String
 
 from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
                    curved_guidance,
+                   route_curve_guidance,
                    reachable_intercept,
                    local_guidance, reachable_target, recovery_step,
                    reusable_local_guidance, reusable_route)
@@ -368,9 +369,13 @@ class TrajectoryPlanner(Node):
             if not local:
                 straight = local_guidance(self.world, own, self.global_path, enemy,
                                           intent.opponent_clearance)
-                local = curved_guidance(self.world, own, straight, enemy,
-                                        intent.opponent_clearance,
-                                        diagnostics=self.curve_diagnostics)
+                local = route_curve_guidance(
+                    self.world, own, self.global_path, straight, enemy,
+                    intent.opponent_clearance, diagnostics=self.curve_diagnostics)
+                if not local:
+                    local = curved_guidance(self.world, own, straight, enemy,
+                                            intent.opponent_clearance,
+                                            diagnostics=self.curve_diagnostics)
                 if now >= self.curve_diagnostics_until:
                     self.get_logger().info(
                         f"Local curve decisions (10 sim s): {self.curve_diagnostics}")

@@ -432,43 +432,28 @@ def local_guidance(world, own, route, opponent=None, clearance=0.0,
                     for i in range(1, steps + 1)]
 
 
-def curved_guidance(world, own, straight, opponent=None, clearance=0.0,
-                    diagnostics=None):
-    """Join the current heading to a visible corridor without stopping to turn.
-
-    A tight bend or an obstructed swept path keeps the straight reference so
-    the controller can turn in place before entering it.
-    """
-    def record(reason):
-        if diagnostics is not None:
-            diagnostics[reason] = diagnostics.get(reason, 0) + 1
-
-    if len(straight) < 3:
-        record("short_path")
-        return straight
-    end = straight[-1]
+def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0):
+    """Return a forward cubic only when its swept path has tracking room."""
     dx, dy = end.x - own.x, end.y - own.y
     distance = hypot(dx, dy)
     if distance < 0.65:
-        record("short_distance")
-        return straight
+        return [], "short_distance"
     heading = atan2(dy, dx)
     error = angle_error(heading, own.yaw)
     if abs(error) < 0.18 or abs(error) > 1.15:
-        record("heading_small" if abs(error) < 0.18 else "heading_large")
-        return straight
+        return [], "heading_small" if abs(error) < 0.18 else "heading_large"
     # MPC does not follow the reference exactly. Reserve tracking room around
     # every moving turn, especially beside walls and the arena boundary.
     curve_margin = world.robot_radius + 0.18
     if (world.obstacle_clearance(own.x, own.y) < curve_margin or
             world.map_clearance(own.x, own.y) < curve_margin):
-        record("start_clearance")
-        return straight
+        return [], "start_clearance"
     # The first control point follows the robot heading; the last one joins
     # the original collision-checked corridor tangentially.
     handle = min(0.65, max(0.32, 0.48 * distance))
     p1 = (own.x + handle * cos(own.yaw), own.y + handle * sin(own.yaw))
-    p2 = (end.x - handle * cos(heading), end.y - handle * sin(heading))
+    p2 = (end.x - handle * cos(end_heading),
+          end.y - handle * sin(end_heading))
     steps = max(12, ceil(distance / 0.06))
     path = [own]
     for index in range(1, steps + 1):
@@ -481,11 +466,9 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0,
         point = Pose2(x, y)
         if (world.obstacle_clearance(x, y) < curve_margin or
                 world.map_clearance(x, y) < curve_margin):
-            record("curve_clearance")
-            return straight
+            return [], "curve_clearance"
         if not safe_segment(world, path[-1], point, opponent, clearance):
-            record("curve_segment")
-            return straight
+            return [], "curve_segment"
         if len(path) >= 2:
             first, middle = path[-2:]
             ax, ay = middle.x - first.x, middle.y - first.y
@@ -494,11 +477,61 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0,
             curvature = (2.0 * abs(ax * by - ay * bx) /
                          max(hypot(ax, ay) * hypot(bx, by) * chord, 1e-9))
             if curvature > 2.6:
-                record("curvature")
-                return straight
+                return [], "curvature"
         path.append(point)
-    record("accepted")
-    return path
+    return path, "accepted"
+
+
+def curved_guidance(world, own, straight, opponent=None, clearance=0.0,
+                    diagnostics=None):
+    """Join the current heading to a visible corridor without stopping to turn."""
+    if len(straight) < 3:
+        reason, path = "short_path", []
+    else:
+        end = straight[-1]
+        heading = atan2(end.y - own.y, end.x - own.x)
+        path, reason = checked_cubic(world, own, end, heading,
+                                     opponent, clearance)
+    if diagnostics is not None:
+        diagnostics[reason] = diagnostics.get(reason, 0) + 1
+    return path or straight
+
+
+def route_curve_guidance(world, own, route, straight, opponent=None,
+                         clearance=0.0, diagnostics=None):
+    """Try a checked curve through the next global bend when sight ends early."""
+    if not route or len(straight) < 2:
+        return []
+    visible = straight[-1]
+    visible_distance = hypot(visible.x - own.x, visible.y - own.y)
+    if visible_distance >= 0.75:
+        return []
+    near = min(range(len(route)), key=lambda i: hypot(route[i].x - visible.x,
+                                                       route[i].y - visible.y))
+    candidates = []
+    for index in range(near + 1, len(route)):
+        point = route[index]
+        distance = hypot(point.x - own.x, point.y - own.y)
+        if distance > 1.8:
+            break
+        if distance < max(0.65, visible_distance + 0.2):
+            continue
+        if candidates and hypot(point.x - route[candidates[-1]].x,
+                                point.y - route[candidates[-1]].y) < 0.2:
+            continue
+        candidates.append(index)
+    for index in reversed(candidates[-8:]):
+        before = route[max(0, index - 1)]
+        after = route[min(len(route) - 1, index + 1)]
+        end_heading = atan2(after.y - before.y, after.x - before.x)
+        path, reason = checked_cubic(world, own, route[index], end_heading,
+                                     opponent, clearance)
+        if diagnostics is not None:
+            key = "route_" + reason
+            diagnostics[key] = diagnostics.get(key, 0) + 1
+        if path:
+            return path
+    return []
 
 
 def reusable_local_guidance(world, own, path, opponent=None, clearance=0.0):
