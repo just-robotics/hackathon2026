@@ -1,6 +1,6 @@
 import sys
 import unittest
-from math import cos, hypot, pi, sin
+from math import atan2, cos, hypot, pi, sin
 from pathlib import Path
 
 
@@ -254,6 +254,25 @@ class PlanningTests(unittest.TestCase):
         curve = route_curve_guidance(world, own, route, straight)
         self.assertNotEqual(curve, straight)
         self.assertGreaterEqual(curve[-1].x, 1.0)
+        self.assertTrue(all(safe_segment(world, a, b)
+                            for a, b in zip(curve, curve[1:])))
+
+    def test_route_curve_smooths_a_moderate_chord_into_a_straight_exit(self):
+        world = VoxelWorld(0.1, 0.2)
+        wall = [(1.2, y * 0.1, 0.3) for y in range(-15, 3)]
+        world.update(wall, [], None, map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0)
+        route = [Pose2(0.2, 0.1), Pose2(0.4, 0.2),
+                 Pose2(0.6, 0.3), Pose2(0.8, 0.4),
+                 Pose2(1.0, 0.55), Pose2(1.2, 0.8),
+                 Pose2(1.5, 0.8)]
+        straight = local_guidance(world, own, route)
+        self.assertGreater(hypot(straight[-1].x, straight[-1].y), 0.75)
+        self.assertAlmostEqual(atan2(straight[-1].y, straight[-1].x),
+                               0.588, delta=0.01)
+        curve = route_curve_guidance(world, own, route, straight)
+        self.assertNotEqual(curve, straight)
+        self.assertGreaterEqual(curve[-1].x, 1.4)
         self.assertTrue(all(safe_segment(world, a, b)
                             for a, b in zip(curve, curve[1:])))
 
