@@ -432,7 +432,8 @@ def local_guidance(world, own, route, opponent=None, clearance=0.0,
                     for i in range(1, steps + 1)]
 
 
-def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0):
+def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0,
+                  handle=None):
     """Return a forward cubic only when its swept path has tracking room."""
     dx, dy = end.x - own.x, end.y - own.y
     distance = hypot(dx, dy)
@@ -450,7 +451,8 @@ def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0):
         return [], "start_clearance"
     # The first control point follows the robot heading; the last one joins
     # the original collision-checked corridor tangentially.
-    handle = min(0.65, max(0.32, 0.48 * distance))
+    handle = (min(0.65, max(0.32, 0.48 * distance))
+              if handle is None else min(0.75, max(0.18, handle)))
     p1 = (own.x + handle * cos(own.yaw), own.y + handle * sin(own.yaw))
     p2 = (end.x - handle * cos(end_heading),
           end.y - handle * sin(end_heading))
@@ -520,7 +522,7 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
                                 point.y - route[candidates[-1]].y) < 0.2:
             continue
         candidates.append(index)
-    for index in reversed(candidates[-8:]):
+    for index in reversed(candidates[-6:]):
         before = route[max(0, index - 1)]
         after = route[min(len(route) - 1, index + 1)]
         end_heading = atan2(after.y - before.y, after.x - before.x)
@@ -531,6 +533,18 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
             diagnostics[key] = diagnostics.get(key, 0) + 1
         if path:
             return path
+        if reason in ("curve_clearance", "curvature"):
+            distance = hypot(route[index].x - own.x, route[index].y - own.y)
+            for handle in (max(0.18, 0.30 * distance),
+                           min(0.75, 0.66 * distance)):
+                path, reason = checked_cubic(
+                    world, own, route[index], end_heading, opponent,
+                    clearance, handle=handle)
+                if diagnostics is not None:
+                    key = "route_handle_" + reason
+                    diagnostics[key] = diagnostics.get(key, 0) + 1
+                if path:
+                    return path
     return []
 
 

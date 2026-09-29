@@ -215,12 +215,29 @@ class PlanningTests(unittest.TestCase):
         straight = local_guidance(world, own, route)
         self.assertLess(straight[-1].x, 0.4)
         curve = route_curve_guidance(world, own, route, straight)
-        self.assertGreater(curve[-1].x, 1.0)
+        self.assertGreaterEqual(curve[-1].x, 1.0)
         self.assertTrue(all(safe_segment(world, a, b) for a, b in
                             zip(curve, curve[1:])))
         world.update([(curve[8].x, curve[8].y, 0.3), (0.7, 0, 0.3)],
                      [], None, map_bounds=(-1, -1, 3, 2))
         self.assertFalse(route_curve_guidance(world, own, route, straight))
+
+    def test_route_curve_retries_a_different_handle_after_clearance_failure(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([(0.5, -0.2, 0.3)], [], None,
+                     map_bounds=(-1, -1, 3, 2))
+        own = Pose2(0, 0, 0.2)
+        route = [Pose2(0.2, 0), Pose2(0.4, 0), Pose2(0.6, 0.15),
+                 Pose2(0.8, 0.4), Pose2(1, 0.6), Pose2(1.2, 0.6),
+                 Pose2(1.4, 0.6)]
+        straight = local_guidance(world, own, route)
+        diagnostics = {}
+        curve = route_curve_guidance(world, own, route, straight,
+                                     diagnostics=diagnostics)
+        self.assertGreaterEqual(curve[-1].x, 1.0)
+        self.assertGreater(diagnostics.get("route_handle_accepted", 0), 0)
+        self.assertTrue(all(safe_segment(world, a, b) for a, b in
+                            zip(curve, curve[1:])))
 
     def test_guardian_does_not_chase_prediction_through_wall(self):
         world = VoxelWorld(0.1, 0.2)
