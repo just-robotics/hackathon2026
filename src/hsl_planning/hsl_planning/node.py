@@ -259,7 +259,8 @@ class TrajectoryPlanner(Node):
             self.recovery_until = now + 8.0
             self.recovery_attempt += 1
             self.global_path = []
-            step = recovery_step(self.world, own)
+            step = recovery_step(self.world, own,
+                                 safety_margin=self.local_safety_margin)
             self.recovery_goal = (Pose2(own.x + step[1] * cos(step[0]),
                                         own.y + step[1] * sin(step[0]))
                                   if step else None)
@@ -368,7 +369,8 @@ class TrajectoryPlanner(Node):
             self.recovery_goal = None
         if not self.global_path and self.recovery_goal is None:
             step = recovery_step(self.world, own, enemy,
-                                 intent.opponent_clearance)
+                                 intent.opponent_clearance,
+                                 safety_margin=self.local_safety_margin)
             if step:
                 self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
                                            own.y + step[1] * sin(step[0]))
@@ -419,7 +421,8 @@ class TrajectoryPlanner(Node):
             self.local_path = []
             self.global_path = []
             step = recovery_step(self.world, own, enemy,
-                                 intent.opponent_clearance)
+                                 intent.opponent_clearance,
+                                 safety_margin=self.local_safety_margin)
             if step:
                 self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
                                            own.y + step[1] * sin(step[0]))

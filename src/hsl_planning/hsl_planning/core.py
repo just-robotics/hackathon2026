@@ -622,7 +622,8 @@ def reusable_local_guidance(world, own, path, opponent=None, clearance=0.0,
     return path
 
 
-def recovery_step(world, own, opponent=None, clearance=0.0):
+def recovery_step(world, own, opponent=None, clearance=0.0,
+                  safety_margin=0.12):
     """Find a safe escape direction when the nominal corridor cannot be entered."""
     options = []
     for length in (0.55, 0.3, 0.2, 0.15, 0.1):
@@ -630,7 +631,8 @@ def recovery_step(world, own, opponent=None, clearance=0.0):
             yaw = -pi + 2 * pi * index / 24
             endpoint = Pose2(own.x + length * cos(yaw),
                              own.y + length * sin(yaw))
-            if safe_segment(world, own, endpoint, opponent, clearance):
+            if safe_segment(world, own, endpoint, opponent, clearance,
+                            safety_margin):
                 wall = world.obstacle_clearance(endpoint.x, endpoint.y)
                 map_margin = world.map_clearance(endpoint.x, endpoint.y)
                 options.append((min(wall, 0.6) + min(map_margin, 0.6) -

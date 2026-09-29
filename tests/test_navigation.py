@@ -408,12 +408,13 @@ class PlanningTests(unittest.TestCase):
                  ((0.28, 0), (-0.43, 0), (0, 0.28), (0, -0.28))]
         world.update(walls, [], None, map_bounds=(-1, -1, 1, 1))
         own = Pose2(0, 0, pi)
-        step = recovery_step(world, own)
+        step = recovery_step(world, own, safety_margin=0.14)
         self.assertIsNotNone(step)
         heading, length = step
         self.assertLessEqual(length, 0.15)
         target = Pose2(length * cos(heading), length * sin(heading))
-        self.assertTrue(local_guidance(world, own, [target], min_step=0.04))
+        self.assertTrue(local_guidance(world, own, [target], min_step=0.04,
+                                       safety_margin=0.14))
 
     def test_3d_projection_ignores_ground_but_blocks_robot_height(self):
         world = VoxelWorld(0.1, 0.2)
