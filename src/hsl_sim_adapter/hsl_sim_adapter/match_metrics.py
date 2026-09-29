@@ -39,7 +39,7 @@ class MatchMetrics(Node):
         self.declare_parameter("own_spawn_x", -0.34)
         self.declare_parameter("own_spawn_y", 0.4)
         self.declare_parameter("result_dir", "/autoware/match-results")
-        self.declare_parameter("max_reference_speed", 0.7)
+        self.declare_parameter("max_reference_speed", 1.0)
         self.declare_parameter("own_truth_topic", "/localization/pose")
         self.declare_parameter("opponent_truth_topic", "/opponent/localization/pose")
         self.declare_parameter("other_model", "opponent")

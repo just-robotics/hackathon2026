@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from heapq import heappop, heappush
-from math import atan2, ceil, cos, hypot, pi, sin
+from math import atan2, ceil, cos, hypot, pi, sin, sqrt
 
 try:
     from scipy.spatial import cKDTree
@@ -33,6 +33,103 @@ def path_heading_error(own, path):
         return None
     desired = atan2(target.y - own.y, target.x - own.x)
     return abs(angle_error(desired, own.yaw))
+
+
+def dynamic_path_speed_limit(world, path, requested_speed, safety_margin=0.12,
+                             max_speed=1.0, min_speed=0.12,
+                             lateral_accel=0.08, clearance_ramp=0.32,
+                             heading_error=None, diagnostics=None):
+    """Limit speed from local-path curvature and swept clearance.
+
+    ``obstacle_clearance`` and ``map_clearance`` measure centre-to-boundary
+    distance. Subtract the robot footprint and the planner's safety reserve,
+    then smoothly open the speed envelope as usable lateral room increases.
+    Curvature applies a lateral-acceleration bound over the complete local
+    path, so a bend slows the robot before it reaches the bend.
+    """
+    requested_speed = min(max_speed, max(0.0, float(requested_speed)))
+    if requested_speed <= 0.0 or len(path) < 2:
+        if diagnostics is not None:
+            diagnostics.update(clearance_speed=0.0, curvature_speed=0.0,
+                               alignment_speed=0.0, max_curvature=0.0,
+                               min_clearance=float("inf"))
+        return 0.0
+
+    points = [(float(point.x), float(point.y)) for point in path]
+    path_length = sum(hypot(b[0] - a[0], b[1] - a[1])
+                      for a, b in zip(points, points[1:]))
+    if path_length < 0.05:
+        if diagnostics is not None:
+            diagnostics.update(clearance_speed=0.0, curvature_speed=0.0,
+                               alignment_speed=0.0, max_curvature=0.0,
+                               min_clearance=float("inf"))
+        return 0.0
+
+    max_curvature = 0.0
+    for a, b, c in zip(points, points[1:], points[2:]):
+        ab = hypot(b[0] - a[0], b[1] - a[1])
+        bc = hypot(c[0] - b[0], c[1] - b[1])
+        ac = hypot(c[0] - a[0], c[1] - a[1])
+        denominator = ab * bc * ac
+        if denominator <= 1e-9:
+            continue
+        cross = ((b[0] - a[0]) * (c[1] - b[1]) -
+                 (b[1] - a[1]) * (c[0] - b[0]))
+        max_curvature = max(max_curvature, 2.0 * abs(cross) / denominator)
+
+    # Sample between path vertices as well: local paths are not all generated
+    # at the same spacing, and obstacle clearance must cover the swept centre.
+    min_clearance = float("inf")
+    for a, b in zip(points, points[1:]):
+        distance = hypot(b[0] - a[0], b[1] - a[1])
+        steps = max(1, ceil(distance / 0.10))
+        for index in range(steps + 1):
+            fraction = index / steps
+            x = a[0] + fraction * (b[0] - a[0])
+            y = a[1] + fraction * (b[1] - a[1])
+            clearance = min(world.obstacle_clearance(x, y),
+                            world.map_clearance(x, y))
+            min_clearance = min(min_clearance, clearance)
+
+    speed_floor = min(requested_speed, max(0.0, min_speed))
+    if min_clearance == float("inf"):
+        clearance_speed = requested_speed
+    else:
+        usable_clearance = max(
+            0.0, min_clearance - world.robot_radius - safety_margin)
+        ratio = min(1.0, usable_clearance / max(clearance_ramp, 1e-6))
+        clearance_speed = speed_floor + (requested_speed - speed_floor) * sqrt(ratio)
+
+    if max_curvature > 1e-4 and lateral_accel > 0.0:
+        curve_speed = max(speed_floor, sqrt(lateral_accel / max_curvature))
+    else:
+        curve_speed = requested_speed
+    if heading_error is None:
+        alignment_speed = requested_speed
+    else:
+        # A path can be geometrically straight but still require a turn-in.
+        # Reduce speed while letting the lateral controller combine turning
+        # and forward motion for moderate errors.
+        aligned_fraction = max(0.15, min(1.0, cos(min(abs(heading_error), pi / 2))))
+        alignment_speed = speed_floor + (requested_speed - speed_floor) * aligned_fraction
+    if diagnostics is not None:
+        diagnostics.update(clearance_speed=clearance_speed,
+                           curvature_speed=curve_speed,
+                           alignment_speed=alignment_speed,
+                           max_curvature=max_curvature,
+                           min_clearance=min_clearance)
+    return min(requested_speed, clearance_speed, curve_speed, alignment_speed)
+
+
+def slew_speed_limit(current, target, dt, accel_limit=0.45,
+                     decel_limit=0.45):
+    """Rate-limit speed-target changes to match the longitudinal controller."""
+    current = max(0.0, float(current))
+    target = max(0.0, float(target))
+    dt = max(0.0, float(dt))
+    rate = accel_limit if target >= current else decel_limit
+    change = max(0.0, rate) * dt
+    return min(current + change, max(current - change, target))
 
 
 def turn_alignment_is_progress(role, behavior):
@@ -210,8 +307,21 @@ def opponent_cost(x, y, opponent, clearance, weight):
     return weight * max(0.0, 1.2 - d) / 1.2
 
 
+def clearance_speed_cost_factor(clearance, robot_radius, safety_margin=0.12,
+                                min_speed=0.12, max_speed=1.0,
+                                clearance_ramp=0.32, weight=0.5):
+    """Convert low wall clearance into a travel-time multiplier for A*."""
+    min_speed = max(0.01, min(float(max_speed), float(min_speed)))
+    max_speed = max(min_speed, float(max_speed))
+    usable = max(0.0, float(clearance) - robot_radius - safety_margin)
+    ratio = min(1.0, usable / max(clearance_ramp, 1e-6))
+    speed = min_speed + (max_speed - min_speed) * sqrt(ratio)
+    return 1.0 + max(0.0, weight) * max(0.0, max_speed / speed - 1.0)
+
+
 def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
-          max_cells=8000, tie_seed=0, avoid=None):
+          max_cells=8000, tie_seed=0, avoid=None,
+          clearance_time_weight=0.5):
     source, target = world.cell(start.x, start.y), world.cell(goal.x, goal.y)
     source_blocked = source in world.occupied
     source_opponent_distance = (hypot(start.x - opponent.x, start.y - opponent.y)
@@ -272,12 +382,17 @@ def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
                           3.0 * weight * (clearance - next_distance) / clearance)
             unknown = (3.0 if neighbor in world.occupied else
                        1.8 if neighbor not in world.free else 1.0)
-            wall_margin = max(0.0, world.robot_radius + 0.12 -
-                              world.cell_clearance(neighbor))
+            wall_clearance = min(world.cell_clearance(neighbor),
+                                 world.map_clearance(p.x, p.y))
+            wall_margin = max(0.0, world.robot_radius + 0.12 - wall_clearance)
+            edge_length = hypot(dx, dy)
+            clearance_factor = clearance_speed_cost_factor(
+                wall_clearance, world.robot_radius,
+                weight=clearance_time_weight)
             recovery_cost = (8.0 * max(0.0, 0.5 - hypot(p.x - avoid.x,
                                                        p.y - avoid.y)) / 0.5
                              if avoid is not None else 0.0)
-            tentative = (cost[current] + hypot(dx, dy) * unknown + threat
+            tentative = (cost[current] + edge_length * unknown * clearance_factor + threat
                          + 4.0 * wall_margin + recovery_cost)
             if tentative >= cost.get(neighbor, float("inf")):
                 continue
@@ -437,6 +552,163 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0,
     return True
 
 
+def circle_segment_intersection(start, end, radius):
+    """Return the first point where a segment exits a circle at the origin."""
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    a = dx * dx + dy * dy
+    if a <= 1e-12:
+        return None
+    b = 2.0 * (start[0] * dx + start[1] * dy)
+    c = start[0] * start[0] + start[1] * start[1] - radius * radius
+    discriminant = b * b - 4.0 * a * c
+    if discriminant < -1e-10:
+        return None
+    root = sqrt(max(0.0, discriminant))
+    intersections = [(-b - root) / (2.0 * a),
+                     (-b + root) / (2.0 * a)]
+    valid = [max(0.0, min(1.0, value)) for value in intersections
+             if -1e-9 <= value <= 1.0 + 1e-9]
+    if not valid:
+        return None
+    t = min(valid)
+    return start[0] + t * dx, start[1] + t * dy
+
+
+def regulated_pure_pursuit_guidance(world, own, route, speed=0.0,
+                                    opponent=None, clearance=0.0,
+                                    lookahead_time=1.5,
+                                    min_lookahead=0.5,
+                                    max_lookahead=1.3,
+                                    max_curvature=2.6,
+                                    safety_margin=0.12,
+                                    diagnostics=None):
+    """Build a collision-checked RPP arc through a velocity-scaled carrot.
+
+    Nav2's Regulated Pure Pursuit computes a lookahead point in the robot
+    frame, follows the circle through that point, and regulates speed from
+    curvature and obstacle clearance. This adapts that geometry to the
+    existing path-following MPC: return the checked circular arc as its local
+    reference instead of issuing velocity commands from the planner.
+    """
+    def reject(reason):
+        if diagnostics is not None:
+            key = "rpp_" + reason
+            diagnostics[key] = diagnostics.get(key, 0) + 1
+        return []
+
+    if len(route) < 2:
+        return reject("short_route")
+    min_lookahead = max(0.05, float(min_lookahead))
+    max_lookahead = max(min_lookahead, float(max_lookahead))
+    lookahead_time = max(0.0, float(lookahead_time))
+    lookahead = max(min_lookahead,
+                    min(max_lookahead, abs(float(speed)) * lookahead_time))
+
+    # Prune the path at its closest point to the robot, like Nav2's
+    # transformGlobalPlan, then express the remaining plan in the robot frame.
+    nearest = None
+    nearest_distance = float("inf")
+    for index, (first, second) in enumerate(zip(route, route[1:])):
+        dx, dy = second.x - first.x, second.y - first.y
+        length2 = dx * dx + dy * dy
+        if length2 <= 1e-12:
+            continue
+        fraction = max(0.0, min(1.0,
+                        ((own.x - first.x) * dx + (own.y - first.y) * dy) /
+                        length2))
+        px, py = first.x + fraction * dx, first.y + fraction * dy
+        distance = hypot(own.x - px, own.y - py)
+        if distance < nearest_distance:
+            nearest_distance = distance
+            nearest = (index, px, py)
+    if nearest is None or nearest_distance > 0.45:
+        return reject("route_miss")
+
+    index, px, py = nearest
+    world_plan = [(px, py)]
+    world_plan.extend((point.x, point.y) for point in route[index + 1:])
+    c, s = cos(own.yaw), sin(own.yaw)
+    local_plan = [(c * (x - own.x) + s * (y - own.y),
+                   -s * (x - own.x) + c * (y - own.y))
+                  for x, y in world_plan]
+
+    # If the checked arc would hit an obstacle, progressively shorten the
+    # carrot before falling back to the planner's tight-space manoeuvres.
+    lookaheads = []
+    for scale in (1.0, 0.8, 0.6):
+        candidate = max(min_lookahead, lookahead * scale)
+        if not lookaheads or candidate < lookaheads[-1] - 1e-6:
+            lookaheads.append(candidate)
+    last_reason = "no_carrot"
+    for distance in lookaheads:
+        carrot = None
+        for point_index, point in enumerate(local_plan):
+            if hypot(point[0], point[1]) + 1e-9 < distance:
+                continue
+            if point_index == 0:
+                carrot = point
+            else:
+                carrot = circle_segment_intersection(
+                    local_plan[point_index - 1], point, distance) or point
+            break
+        if carrot is None:
+            carrot = local_plan[-1]
+        carrot_distance = hypot(carrot[0], carrot[1])
+        if carrot_distance < 0.18:
+            last_reason = "short_carrot"
+            continue
+        if carrot[0] <= 0.02:
+            last_reason = "carrot_behind"
+            continue
+
+        curvature = 2.0 * carrot[1] / max(carrot_distance * carrot_distance,
+                                         1e-9)
+        if abs(curvature) > max_curvature:
+            last_reason = "curvature"
+            continue
+        if abs(curvature) < 1e-4:
+            arc_length = carrot_distance
+        else:
+            angle = 2.0 * atan2(carrot[1], carrot[0])
+            arc_length = angle / curvature
+        if arc_length <= 0.0 or arc_length > 2.0:
+            last_reason = "arc_length"
+            continue
+
+        steps = max(2, ceil(arc_length / 0.05))
+        path = [own]
+        for step in range(1, steps + 1):
+            along = arc_length * step / steps
+            if abs(curvature) < 1e-4:
+                x = own.x + along * c
+                y = own.y + along * s
+            else:
+                heading = own.yaw + curvature * along
+                x = own.x + (sin(heading) - sin(own.yaw)) / curvature
+                y = own.y - (cos(heading) - cos(own.yaw)) / curvature
+            point = Pose2(x, y, own.yaw + curvature * along)
+            if not safe_segment(world, path[-1], point, opponent, clearance,
+                                safety_margin):
+                last_reason = "collision"
+                break
+            path.append(point)
+        if len(path) == steps + 1:
+            if diagnostics is not None:
+                diagnostics["rpp_accepted"] = diagnostics.get("rpp_accepted", 0) + 1
+                diagnostics["rpp_lookahead_m"] = distance
+                diagnostics["rpp_curvature_1pm"] = curvature
+            return path
+    return reject(last_reason)
+
+
+def max_curve_heading_error(world, own):
+    """Scale the admissible curve entry angle with measured free space."""
+    available_room = (min(world.obstacle_clearance(own.x, own.y),
+                          world.map_clearance(own.x, own.y)) -
+                      world.robot_radius)
+    return 1.45 + min(0.65, max(0.0, available_room - 0.18) * 1.5)
+
+
 def local_guidance(world, own, route, opponent=None, clearance=0.0,
                    max_lookahead=1.6, min_step=0.12, safety_margin=0.12):
     """Give MPC a straight, collision-checked corridor instead of a new arc each tick."""
@@ -470,23 +742,28 @@ def checked_cubic(world, own, end, end_heading, opponent=None, clearance=0.0,
     """Return a forward cubic only when its swept path has tracking room."""
     dx, dy = end.x - own.x, end.y - own.y
     distance = hypot(dx, dy)
-    if distance < 0.65:
+    if distance < 0.45:
         return [], "short_distance"
     heading = atan2(dy, dx)
     error = angle_error(heading, own.yaw)
-    if abs(error) < 0.18 or abs(error) > 1.15:
+    initial_wall = world.obstacle_clearance(own.x, own.y)
+    initial_map = world.map_clearance(own.x, own.y)
+    available_room = min(initial_wall, initial_map) - world.robot_radius
+    # Expand the admissible turn angle only as measured wall/map clearance
+    # increases; the complete swept path is still checked below.
+    max_heading_error = max_curve_heading_error(world, own)
+    if abs(error) < 0.18 or abs(error) > max_heading_error:
         return [], "heading_small" if abs(error) < 0.18 else "heading_large"
     # MPC does not follow the reference exactly. Reserve tracking room around
     # every moving turn, especially beside walls and the arena boundary. If a
     # robot starts below that reserve, only accept a curve that measurably
     # increases both wall and arena clearance as it leaves the tight spot.
     curve_margin = world.robot_radius + 0.18
-    initial_wall = world.obstacle_clearance(own.x, own.y)
-    initial_map = world.map_clearance(own.x, own.y)
     # The first control point follows the robot heading; the last one joins
     # the original collision-checked corridor tangentially.
-    handle = (min(0.65, max(0.32, 0.48 * distance))
-              if handle is None else min(0.75, max(0.18, handle)))
+    max_handle = 2.0 if available_room > 0.35 else 1.2
+    handle = (min(max_handle, max(0.32, 0.40 * distance))
+              if handle is None else min(max_handle, max(0.18, handle)))
     p1 = (own.x + handle * cos(own.yaw), own.y + handle * sin(own.yaw))
     p2 = (end.x - handle * cos(end_heading),
           end.y - handle * sin(end_heading))
@@ -551,6 +828,14 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
     visible_distance = hypot(visible.x - own.x, visible.y - own.y)
     visible_heading = atan2(visible.y - own.y, visible.x - own.x)
     heading_error = abs(angle_error(visible_heading, own.yaw))
+    available_room = (min(world.obstacle_clearance(own.x, own.y),
+                          world.map_clearance(own.x, own.y)) -
+                      world.robot_radius)
+    handle_limit = 2.0 if available_room > 0.35 else 1.2
+    if heading_error > 1.45 and available_room > 0.35:
+        # Near-reversing starts need a longer checked turn that first moves
+        # along the robot's current heading before joining the route.
+        max_distance = max(max_distance, 4.0)
     # A long collision-free chord can still force the controller to rotate
     # in place. Try the next route bend first when its chord is poorly aligned.
     if visible_distance >= 0.75 and heading_error < 0.45:
@@ -563,7 +848,7 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
         distance = hypot(point.x - own.x, point.y - own.y)
         if distance > max_distance:
             break
-        if distance < max(0.65, visible_distance + 0.2):
+        if distance < max(0.45, visible_distance + 0.15):
             continue
         if candidates and hypot(point.x - route[candidates[-1]].x,
                                 point.y - route[candidates[-1]].y) < 0.2:
@@ -586,9 +871,11 @@ def route_curve_guidance(world, own, route, straight, opponent=None,
             # corridor. Try the two extremes as well; checked_cubic still
             # enforces curvature and swept-clearance limits on every sample.
             handles = (max(0.18, 0.30 * distance),
-                       min(0.75, 0.66 * distance),
+                       min(handle_limit, 0.45 * distance),
+                       min(handle_limit, 0.55 * distance),
+                       min(handle_limit, 0.66 * distance),
                        max(0.18, 0.18 * distance),
-                       min(0.75, 0.82 * distance))
+                       min(handle_limit, 0.82 * distance))
             for handle in dict.fromkeys(handles):
                 path, reason = checked_cubic(
                     world, own, route[index], end_heading, opponent,
@@ -655,7 +942,8 @@ def recovery_heading(world, own, opponent=None, clearance=0.0):
 
 def local_rollout(world, own, global_path, opponent=None, clearance=0.0,
                   weight=0.0, max_speed=0.5, horizon=2.0, dt=0.2,
-                  opponent_velocity=(0.0, 0.0), previous_omega=None):
+                  opponent_velocity=(0.0, 0.0), previous_omega=None,
+                  safety_margin=0.18):
     if not global_path:
         return []
     lookahead = global_path[-1]
@@ -679,6 +967,7 @@ def local_rollout(world, own, global_path, opponent=None, clearance=0.0,
     source_blocked = source_cell in world.occupied
     initial_obstacle_clearance = world.obstacle_clearance(own.x, own.y)
     initial_map_clearance = world.map_clearance(own.x, own.y)
+    required_clearance = world.robot_radius + max(0.0, safety_margin)
     initial_opponent_distance = (hypot(own.x - opponent.x, own.y - opponent.y)
                                  if opponent is not None else float("inf"))
     for velocity in (0.0, max_speed * 0.3, max_speed * 0.6, max_speed):
@@ -691,28 +980,30 @@ def local_rollout(world, own, global_path, opponent=None, clearance=0.0,
                 x += velocity * cos(yaw) * dt
                 y += velocity * sin(yaw) * dt
                 yaw = angle_error(yaw + omega * dt, 0)
-                # The robot can physically stand in a cell marked occupied by
-                # conservative rasterization. Permit motion inside that one
-                # source cell so it can reach a genuinely free neighbor.
+                # Permit a route to leave a locally tight start, but only if it
+                # measurably increases wall/map clearance on its way out.
                 wall_clearance = world.obstacle_clearance(
                     x, y, world.robot_radius + 0.2)
                 map_clearance = world.map_clearance(x, y)
-                safe_map_clearance = world.robot_radius + 0.1
-                if (map_clearance < safe_map_clearance and
-                        (initial_map_clearance >= safe_map_clearance or
-                         map_clearance < initial_map_clearance - 0.01)):
+                travel = hypot(x - own.x, y - own.y)
+                gain = min(0.04, 0.15 * travel)
+                if (map_clearance < required_clearance and
+                        (initial_map_clearance >= required_clearance or
+                         map_clearance + 0.005 < initial_map_clearance + gain)):
                     break
                 min_wall_clearance = min(min_wall_clearance, wall_clearance)
-                if (wall_clearance < world.robot_radius - 0.01 and
-                        (initial_obstacle_clearance >= world.robot_radius - 0.01 or
-                         wall_clearance < initial_obstacle_clearance - 0.01)):
+                if (wall_clearance < required_clearance and
+                        (initial_obstacle_clearance >= required_clearance or
+                         wall_clearance + 0.005 <
+                         initial_obstacle_clearance + gain)):
                     break
                 if world.blocked(x, y):
                     if not source_blocked or hypot(x - own.x, y - own.y) > 0.5:
                         break
-                    if (wall_clearance < 0.19 and
-                            (initial_obstacle_clearance >= 0.19 or
-                             wall_clearance < initial_obstacle_clearance - 0.01)):
+                    if (wall_clearance < required_clearance and
+                            (initial_obstacle_clearance >= required_clearance or
+                             wall_clearance + 0.005 <
+                             initial_obstacle_clearance + gain)):
                         break
                 if opponent is not None:
                     future_x = opponent.x + opponent_velocity[0] * (step + 1) * dt
@@ -738,7 +1029,7 @@ def local_rollout(world, own, global_path, opponent=None, clearance=0.0,
             threat = weight * max(0, 1.2 - min_clearance) if opponent else 0.0
             score = (4 * progress - remaining - 0.35 * heading - threat
                      - 0.2 * (horizon - (len(poses) - 1) * dt))
-            safe_clearance = world.robot_radius + 0.09
+            safe_clearance = required_clearance
             if source_blocked:
                 end_clearance = world.obstacle_clearance(
                     end.x, end.y, world.robot_radius + 0.2)

@@ -1,6 +1,6 @@
 """Sole cmd_vel publisher for the decision planner and the external MPC."""
 
-from math import atan2, hypot
+from math import atan2, hypot, isfinite, sqrt
 from time import perf_counter
 
 import rclpy
@@ -30,6 +30,7 @@ class MpcGate(Node):
         self.path = None
         self.intent = None
         self.command = None
+        self.speed_limit = None
         self.turning_to_path = False
         self.create_subscription(Odometry, "navigation/self", self.on_pose, 10)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
@@ -37,6 +38,8 @@ class MpcGate(Node):
         self.create_subscription(Path, "navigation/local_path", self.on_path, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
         self.create_subscription(Twist, "navigation/mpc_cmd_vel", self.on_command, 10)
+        self.create_subscription(Float32, "navigation/speed_limit",
+                                 self.on_speed_limit, 10)
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/control_cycle_ms", 10)
         self.create_timer(0.05, self.tick)
@@ -64,6 +67,9 @@ class MpcGate(Node):
     def on_command(self, msg):
         self.command = (msg.linear.x, msg.angular.z, self.now())
 
+    def on_speed_limit(self, msg):
+        self.speed_limit = (float(msg.data), self.now())
+
     def tick(self):
         started = perf_counter()
         try:
@@ -72,6 +78,11 @@ class MpcGate(Node):
             self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
 
     def _tick(self):
+        now = self.now()
+        if (self.speed_limit is None or not isfinite(self.speed_limit[0]) or
+                now - self.speed_limit[1] > 0.7):
+            self.pub.publish(Twist())
+            return
         rotation_error = None
         endpoint_distance = None
         if self.path and len(self.path[0]) >= 2:
@@ -93,12 +104,16 @@ class MpcGate(Node):
                     (self.x, self.y), self.yaw, self.turning_to_path)
         else:
             self.turning_to_path = False
-        linear, angular = safe_mpc_command(self.now(), self.pose_stamp,
+        linear, angular = safe_mpc_command(now, self.pose_stamp,
                                            self.scan_stamp, self.path,
                                            self.intent, self.command,
                                            rotation_error=rotation_error)
         if endpoint_distance is not None and rotation_error is None:
-            linear = min(linear, max(0.08, 0.8 * endpoint_distance), 0.3)
+            stop_envelope = sqrt(max(0.0, 2.0 * 0.5 *
+                                     max(0.0, endpoint_distance - 0.04)))
+            linear = min(linear, stop_envelope)
+        dynamic_limit = min(1.0, max(0.0, self.speed_limit[0]))
+        linear = max(-dynamic_limit, min(dynamic_limit, linear))
         msg = Twist()
         msg.linear.x = linear
         msg.angular.z = angular

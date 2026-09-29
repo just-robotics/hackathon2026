@@ -160,13 +160,13 @@ class DecisionPolicy:
                 # Keep the real objective as the target. The planner applies
                 # higher opponent clearance/cost and lets A* first escape a
                 # violated safety radius before continuing toward the goal.
-                result = Decision(EVADE, self.goal, 0.35, 0.65, 1.0, 8.0,
+                result = Decision(EVADE, self.goal, 0.35, 1.0, 1.0, 8.0,
                                   "moving to goal along a route clear of the guardian")
             elif chosen == EXPLORE:
-                result = Decision(EXPLORE, self.goal, 0.35, 0.55, 0.65, 3.0,
+                result = Decision(EXPLORE, self.goal, 0.35, 1.0, 0.65, 3.0,
                                   "map not available")
             else:
-                result = Decision(GOAL, self.goal, 0.35, 0.65, 0.85, 6.0,
+                result = Decision(GOAL, self.goal, 0.35, 1.0, 0.85, 6.0,
                                   "moving toward guardian start around danger")
         elif not opponent_fresh:
             anchor = obs.opponent if obs.opponent else self.goal
@@ -187,7 +187,7 @@ class DecisionPolicy:
             if hypot(anchor.x - obs.own.x, anchor.y - obs.own.y) <= 0.35:
                 self.search_exploring = True
             result = Decision(SEARCH, None if self.search_exploring else anchor,
-                              0.3, 0.55, 0.0, 0.0,
+                              0.3, 1.0, 0.0, 0.0,
                               "sweeping known free space" if self.search_exploring
                               else "searching last seen position" if obs.opponent
                               else "searching opponent start area")
@@ -211,7 +211,7 @@ class DecisionPolicy:
             # the controller's available deceleration (0.5 m/s²). Keep a slow
             # creep near the referee threshold so orientation can converge.
             braking_speed = sqrt(2.0 * 0.25 * max(0.0, distance - 0.48))
-            approach_speed = min(0.35 if chosen == CAPTURE else 0.65,
+            approach_speed = min(0.35 if chosen == CAPTURE else 1.0,
                                  max(0.08, braking_speed))
             result = Decision(chosen, target, 0.015 if chosen == CAPTURE else 0.25,
                               approach_speed, 0.0, 0.0,

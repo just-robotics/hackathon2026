@@ -6,7 +6,7 @@ def angle_error(a, b):
 
 
 def path_turning_decision(points, own, yaw, already_turning,
-                          curve_forward_error=0.9):
+                          curve_forward_error=1.0):
     """Rotate in place for straight paths, but track checked curves jointly."""
     if len(points) < 2:
         return None, False, False
@@ -30,7 +30,7 @@ def path_turning_decision(points, own, yaw, already_turning,
         return None, False, True
     desired = atan2(dy, dx)
     error = angle_error(desired, yaw)
-    if abs(error) > (0.35 if already_turning else 0.65):
+    if abs(error) > (0.75 if already_turning else 1.0):
         return error, True, False
     return None, False, False
 

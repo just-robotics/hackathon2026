@@ -16,12 +16,14 @@ from std_msgs.msg import Float32, String
 
 from .core import (Pose2, VoxelWorld, angle_error, astar, capture_goal, coverage_target,
                    curved_guidance,
+                   dynamic_path_speed_limit,
                    route_curve_guidance,
                    reachable_intercept,
                    local_guidance, path_heading_error, reachable_target,
+                   local_rollout, regulated_pure_pursuit_guidance,
                    recovery_step, turn_alignment_is_progress,
                    reusable_local_guidance, reusable_route,
-                   smooth_intercept_target)
+                   smooth_intercept_target, slew_speed_limit)
 
 
 def seconds(stamp):
@@ -84,6 +86,12 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("intent_timeout", 1.0)
         self.declare_parameter("random_seed", 0)
         self.declare_parameter("role", "explorer")
+        self.declare_parameter("speed_limit_max", 1.0)
+        self.declare_parameter("speed_limit_min", 0.12)
+        self.declare_parameter("speed_limit_lateral_accel", 0.08)
+        self.declare_parameter("speed_limit_clearance_ramp", 0.32)
+        self.declare_parameter("speed_limit_accel", 0.45)
+        self.declare_parameter("speed_limit_decel", 0.45)
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
         if self.role not in ("explorer", "guardian"):
@@ -97,6 +105,7 @@ class TrajectoryPlanner(Node):
         self.world = VoxelWorld(self.get_parameter("resolution").value,
                                 self.get_parameter("robot_radius").value)
         self.own = None
+        self.measured_speed = 0.0
         self.opponent = None
         self.intent = None
         self.scan_stamp = 0.0
@@ -134,6 +143,7 @@ class TrajectoryPlanner(Node):
         self.recovery_attempt = 0
         self.recovery_goal = None
         self.recovery_origin = None
+        self.last_rollout_omega = None
         self.curve_diagnostics = {}
         self.curve_diagnostics_until = 0.0
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
@@ -148,8 +158,18 @@ class TrajectoryPlanner(Node):
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
+        self.speed_limit_pub = self.create_publisher(
+            Float32, "navigation/speed_limit", 10)
+        self.speed_clearance_pub = self.create_publisher(
+            Float32, "navigation/speed_clearance", 10)
+        self.speed_curvature_pub = self.create_publisher(
+            Float32, "navigation/speed_curvature", 10)
+        self.speed_alignment_pub = self.create_publisher(
+            Float32, "navigation/speed_alignment", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
+        self.speed_limit_value = 0.0
+        self.speed_limit_stamp = self.now()
         self.create_timer(0.2, self.tick)
 
     def now(self):
@@ -158,6 +178,7 @@ class TrajectoryPlanner(Node):
     def on_own(self, msg):
         if msg.header.frame_id == self.frame:
             self.own = (odom_pose(msg), seconds(msg.header.stamp))
+            self.measured_speed = abs(float(msg.twist.twist.linear.x))
 
     def on_opponent(self, msg):
         if msg.header.frame_id == self.frame:
@@ -165,6 +186,8 @@ class TrajectoryPlanner(Node):
 
     def on_intent(self, msg):
         if msg.header.frame_id == self.frame:
+            if self.local_behavior is not None and msg.behavior != self.local_behavior:
+                self.last_rollout_omega = None
             if msg.behavior != 5:
                 self.search_waypoint = None
                 self.search_visited = []
@@ -208,9 +231,45 @@ class TrajectoryPlanner(Node):
     def publish_empty(self, reason):
         self.global_path = []
         self.local_path = []
+        self.speed_limit_value = 0.0
+        self.speed_limit_stamp = self.now()
+        self.speed_limit_pub.publish(Float32(data=0.0))
+        for publisher in (self.speed_clearance_pub, self.speed_curvature_pub,
+                          self.speed_alignment_pub):
+            publisher.publish(Float32(data=0.0))
         self.global_pub.publish(make_path(self, []))
         self.local_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
+
+    def publish_speed_limit(self, path, intent, now):
+        requested = min(float(intent.max_speed),
+                        float(self.get_parameter("speed_limit_max").value))
+        profile = {}
+        target = dynamic_path_speed_limit(
+            self.world, path, requested, self.local_safety_margin,
+            max_speed=float(self.get_parameter("speed_limit_max").value),
+            min_speed=float(self.get_parameter("speed_limit_min").value),
+            lateral_accel=float(
+                self.get_parameter("speed_limit_lateral_accel").value),
+            clearance_ramp=float(
+                self.get_parameter("speed_limit_clearance_ramp").value),
+            heading_error=path_heading_error(path[0], path)
+            if path else None,
+            diagnostics=profile)
+        self.speed_clearance_pub.publish(
+            Float32(data=float(profile["clearance_speed"])))
+        self.speed_curvature_pub.publish(
+            Float32(data=float(profile["curvature_speed"])))
+        self.speed_alignment_pub.publish(
+            Float32(data=float(profile["alignment_speed"])))
+        dt = max(0.0, min(0.5, now - self.speed_limit_stamp))
+        self.speed_limit_value = slew_speed_limit(
+            self.speed_limit_value, target, dt,
+            float(self.get_parameter("speed_limit_accel").value),
+            float(self.get_parameter("speed_limit_decel").value))
+        self.speed_limit_stamp = now
+        self.speed_limit_pub.publish(
+            Float32(data=float(self.speed_limit_value)))
 
     def tick(self):
         started = perf_counter()
@@ -392,10 +451,19 @@ class TrajectoryPlanner(Node):
             same_target = (self.local_target is not None and
                            hypot(target.x - self.local_target.x,
                                  target.y - self.local_target.y) < 0.3)
-            local = (reusable_local_guidance(
-                self.world, own, self.local_path, enemy,
-                intent.opponent_clearance, self.local_safety_margin)
-                if same_target and self.local_behavior == intent.behavior else [])
+            local = regulated_pure_pursuit_guidance(
+                self.world, own, self.global_path, self.measured_speed,
+                enemy, intent.opponent_clearance,
+                safety_margin=self.local_safety_margin + 0.06,
+                diagnostics=self.curve_diagnostics)
+            if local:
+                self.last_rollout_omega = None
+            else:
+                local = (reusable_local_guidance(
+                    self.world, own, self.local_path, enemy,
+                    intent.opponent_clearance, self.local_safety_margin)
+                    if same_target and self.local_behavior == intent.behavior
+                    else [])
             if not local:
                 straight = local_guidance(self.world, own, self.global_path, enemy,
                                           intent.opponent_clearance,
@@ -404,19 +472,39 @@ class TrajectoryPlanner(Node):
                     self.world, own, self.global_path, straight, enemy,
                     intent.opponent_clearance,
                     diagnostics=self.curve_diagnostics,
-                    max_distance=2.2 if intent.behavior == 6 else 1.8)
+                    max_distance=2.5)
                 if not local:
                     local = curved_guidance(self.world, own, straight, enemy,
                                             intent.opponent_clearance,
                                             diagnostics=self.curve_diagnostics)
-                if now >= self.curve_diagnostics_until:
-                    self.get_logger().info(
-                        f"Local curve decisions (10 sim s): {self.curve_diagnostics}")
-                    self.curve_diagnostics.clear()
-                    self.curve_diagnostics_until = now + 10.0
-                self.local_path = local
-                self.local_target = target
-                self.local_behavior = intent.behavior
+                entry_error = path_heading_error(own, local) if local else None
+                if entry_error is not None and entry_error > 0.55:
+                    rollout = local_rollout(
+                        self.world, own, self.global_path, enemy_future,
+                        intent.opponent_clearance, intent.opponent_cost_weight,
+                        max_speed=min(
+                            float(intent.max_speed),
+                            float(self.get_parameter("speed_limit_max").value)),
+                        horizon=2.4, dt=0.2,
+                        opponent_velocity=enemy_velocity,
+                        previous_omega=self.last_rollout_omega,
+                        safety_margin=self.local_safety_margin + 0.06)
+                    if (len(rollout) >= 3 and
+                            hypot(rollout[-1].x - own.x,
+                                  rollout[-1].y - own.y) >= 0.15):
+                        local = rollout
+                        self.last_rollout_omega = angle_error(
+                            rollout[-1].yaw - rollout[-2].yaw, 0.0) / 0.2
+                        self.curve_diagnostics["kinematic_rollout"] = (
+                            self.curve_diagnostics.get("kinematic_rollout", 0) + 1)
+            if now >= self.curve_diagnostics_until:
+                self.get_logger().info(
+                    f"Local curve decisions (10 sim s): {self.curve_diagnostics}")
+                self.curve_diagnostics.clear()
+                self.curve_diagnostics_until = now + 10.0
+            self.local_path = local
+            self.local_target = target
+            self.local_behavior = intent.behavior
         if not local:
             self.local_path = []
             self.global_path = []
@@ -433,12 +521,21 @@ class TrajectoryPlanner(Node):
                                        safety_margin=self.local_safety_margin)
                 if not local:
                     local = [own, Pose2(own.x, own.y, step[0])]
+                self.publish_speed_limit(local, intent, now)
                 self.local_pub.publish(make_path(self, local))
                 self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
                 return
+            self.speed_limit_value = 0.0
+            self.speed_limit_stamp = now
+            self.speed_limit_pub.publish(Float32(data=0.0))
+            for publisher in (self.speed_clearance_pub,
+                              self.speed_curvature_pub,
+                              self.speed_alignment_pub):
+                publisher.publish(Float32(data=0.0))
             self.local_pub.publish(make_path(self, []))
             self.status_pub.publish(String(data="NO_LOCAL_PATH"))
             return
+        self.publish_speed_limit(local, intent, now)
         self.global_pub.publish(make_path(self, self.global_path))
         self.local_pub.publish(make_path(self, local))
         self.status_pub.publish(String(data="OK"))
