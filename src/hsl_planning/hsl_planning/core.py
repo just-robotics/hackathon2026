@@ -432,28 +432,37 @@ def local_guidance(world, own, route, opponent=None, clearance=0.0,
                     for i in range(1, steps + 1)]
 
 
-def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
+def curved_guidance(world, own, straight, opponent=None, clearance=0.0,
+                    diagnostics=None):
     """Join the current heading to a visible corridor without stopping to turn.
 
     A tight bend or an obstructed swept path keeps the straight reference so
     the controller can turn in place before entering it.
     """
+    def record(reason):
+        if diagnostics is not None:
+            diagnostics[reason] = diagnostics.get(reason, 0) + 1
+
     if len(straight) < 3:
+        record("short_path")
         return straight
     end = straight[-1]
     dx, dy = end.x - own.x, end.y - own.y
     distance = hypot(dx, dy)
     if distance < 0.65:
+        record("short_distance")
         return straight
     heading = atan2(dy, dx)
     error = angle_error(heading, own.yaw)
     if abs(error) < 0.18 or abs(error) > 1.15:
+        record("heading_small" if abs(error) < 0.18 else "heading_large")
         return straight
     # MPC does not follow the reference exactly. Reserve tracking room around
     # every moving turn, especially beside walls and the arena boundary.
     curve_margin = world.robot_radius + 0.18
     if (world.obstacle_clearance(own.x, own.y) < curve_margin or
             world.map_clearance(own.x, own.y) < curve_margin):
+        record("start_clearance")
         return straight
     # The first control point follows the robot heading; the last one joins
     # the original collision-checked corridor tangentially.
@@ -472,8 +481,10 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
         point = Pose2(x, y)
         if (world.obstacle_clearance(x, y) < curve_margin or
                 world.map_clearance(x, y) < curve_margin):
+            record("curve_clearance")
             return straight
         if not safe_segment(world, path[-1], point, opponent, clearance):
+            record("curve_segment")
             return straight
         if len(path) >= 2:
             first, middle = path[-2:]
@@ -483,8 +494,10 @@ def curved_guidance(world, own, straight, opponent=None, clearance=0.0):
             curvature = (2.0 * abs(ax * by - ay * bx) /
                          max(hypot(ax, ay) * hypot(bx, by) * chord, 1e-9))
             if curvature > 2.6:
+                record("curvature")
                 return straight
         path.append(point)
+    record("accepted")
     return path
 
 

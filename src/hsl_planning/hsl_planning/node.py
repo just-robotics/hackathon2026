@@ -124,6 +124,8 @@ class TrajectoryPlanner(Node):
         self.recovery_attempt = 0
         self.recovery_goal = None
         self.recovery_origin = None
+        self.curve_diagnostics = {}
+        self.curve_diagnostics_until = 0.0
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
         self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
@@ -367,7 +369,13 @@ class TrajectoryPlanner(Node):
                 straight = local_guidance(self.world, own, self.global_path, enemy,
                                           intent.opponent_clearance)
                 local = curved_guidance(self.world, own, straight, enemy,
-                                        intent.opponent_clearance)
+                                        intent.opponent_clearance,
+                                        diagnostics=self.curve_diagnostics)
+                if now >= self.curve_diagnostics_until:
+                    self.get_logger().info(
+                        f"Local curve decisions (10 sim s): {self.curve_diagnostics}")
+                    self.curve_diagnostics.clear()
+                    self.curve_diagnostics_until = now + 10.0
                 self.local_path = local
                 self.local_target = target
                 self.local_behavior = intent.behavior

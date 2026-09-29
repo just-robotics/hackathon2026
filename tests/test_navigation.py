@@ -168,7 +168,9 @@ class PlanningTests(unittest.TestCase):
         world.update([], [], None, map_bounds=(-1, -1, 3, 2))
         own = Pose2(0, 0, 0.4)
         straight = local_guidance(world, own, [Pose2(1.5, 0)])
-        curve = curved_guidance(world, own, straight)
+        decisions = {}
+        curve = curved_guidance(world, own, straight, diagnostics=decisions)
+        self.assertEqual(decisions, {"accepted": 1})
         self.assertNotEqual(curve, straight)
         self.assertGreater(curve[1].x, own.x)
         self.assertGreater(curve[1].y, own.y)
