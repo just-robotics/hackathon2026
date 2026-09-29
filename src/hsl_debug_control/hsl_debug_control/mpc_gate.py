@@ -12,7 +12,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Float32
 
-from .core import angle_error, safe_mpc_command
+from .core import angle_error, path_turning_decision, safe_mpc_command
 
 
 def seconds(stamp):
@@ -88,26 +88,9 @@ class MpcGate(Node):
                 rotation_error = angle_error(desired, self.yaw)
             else:
                 points = [pose.pose.position for pose in self.path[0]]
-                chord_x = end_pose.position.x - start.x
-                chord_y = end_pose.position.y - start.y
-                deviation = max(abs((point.x - start.x) * chord_y -
-                                    (point.y - start.y) * chord_x) / path_span
-                                for point in points)
-                if deviation > 0.035:
-                    nearest = min(range(len(points)),
-                                  key=lambda i: hypot(points[i].x - self.x,
-                                                      points[i].y - self.y))
-                    before = points[max(0, nearest - 2)]
-                    after = points[min(len(points) - 1, nearest + 3)]
-                    desired = atan2(after.y - before.y, after.x - before.x)
-                else:
-                    desired = atan2(chord_y, chord_x)
-                error = angle_error(desired, self.yaw)
-                if abs(error) > (0.35 if self.turning_to_path else 0.65):
-                    self.turning_to_path = True
-                    rotation_error = error
-                else:
-                    self.turning_to_path = False
+                (rotation_error, self.turning_to_path, _) = path_turning_decision(
+                    [(point.x, point.y) for point in points],
+                    (self.x, self.y), self.yaw, self.turning_to_path)
         else:
             self.turning_to_path = False
         linear, angular = safe_mpc_command(self.now(), self.pose_stamp,

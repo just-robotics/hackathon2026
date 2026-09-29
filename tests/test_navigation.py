@@ -8,7 +8,8 @@ ROOT = Path(__file__).resolve().parents[1] / "src"
 for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_adapter"):
     sys.path.insert(0, str(ROOT / package))
 
-from hsl_debug_control.core import follow, safe_follow, safe_mpc_command
+from hsl_debug_control.core import (follow, path_turning_decision, safe_follow,
+                                    safe_mpc_command)
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
@@ -650,6 +651,23 @@ class PlanningTests(unittest.TestCase):
         self.assertGreater(safe_follow(10.7, own, path, (GOAL, 0.5, 10.0),
                                        pose_timeout=1.2, path_timeout=1.0,
                                        intent_timeout=1.0)[0], 0)
+
+    def test_checked_curve_allows_forward_tracking_with_moderate_heading_error(self):
+        curved = [(0.0, 0.0), (0.1, 0.01), (0.2, 0.04), (0.3, 0.1),
+                  (0.4, 0.2)]
+        rotation, turning, is_curve = path_turning_decision(
+            curved, (0.0, 0.0), 0.0, False)
+        self.assertIsNone(rotation)
+        self.assertFalse(turning)
+        self.assertTrue(is_curve)
+
+    def test_straight_path_keeps_in_place_turn_for_large_heading_error(self):
+        straight = [(0.0, 0.0), (0.1, 0.0), (0.2, 0.0), (0.3, 0.0)]
+        rotation, turning, is_curve = path_turning_decision(
+            straight, (0.0, 0.0), 0.8, False)
+        self.assertAlmostEqual(rotation, -0.8)
+        self.assertTrue(turning)
+        self.assertFalse(is_curve)
 
     def test_mpc_gate_stops_for_wait_empty_path_or_stale_scan(self):
         path = ([object()], 10.0)

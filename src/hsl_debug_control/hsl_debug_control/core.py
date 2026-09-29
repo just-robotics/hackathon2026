@@ -5,6 +5,36 @@ def angle_error(a, b):
     return (a - b + pi) % (2 * pi) - pi
 
 
+def path_turning_decision(points, own, yaw, already_turning,
+                          curve_forward_error=0.9):
+    """Rotate in place for straight paths, but track checked curves jointly."""
+    if len(points) < 2:
+        return None, False, False
+    start, end = points[0], points[-1]
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    span = hypot(dx, dy)
+    if span < 0.02:
+        return None, False, False
+    deviation = max(abs((x - start[0]) * dy - (y - start[1]) * dx) / span
+                    for x, y in points)
+    if deviation > 0.035:
+        nearest = min(range(len(points)),
+                      key=lambda i: hypot(points[i][0] - own[0],
+                                          points[i][1] - own[1]))
+        before = points[max(0, nearest - 2)]
+        after = points[min(len(points) - 1, nearest + 3)]
+        desired = atan2(after[1] - before[1], after[0] - before[0])
+        error = angle_error(desired, yaw)
+        if abs(error) > curve_forward_error:
+            return error, True, True
+        return None, False, True
+    desired = atan2(dy, dx)
+    error = angle_error(desired, yaw)
+    if abs(error) > (0.35 if already_turning else 0.65):
+        return error, True, False
+    return None, False, False
+
+
 def follow(own, points, max_speed):
     """Return linear and angular speed; own/points are x,y,yaw triples."""
     if not points:
