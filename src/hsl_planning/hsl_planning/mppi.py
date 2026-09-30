@@ -462,6 +462,15 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                 sampled_w[template_index, :] = 0.0
                 sampled_w[template_index, :turn_steps] = sign * max_angular
                 template_index += 1
+        # Keep a full-acceleration choice in the batch. Around a slow warm
+        # start, noise alone seldom reaches the actuator's upper range; these
+        # sequences still pass the same rate and swept-collision checks.
+        for steering in (omegas, np.zeros(steps, dtype=np.float64)):
+            if template_index >= batch_size:
+                break
+            sampled_v[template_index, :] = max_speed
+            sampled_w[template_index, :] = steering
+            template_index += 1
         if linear_accel is not None:
             sampled_v, sampled_w = _constrain_control_rates(
                 sampled_v, sampled_w, measured_speed, measured_omega, dt,

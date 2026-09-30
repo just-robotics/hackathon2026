@@ -100,7 +100,22 @@ def main():
         def offset(record):
             return (signed_polyline_distance(p.x, p.y, record[0])
                     if record and t - record[2] <= 1.0 else None)
+        q = message.pose.pose.orientation
+        yaw = atan2(2 * (q.w * q.z + q.x * q.y),
+                    1 - 2 * (q.y * q.y + q.z * q.z))
+        def heading_error(record, lookahead):
+            if not record or t - record[2] > 1.0 or not record[0].poses:
+                return None
+            positions = [item.pose.position for item in record[0].poses]
+            target = next((point for point in positions
+                           if hypot(point.x - p.x, point.y - p.y) >= lookahead),
+                          positions[-1])
+            if hypot(target.x - p.x, target.y - p.y) < 0.03:
+                return None
+            bearing = atan2(target.y - p.y, target.x - p.x)
+            return round((bearing - yaw + pi) % (2 * pi) - pi, 4)
         command = latest.get("cmd")
+        mppi = latest.get("mppi")
         status = latest.get("status")
         time_series.append({
             "t_s": round(t - latest["series_t0"], 3),
@@ -108,10 +123,16 @@ def main():
                                      message.twist.twist.linear.y), 4),
             "lateral_global_m": offset(global_path),
             "lateral_control_m": offset(control_path),
+            "global_heading_error_rad": heading_error(global_path, 0.6),
+            "local_heading_error_rad": heading_error(control_path, 0.3),
             "cmd_speed_mps": (round(command[0].linear.x, 4)
                               if command and t - command[2] <= 0.5 else None),
             "cmd_omega_radps": (round(command[0].angular.z, 4)
                                  if command and t - command[2] <= 0.5 else None),
+            "mppi_speed_mps": (round(mppi[0].linear.x, 4)
+                               if mppi and t - mppi[2] <= 0.5 else None),
+            "mppi_omega_radps": (round(mppi[0].angular.z, 4)
+                                 if mppi and t - mppi[2] <= 0.5 else None),
             "planner_status": (status[0].data if status and
                                t - status[2] <= 1.0 else None),
         })
