@@ -116,6 +116,10 @@ def main():
             return round((bearing - yaw + pi) % (2 * pi) - pi, 4)
         command = latest.get("cmd")
         mppi = latest.get("mppi")
+        mppi_diagnostics = latest.get("mppi_diagnostics")
+        diagnostics = (json.loads(mppi_diagnostics[0].data)
+                       if mppi_diagnostics and t - mppi_diagnostics[2] <= 0.5
+                       else {})
         status = latest.get("status")
         intent = latest.get("intent")
         opponent = latest.get("opponent_estimate")
@@ -127,6 +131,9 @@ def main():
             "t_s": round(t - latest["series_t0"], 3),
             "speed_mps": round(hypot(message.twist.twist.linear.x,
                                      message.twist.twist.linear.y), 4),
+            "own_x_m": round(p.x, 4),
+            "own_y_m": round(p.y, 4),
+            "own_yaw_rad": round(yaw, 4),
             "lateral_global_m": offset(global_path),
             "lateral_control_m": offset(control_path),
             "global_heading_error_rad": heading_error(global_path, 0.6),
@@ -139,6 +146,11 @@ def main():
                                if mppi and t - mppi[2] <= 0.5 else None),
             "mppi_omega_radps": (round(mppi[0].angular.z, 4)
                                  if mppi and t - mppi[2] <= 0.5 else None),
+            "mppi_valid_samples": diagnostics.get("valid_samples"),
+            "mppi_clearance_m": diagnostics.get("clearance_m"),
+            "mppi_selected_progress_m": diagnostics.get("selected_progress_m"),
+            "mppi_result": diagnostics.get("result"),
+            "mppi_recovery": diagnostics.get("recovery"),
             "planner_status": (status[0].data if status and
                                t - status[2] <= 1.0 else None),
             "behavior": (int(intent[0].behavior) if intent and
@@ -275,6 +287,7 @@ def main():
         ("status", String, "navigation/planner_status"),
         ("mpc", Twist, "navigation/mpc_cmd_vel"),
         ("mppi", Twist, "navigation/mppi_cmd_vel"),
+        ("mppi_diagnostics", String, "navigation/mppi_diagnostics"),
         ("v_ref", Float64, "v_ref"),
         ("v_curve", Float64, "v_curve"),
     ):

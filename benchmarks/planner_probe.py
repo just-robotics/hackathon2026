@@ -8,14 +8,14 @@ from math import hypot
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
 from hsl_planning.core import (Pose2, VoxelWorld, astar, local_guidance,
-                               reachable_target, recovery_heading, safe_segment)
+                               reachable_target, recovery_step, safe_segment)
 from hsl_planning.node import odom_pose, read_xyz
 
 
@@ -37,6 +37,9 @@ def main():
         ("map_points", "map_points", PointCloud2, qos_profile_sensor_data),
         ("scan", "scan", PointCloud2, qos_profile_sensor_data),
         ("status", "planner_status", String, 10),
+        ("mppi_diagnostics", "mppi_diagnostics", String, 10),
+        ("global_path", "global_path", Path, 10),
+        ("local_path", "local_path", Path, 10),
         ("known_grid", "known_grid", OccupancyGrid,
          QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)),
     ):
@@ -134,6 +137,14 @@ def main():
                       "opponent": [enemy.x, enemy.y] if enemy else None,
                       "behavior": intent.behavior,
                       "planner_status": data["status"].data,
+                      "actual_mppi_diagnostics": (json.loads(data["mppi_diagnostics"].data)
+                          if "mppi_diagnostics" in data else None),
+                      "actual_global_head": [[p.pose.position.x, p.pose.position.y]
+                          for p in data["global_path"].poses[:10]]
+                          if "global_path" in data else None,
+                      "actual_local_path": [[p.pose.position.x, p.pose.position.y]
+                          for p in data["local_path"].poses]
+                          if "local_path" in data else None,
                       "source_cell": source,
                       "source_blocked": source in world.occupied,
                       "source_clearance_m": world.obstacle_clearance(own.x, own.y),
@@ -147,7 +158,7 @@ def main():
                       "frontier_route_cells": len(frontier_route),
                       "frontiers_examined": min(30, len(alternatives)),
                       "first_reachable_frontier": first_reachable_frontier,
-                      "recovery_heading_rad": recovery_heading(
+                      "recovery_step": recovery_step(
                           world, own, enemy, intent.opponent_clearance),
                       "neighbors": neighbors,
                       "route_head": [[p.x, p.y] for p in route[:7]],

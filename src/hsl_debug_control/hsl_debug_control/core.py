@@ -1,13 +1,16 @@
 from math import atan2, hypot, pi
 
 
+DIRECT_MPPI_STATUSES = ("OK", "RECOVERY_MPPI")
+
+
 def angle_error(a, b):
     return (a - b + pi) % (2 * pi) - pi
 
 
 def select_control_command(mode, planner_status, mpc_command, mppi_command):
     """Use MPPI for its checked path, keeping MPC for recovery paths."""
-    if mode == "mppi" and planner_status == "OK":
+    if mode == "mppi" and planner_status in DIRECT_MPPI_STATUSES:
         return mppi_command
     return mpc_command
 

@@ -1,9 +1,10 @@
 """ROS transport and bounded refresh for the pure planner."""
 
+import json
 import struct
 import random
 import numpy as np
-from math import atan2, cos, hypot, pi, sin
+from math import atan2, cos, hypot, isfinite, pi, sin
 from time import perf_counter
 
 import rclpy
@@ -182,6 +183,7 @@ class TrajectoryPlanner(Node):
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
         self.mpc_path_pub = self.create_publisher(Path, "navigation/mpc_path", 10)
         self.direct_cmd_pub = self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
+        self.mppi_diag_pub = self.create_publisher(String, "navigation/mppi_diagnostics", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
         self.create_timer(0.2, self.tick)
@@ -260,7 +262,7 @@ class TrajectoryPlanner(Node):
         if goal is None:
             return []
         config = dict(self.mppi_config, horizon=1.65, batch_size=128)
-        arc, controls, _ = mppi_local_guidance(
+        arc, controls, diagnostics = mppi_local_guidance(
             self.world, own, [own, goal],
             max_speed=min(float(intent.max_speed), self.mppi_max_speed)
             if self.mppi_max_speed is not None else float(intent.max_speed),
@@ -270,6 +272,8 @@ class TrajectoryPlanner(Node):
             opponent_clearance=float(intent.opponent_clearance),
             safety_margin=self.local_safety_margin,
             rng=self.mppi_rng, **config)
+        self.publish_mppi_diagnostics(own, enemy, diagnostics, controls,
+                                      recovery=True)
         if arc and (hypot(arc[-1].x - own.x, arc[-1].y - own.y) >= 0.08 or
                     abs((arc[-1].yaw - own.yaw + pi) % (2 * pi) - pi) >= 0.3):
             self.direct_controls = controls
@@ -282,6 +286,27 @@ class TrajectoryPlanner(Node):
             if dx * cos(own.yaw) + dy * sin(own.yaw) < -0.04:
                 return [own, Pose2(own.x, own.y, atan2(dy, dx))]
         return line
+
+    def publish_mppi_diagnostics(self, own, enemy, diagnostics, controls,
+                                 recovery=False):
+        clearance = self.world.obstacle_clearance(own.x, own.y)
+        self.mppi_diag_pub.publish(String(data=json.dumps({
+            "result": diagnostics.get("result"),
+            "recovery": recovery,
+            "recovery_goal": ([self.recovery_goal.x, self.recovery_goal.y]
+                              if recovery and self.recovery_goal else None),
+            "valid_samples": diagnostics.get("valid_samples"),
+            "batch_size": diagnostics.get("batch_size"),
+            "selected_progress_m": diagnostics.get("selected_progress"),
+            "furthest_progress_m": diagnostics.get("furthest_progress"),
+            "path_deviation_m": diagnostics.get("path_deviation"),
+            "selected_type": diagnostics.get("selected_type"),
+            "clearance_m": clearance if isfinite(clearance) else None,
+            "opponent_distance_m": (hypot(own.x - enemy.x, own.y - enemy.y)
+                                    if enemy is not None else None),
+            "first_speed_mps": controls[0][0] if controls else None,
+            "first_omega_radps": controls[0][1] if controls else None,
+        })))
 
     def tick(self):
         started = perf_counter()
@@ -487,6 +512,8 @@ class TrajectoryPlanner(Node):
                 rng=self.mppi_rng,
                 **self.mppi_config)
             self.direct_controls = self.mppi_controls if local else None
+            self.publish_mppi_diagnostics(own, enemy, diagnostics,
+                                          self.mppi_controls)
             reason = diagnostics.get("result", "unknown")
             self.mppi_diagnostics[reason] = (
                 self.mppi_diagnostics.get(reason, 0) + 1)
@@ -529,7 +556,9 @@ class TrajectoryPlanner(Node):
                                                   enemy, intent.opponent_clearance,
                                                   self.local_safety_margin))
             self.mpc_path_pub.publish(make_path(self, control_route))
-        status = ("OK" if self.control_mode == "mpc" or self.direct_controls
+        status = ("RECOVERY_MPPI" if self.recovery_goal is not None and
+                  self.control_mode == "mppi" and self.direct_controls else
+                  "OK" if self.control_mode == "mpc" or self.direct_controls
                   else "RECOVERY_FALLBACK")
         self.status_pub.publish(String(data=status))
 

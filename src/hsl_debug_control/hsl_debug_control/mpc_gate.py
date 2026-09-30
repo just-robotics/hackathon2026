@@ -12,8 +12,8 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Float32, String
 
-from .core import (angle_error, path_turning_decision, safe_mpc_command,
-                   select_control_command)
+from .core import (DIRECT_MPPI_STATUSES, angle_error, path_turning_decision,
+                   safe_mpc_command, select_control_command)
 
 
 def seconds(stamp):
@@ -99,7 +99,8 @@ class MpcGate(Node):
                 desired = atan2(2 * (q.w * q.z + q.x * q.y),
                                 1 - 2 * (q.y * q.y + q.z * q.z))
                 rotation_error = angle_error(desired, self.yaw)
-            elif self.control_mode != "mppi" or self.planner_status != "OK":
+            elif (self.control_mode != "mppi" or
+                  self.planner_status not in DIRECT_MPPI_STATUSES):
                 points = [pose.pose.position for pose in self.path[0]]
                 (rotation_error, self.turning_to_path, _) = path_turning_decision(
                     [(point.x, point.y) for point in points],
