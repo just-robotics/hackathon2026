@@ -9,7 +9,7 @@ from time import perf_counter
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
@@ -88,9 +88,13 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("mppi_horizon", 3.0)
         self.declare_parameter("mppi_model_dt", 0.15)
         self.declare_parameter("mppi_temperature", 0.3)
+        self.declare_parameter("control_mode", "mpc")
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
+        self.control_mode = self.get_parameter("control_mode").value
+        if self.control_mode not in ("mpc", "mppi"):
+            raise ValueError("control_mode must be mpc or mppi")
         if self.role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         self.local_safety_margin = 0.14 if self.role == "explorer" else 0.12
@@ -105,6 +109,12 @@ class TrajectoryPlanner(Node):
             "dt": float(self.get_parameter("mppi_model_dt").value),
             "temperature": float(self.get_parameter("mppi_temperature").value),
         }
+        if self.control_mode == "mppi":
+            # Nav2 uses a model step no shorter than the command period.
+            # Match this node's 0.2 s timer and stock actuator bounds.
+            self.mppi_config.update(dt=0.2, linear_accel=0.5,
+                                    angular_accel=2.0)
+        self.mppi_max_speed = 0.5 if self.control_mode == "mppi" else None
         self.rng = random.Random(self.random_seed)
         self.mppi_rng = np.random.default_rng(self.random_seed)
         self.world = VoxelWorld(self.get_parameter("resolution").value,
@@ -139,6 +149,7 @@ class TrajectoryPlanner(Node):
         self.local_target = None
         self.local_behavior = None
         self.mppi_controls = None
+        self.direct_controls = None
         self.search_waypoint = None
         self.search_visited = []
         self.progress_pose = None
@@ -164,6 +175,7 @@ class TrajectoryPlanner(Node):
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
+        self.direct_cmd_pub = self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
         self.create_timer(0.2, self.tick)
@@ -229,6 +241,7 @@ class TrajectoryPlanner(Node):
         self.global_path = []
         self.local_path = []
         self.mppi_controls = None
+        self.direct_controls = None
         self.global_pub.publish(make_path(self, []))
         self.local_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
@@ -239,9 +252,10 @@ class TrajectoryPlanner(Node):
         if goal is None:
             return []
         config = dict(self.mppi_config, horizon=1.65, batch_size=128)
-        arc, _, _ = mppi_local_guidance(
+        arc, controls, _ = mppi_local_guidance(
             self.world, own, [own, goal],
-            max_speed=float(intent.max_speed),
+            max_speed=min(float(intent.max_speed), self.mppi_max_speed)
+            if self.mppi_max_speed is not None else float(intent.max_speed),
             measured_speed=self.measured_speed,
             measured_omega=self.measured_omega,
             opponent=enemy, opponent_velocity=enemy_velocity,
@@ -250,6 +264,7 @@ class TrajectoryPlanner(Node):
             rng=self.mppi_rng, **config)
         if arc and (hypot(arc[-1].x - own.x, arc[-1].y - own.y) >= 0.08 or
                     abs((arc[-1].yaw - own.yaw + pi) % (2 * pi) - pi) >= 0.3):
+            self.direct_controls = controls
             return arc
         line = local_guidance(self.world, own, [goal], enemy,
                               intent.opponent_clearance, min_step=0.04,
@@ -262,9 +277,15 @@ class TrajectoryPlanner(Node):
 
     def tick(self):
         started = perf_counter()
+        self.direct_controls = None
         try:
             self._tick()
         finally:
+            command = Twist()
+            if self.control_mode == "mppi" and self.direct_controls:
+                command.linear.x = float(self.direct_controls[0][0])
+                command.angular.z = float(self.direct_controls[0][1])
+            self.direct_cmd_pub.publish(command)
             self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
 
     def _tick(self):
@@ -446,7 +467,8 @@ class TrajectoryPlanner(Node):
                 self.local_behavior == intent.behavior else None)
             local, self.mppi_controls, diagnostics = mppi_local_guidance(
                 self.world, own, self.global_path,
-                max_speed=float(intent.max_speed),
+                max_speed=min(float(intent.max_speed), self.mppi_max_speed)
+                if self.mppi_max_speed is not None else float(intent.max_speed),
                 measured_speed=self.measured_speed,
                 measured_omega=self.measured_omega,
                 opponent=enemy,
@@ -456,6 +478,7 @@ class TrajectoryPlanner(Node):
                 previous_controls=previous_controls,
                 rng=self.mppi_rng,
                 **self.mppi_config)
+            self.direct_controls = self.mppi_controls if local else None
             reason = diagnostics.get("result", "unknown")
             self.mppi_diagnostics[reason] = (
                 self.mppi_diagnostics.get(reason, 0) + 1)

@@ -5,6 +5,13 @@ def angle_error(a, b):
     return (a - b + pi) % (2 * pi) - pi
 
 
+def select_control_command(mode, planner_status, mpc_command, mppi_command):
+    """Use MPPI for its checked path, keeping MPC for recovery paths."""
+    if mode == "mppi" and planner_status == "OK":
+        return mppi_command
+    return mpc_command
+
+
 def path_turning_decision(points, own, yaw, already_turning,
                           curve_forward_error=1.0):
     """Rotate in place for straight paths, but track checked curves jointly."""

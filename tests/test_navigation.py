@@ -11,7 +11,7 @@ for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_ad
     sys.path.insert(0, str(ROOT / package))
 
 from hsl_debug_control.core import (follow, path_turning_decision, safe_follow,
-                                    safe_mpc_command)
+                                    safe_mpc_command, select_control_command)
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
@@ -165,6 +165,25 @@ class DecisionTests(unittest.TestCase):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_direct_mppi_commands_respect_stock_mpc_actuator_rates(self):
+        world = VoxelWorld(0.1, 0.22)
+        world.update([], [], None, map_bounds=(-2, -2, 5, 2))
+        route = [Pose2(index * 0.15, 0) for index in range(21)]
+        path, controls, diagnostics = mppi_local_guidance(
+            world, Pose2(0, 0), route, max_speed=0.5,
+            linear_accel=0.5, angular_accel=2.0,
+            measured_speed=0.0, measured_omega=0.0,
+            rng=np.random.default_rng(12))
+        self.assertEqual(diagnostics["result"], "ok")
+        self.assertGreater(len(path), 3)
+        self.assertIsNotNone(controls)
+        previous_v, previous_w = 0.0, 0.0
+        for v, w in controls:
+            self.assertLessEqual(abs(v - previous_v), 0.5 * 0.15 + 1e-9)
+            self.assertLessEqual(abs(w - previous_w), 2.0 * 0.15 + 1e-9)
+            self.assertLessEqual(v, 0.5 + 1e-9)
+            previous_v, previous_w = v, w
+
     def test_nav2_mppi_local_path_tracks_straight_route_smoothly(self):
         world = VoxelWorld(0.1, 0.22)
         world.update([], [], None, map_bounds=(-2, -2, 5, 2))
@@ -556,6 +575,14 @@ class PlanningTests(unittest.TestCase):
                 10.0, 10.0, 10.0, ([object()], 10.0),
                 (GOAL, 1.0, 10.0), (0.5, angular, 10.0)),
                 (0.5, angular))
+
+    def test_direct_mppi_command_is_selected_only_for_checked_path(self):
+        mpc = (0.2, 0.1, 10.0)
+        mppi = (0.3, -0.2, 10.0)
+        self.assertEqual(select_control_command("mppi", "OK", mpc, mppi), mppi)
+        self.assertEqual(select_control_command("mppi", "RECOVERY_ESCAPE", mpc, mppi), mpc)
+        self.assertIsNone(select_control_command("mppi", "OK", mpc, None))
+        self.assertEqual(select_control_command("mpc", "OK", mpc, mppi), mpc)
 
     def test_mpc_gate_stops_for_wait_empty_path_or_stale_scan(self):
         path = ([object()], 10.0)

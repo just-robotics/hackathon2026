@@ -23,6 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="")
     parser.add_argument("--wall-seconds", type=float, default=60)
+    parser.add_argument("--control-mode", choices=("mpc", "mppi"), default="mpc")
     parser.add_argument("--spawn-x", type=float, default=-0.34)
     parser.add_argument("--spawn-y", type=float, default=0.4)
     args = parser.parse_args()
@@ -186,6 +187,7 @@ def main():
         ("intent", PlanningIntent, "navigation/intent"),
         ("status", String, "navigation/planner_status"),
         ("mpc", Twist, "navigation/mpc_cmd_vel"),
+        ("mppi", Twist, "navigation/mppi_cmd_vel"),
         ("v_ref", Float64, "v_ref"),
         ("v_curve", Float64, "v_curve"),
         ("pose", Odometry, "navigation/self"),
@@ -255,8 +257,9 @@ def main():
             return
         intent = latest.get("intent")
         path = latest.get("path")
-        mpc = latest.get("mpc")
         status = latest.get("status")
+        mpc = (latest.get("mppi") if args.control_mode == "mppi" and
+               status and status[0].data == "OK" else latest.get("mpc"))
         if path and len(path[0].poses) >= 2:
             first = path[0].poses[0].pose.position
             last = path[0].poses[-1].pose.position
@@ -342,6 +345,7 @@ def main():
                                  int(fraction * (len(ordered) - 1)))], 3)
 
     report = {"namespace": prefix or "/", "wall_seconds": args.wall_seconds,
+              "control_mode": args.control_mode,
               "counts": dict(samples),
               "fractions": {key: round(value / total, 3)
                             for key, value in samples.items() if key != "total"},

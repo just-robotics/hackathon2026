@@ -10,9 +10,10 @@ from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, String
 
-from .core import angle_error, path_turning_decision, safe_mpc_command
+from .core import (angle_error, path_turning_decision, safe_mpc_command,
+                   select_control_command)
 
 
 def seconds(stamp):
@@ -30,6 +31,12 @@ class MpcGate(Node):
         self.path = None
         self.intent = None
         self.command = None
+        self.mppi_command = None
+        self.planner_status = None
+        self.declare_parameter("control_mode", "mpc")
+        self.control_mode = self.get_parameter("control_mode").value
+        if self.control_mode not in ("mpc", "mppi"):
+            raise ValueError("control_mode must be mpc or mppi")
         self.turning_to_path = False
         self.create_subscription(Odometry, "navigation/self", self.on_pose, 10)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
@@ -37,6 +44,8 @@ class MpcGate(Node):
         self.create_subscription(Path, "navigation/local_path", self.on_path, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
         self.create_subscription(Twist, "navigation/mpc_cmd_vel", self.on_command, 10)
+        self.create_subscription(Twist, "navigation/mppi_cmd_vel", self.on_mppi_command, 10)
+        self.create_subscription(String, "navigation/planner_status", self.on_status, 10)
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/control_cycle_ms", 10)
         self.create_timer(0.05, self.tick)
@@ -64,6 +73,12 @@ class MpcGate(Node):
     def on_command(self, msg):
         self.command = (msg.linear.x, msg.angular.z, self.now())
 
+    def on_mppi_command(self, msg):
+        self.mppi_command = (msg.linear.x, msg.angular.z, self.now())
+
+    def on_status(self, msg):
+        self.planner_status = msg.data
+
     def tick(self):
         started = perf_counter()
         try:
@@ -84,16 +99,19 @@ class MpcGate(Node):
                 desired = atan2(2 * (q.w * q.z + q.x * q.y),
                                 1 - 2 * (q.y * q.y + q.z * q.z))
                 rotation_error = angle_error(desired, self.yaw)
-            else:
+            elif self.control_mode != "mppi" or self.planner_status != "OK":
                 points = [pose.pose.position for pose in self.path[0]]
                 (rotation_error, self.turning_to_path, _) = path_turning_decision(
                     [(point.x, point.y) for point in points],
                     (self.x, self.y), self.yaw, self.turning_to_path)
         else:
             self.turning_to_path = False
+        command = select_control_command(
+            self.control_mode, self.planner_status,
+            self.command, self.mppi_command)
         linear, angular = safe_mpc_command(now, self.pose_stamp,
                                            self.scan_stamp, self.path,
-                                           self.intent, self.command,
+                                           self.intent, command,
                                            rotation_error=rotation_error)
         msg = Twist()
         msg.linear.x = linear

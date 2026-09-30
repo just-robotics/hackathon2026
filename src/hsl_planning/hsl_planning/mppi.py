@@ -131,6 +131,26 @@ def _correlated_noise(rng, batch, steps, std, correlation=0.72):
     return noise
 
 
+def _constrain_control_rates(velocities, omegas, speed, omega, dt,
+                             max_speed, max_angular, linear_accel,
+                             angular_accel):
+    """Bound a command sequence to the measured actuator state and rates."""
+    velocities = np.clip(velocities, 0.0, max_speed)
+    omegas = np.clip(omegas, -max_angular, max_angular)
+    speed_before = np.full(velocities.shape[:-1], speed, dtype=np.float64)
+    omega_before = np.full(omegas.shape[:-1], omega, dtype=np.float64)
+    for step in range(velocities.shape[-1]):
+        velocities[..., step] = np.clip(
+            velocities[..., step], speed_before - linear_accel * dt,
+            speed_before + linear_accel * dt)
+        omegas[..., step] = np.clip(
+            omegas[..., step], omega_before - angular_accel * dt,
+            omega_before + angular_accel * dt)
+        speed_before = velocities[..., step]
+        omega_before = omegas[..., step]
+    return velocities, omegas
+
+
 def _simulate(own, initial_speed, initial_omega, velocities, omegas, dt):
     """Forward-simulate a batch using the differential-drive model."""
     batch, steps = velocities.shape
@@ -332,6 +352,7 @@ def _reference_prefix(path, max_length=1.2):
 
 def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                         max_angular=1.5, horizon=3.0, dt=0.15,
+                        linear_accel=None, angular_accel=None,
                         batch_size=192, iterations=2, temperature=0.3,
                         velocity_std=0.22, angular_std=0.55, gamma=0.015,
                         measured_speed=0.0, measured_omega=0.0,
@@ -350,6 +371,10 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
     if route is None:
         return [], None, {"result": "route_miss", "valid_samples": 0}
     if max_speed <= 0 or max_angular <= 0 or horizon <= 0 or dt <= 0:
+        return [], None, {"result": "invalid_configuration", "valid_samples": 0}
+    if ((linear_accel is None) != (angular_accel is None) or
+            (linear_accel is not None and
+             (linear_accel <= 0 or angular_accel <= 0))):
         return [], None, {"result": "invalid_configuration", "valid_samples": 0}
 
     steps = max(4, int(round(horizon / dt)))
@@ -437,6 +462,10 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                 sampled_w[template_index, :] = 0.0
                 sampled_w[template_index, :turn_steps] = sign * max_angular
                 template_index += 1
+        if linear_accel is not None:
+            sampled_v, sampled_w = _constrain_control_rates(
+                sampled_v, sampled_w, measured_speed, measured_omega, dt,
+                max_speed, max_angular, linear_accel, angular_accel)
         costs, valid, xs, ys, yaws, details = _evaluate(
             world, own, route, sampled_v, sampled_w, dt, safety_margin,
             opponent, opponent_velocity, opponent_clearance,
@@ -466,6 +495,10 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                             0.25 * omegas[2:])
         velocities = np.clip(velocities, 0.0, max_speed)
         omegas = np.clip(omegas, -max_angular, max_angular)
+        if linear_accel is not None:
+            velocities, omegas = _constrain_control_rates(
+                velocities, omegas, measured_speed, measured_omega, dt,
+                max_speed, max_angular, linear_accel, angular_accel)
 
         # The weighted mean is the next optimizer seed. For the published Path,
         # compare it with the best sampled controls: averaging equally good
@@ -538,6 +571,7 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
             short_path, short_controls, short_details = mppi_local_guidance(
                 world, own, global_path, max_speed=max_speed,
                 max_angular=max_angular, horizon=short_horizon, dt=dt,
+                linear_accel=linear_accel, angular_accel=angular_accel,
                 batch_size=batch_size, iterations=iterations,
                 temperature=temperature, velocity_std=velocity_std,
                 angular_std=angular_std, gamma=gamma,

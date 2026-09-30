@@ -16,12 +16,16 @@ def config(name):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("robot_namespace", default_value=""),
+        DeclareLaunchArgument("control_mode", default_value="mpc"),
         OpaqueFunction(function=control_nodes),
     ])
 
 
 def control_nodes(context):
     namespace = LaunchConfiguration("robot_namespace").perform(context).strip("/")
+    control_mode = LaunchConfiguration("control_mode").perform(context)
+    if control_mode not in ("mpc", "mppi"):
+        raise ValueError("control_mode must be mpc or mppi")
     prefix = f"/{namespace}" if namespace else ""
     return [
         Node(package="swarm_controller", executable="swarm_cc_mpc_node",
@@ -44,5 +48,5 @@ def control_nodes(context):
              }]),
         Node(package="hsl_debug_control", executable="mpc_gate",
              namespace=namespace, name="hsl_mpc_gate", output="screen",
-             parameters=[{"use_sim_time": True}]),
+             parameters=[{"use_sim_time": True, "control_mode": control_mode}]),
     ]
