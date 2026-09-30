@@ -80,6 +80,7 @@ class MatchMetrics(Node):
         for name, topic in (
                 ("decision_compute", "navigation/decision_cycle_ms"),
                 ("planner_compute", "navigation/planner_cycle_ms"),
+                ("native_mppi_compute", "navigation/native_mppi_cycle_ms"),
                 ("control_compute", "navigation/control_cycle_ms")):
             self.create_subscription(Float32, topic,
                                      lambda msg, key=name: self.metrics.record_timing(

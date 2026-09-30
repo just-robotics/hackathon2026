@@ -58,14 +58,15 @@ def read_report(path, run_id, stopped=False):
         return None
 
 
-def ready_topic(container, topic, env):
+def ready_topic(container, topic, env, field="pose.pose.position", expected=None):
     shell = ("source /autoware/install/setup.bash && timeout 7 "
-             f"ros2 topic echo {topic} --no-daemon --once --field pose.pose.position")
+             f"ros2 topic echo {topic} --no-daemon --once --field {field}")
     try:
         result = subprocess.run(["docker", "exec", container, "bash", "-lc", shell],
-                                cwd=ROOT, env=env, stdout=subprocess.DEVNULL,
+                                cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True,
                                 stderr=subprocess.DEVNULL, timeout=12, check=False)
-        return result.returncode == 0
+        return result.returncode == 0 and (expected is None or
+               expected in [line.strip().lower() for line in result.stdout.splitlines()])
     except subprocess.TimeoutExpired:
         return False
 
@@ -83,10 +84,18 @@ def wait_ready(env, deadline):
             if gazebo.returncode:
                 raise TimeoutError("gzserver exited before both pose streams were ready")
         if all(ready_topic(container, topic, env) for container, topic in topics):
+            if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
+                native_ready = all(ready_topic(container, prefix + "navigation/native_ready",
+                                               env, "data", "true")
+                                   for container, prefix in (("docker-hsl-planning-1", "/"),
+                                      ("docker-hsl-opponent-planning-1", "/opponent/")))
+                if not native_ready:
+                    time.sleep(2)
+                    continue
             time.sleep(2)
             return
         time.sleep(2)
-    raise TimeoutError("both navigation pose streams did not become ready")
+    raise TimeoutError("autonomous navigation streams did not become ready")
 
 
 def wait_report(path, run_id, deadline, stopped=False):
@@ -110,7 +119,7 @@ def runtime_snapshot(env, scenario):
                               for name, cid, image in (line.split() for line in images.splitlines())}}
     paths = []
     for package in ("hsl_planning", "hsl_decision", "hsl_sim_adapter", "hsl_debug_control",
-                    "hsl_interfaces", "sim_kobuki", "jr_map",
+                    "hsl_interfaces", "hsl_nav2_control", "sim_kobuki", "jr_map",
                     "mpc_motion_control/workspace/src/swarm_controller",
                     "mpc_motion_control/workspace/src/swarm_msgs"):
         paths.extend(path for path in (ROOT / "src" / package).rglob("*")
@@ -131,6 +140,9 @@ def runtime_snapshot(env, scenario):
              ("trajectory_planner", "decision_manager", "hsl_cc_mpc", "hsl_lat_mpc",
               "hsl_mpc_gate")]
     nodes.append("/duel_referee")
+    if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
+        nodes.extend(prefix + name for prefix in ("/", "/opponent/")
+                     for name in ("native_mppi", "native_mppi/native_costmap"))
     # Read only parameter services, before movement or trace collection begins.
     script = """import json, subprocess, yaml
 nodes = %r
@@ -150,6 +162,11 @@ print(json.dumps(result))
                       "source /autoware/install/setup.bash && python3 - <<'PY'\n" + script + "PY"],
                      env, timeout=180)
     runtime["effective_parameters"] = json.loads(output)
+    if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
+        runtime["nav2_package_versions"] = command(["docker", "exec",
+            "docker-hsl-planning-1", "dpkg-query", "-W",
+            "ros-humble-nav2-mppi-controller", "ros-humble-nav2-controller",
+            "ros-humble-nav2-costmap-2d"], env, timeout=15)
     return runtime
 
 

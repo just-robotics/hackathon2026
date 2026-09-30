@@ -1,4 +1,5 @@
 from setuptools import setup
+from glob import glob
 
 setup(
     name="hsl_planning",
@@ -7,6 +8,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/hsl_planning"]),
         ("share/hsl_planning", ["package.xml"]),
+        ("share/hsl_planning/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

@@ -108,6 +108,12 @@ RUN mv package_ROS2.xml package.xml && \
     cp -rf launch_ROS2/ launch/
 WORKDIR ${WORKDIR}
 
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+      ros-humble-nav2-mppi-controller \
+      ros-humble-nav2-controller && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY src ${WORKDIR}/src
 
 RUN source ${SOURCE} && colcon build --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release

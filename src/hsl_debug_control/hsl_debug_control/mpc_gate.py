@@ -94,13 +94,14 @@ class MpcGate(Node):
             end_pose = self.path[0][-1].pose
             path_span = hypot(end_pose.position.x - start.x,
                               end_pose.position.y - start.y)
-            if path_span < 0.02:
+            direct_active = (self.control_mode == "mppi" and
+                             self.planner_status in DIRECT_MPPI_STATUSES)
+            if not direct_active and path_span < 0.02:
                 q = end_pose.orientation
                 desired = atan2(2 * (q.w * q.z + q.x * q.y),
                                 1 - 2 * (q.y * q.y + q.z * q.z))
                 rotation_error = angle_error(desired, self.yaw)
-            elif (self.control_mode != "mppi" or
-                  self.planner_status not in DIRECT_MPPI_STATUSES):
+            elif not direct_active:
                 points = [pose.pose.position for pose in self.path[0]]
                 (rotation_error, self.turning_to_path, _) = path_turning_decision(
                     [(point.x, point.y) for point in points],

@@ -91,11 +91,17 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("mppi_model_dt", 0.15)
         self.declare_parameter("mppi_temperature", 0.3)
         self.declare_parameter("control_mode", "mppi")
+        self.declare_parameter("local_backend", "python")
         self.declare_parameter("mpc_path_source", "local")
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
         self.control_mode = self.get_parameter("control_mode").value
+        self.local_backend = self.get_parameter("local_backend").value
+        if self.local_backend not in ("python", "nav2_cpp"):
+            raise ValueError("local_backend must be python or nav2_cpp")
+        if self.local_backend == "nav2_cpp" and self.control_mode != "mppi":
+            raise ValueError("nav2_cpp requires control_mode=mppi")
         self.mpc_path_source = self.get_parameter("mpc_path_source").value
         if self.control_mode not in ("mpc", "mppi"):
             raise ValueError("control_mode must be mpc or mppi")
@@ -180,11 +186,22 @@ class TrajectoryPlanner(Node):
         self.create_subscription(OccupancyGrid, "navigation/known_grid",
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
-        self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
+        self.local_pub = (self.create_publisher(Path, "navigation/local_path", 10)
+                          if self.local_backend == "python" else None)
+        self.native_reference_pub = None
+        if self.local_backend == "nav2_cpp":
+            self.native_reference_pub = self.create_publisher(
+                Path, "navigation/nav2_reference", 10)
+            self.create_subscription(Path, "navigation/local_path",
+                                     self.on_native_path, 10)
         self.mpc_path_pub = self.create_publisher(Path, "navigation/mpc_path", 10)
-        self.direct_cmd_pub = self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
-        self.mppi_diag_pub = self.create_publisher(String, "navigation/mppi_diagnostics", 10)
-        self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
+        self.direct_cmd_pub = (self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
+                               if self.local_backend == "python" else None)
+        self.mppi_diag_pub = (self.create_publisher(String, "navigation/mppi_diagnostics", 10)
+                              if self.local_backend == "python" else None)
+        self.status_pub = self.create_publisher(
+            String, "navigation/global_status" if self.local_backend == "nav2_cpp"
+            else "navigation/planner_status", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
         self.create_timer(0.2, self.tick)
 
@@ -200,6 +217,15 @@ class TrajectoryPlanner(Node):
     def on_opponent(self, msg):
         if msg.header.frame_id == self.frame:
             self.opponent = (odom_pose(msg), seconds(msg.header.stamp), msg.twist.twist)
+
+    def on_native_path(self, msg):
+        if msg.header.frame_id == self.frame:
+            self.local_path = [Pose2(p.pose.position.x, p.pose.position.y,
+                                    atan2(2 * (p.pose.orientation.w * p.pose.orientation.z +
+                                               p.pose.orientation.x * p.pose.orientation.y),
+                                          1 - 2 * (p.pose.orientation.y ** 2 +
+                                                   p.pose.orientation.z ** 2)))
+                               for p in msg.poses]
 
     def on_intent(self, msg):
         if msg.header.frame_id == self.frame:
@@ -251,7 +277,10 @@ class TrajectoryPlanner(Node):
         self.mppi_controls = None
         self.direct_controls = None
         self.global_pub.publish(make_path(self, []))
-        self.local_pub.publish(make_path(self, []))
+        if self.local_pub is not None:
+            self.local_pub.publish(make_path(self, []))
+        if self.native_reference_pub is not None:
+            self.native_reference_pub.publish(make_path(self, []))
         if self.mpc_path_source == "smoothed":
             self.mpc_path_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
@@ -318,7 +347,8 @@ class TrajectoryPlanner(Node):
             if self.control_mode == "mppi" and self.direct_controls:
                 command.linear.x = float(self.direct_controls[0][0])
                 command.angular.z = float(self.direct_controls[0][1])
-            self.direct_cmd_pub.publish(command)
+            if self.direct_cmd_pub is not None:
+                self.direct_cmd_pub.publish(command)
             self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
 
     def _tick(self):
@@ -480,6 +510,20 @@ class TrajectoryPlanner(Node):
             else:
                 self.publish_empty("NO_GLOBAL_PATH")
                 return
+        if self.local_backend == "nav2_cpp":
+            if self.recovery_goal is not None:
+                reference = [own, self.recovery_goal]
+                status = "RECOVERY_ROUTE"
+            else:
+                reference = list(self.global_path)
+                if reference:
+                    last = reference[-1]
+                    reference[-1] = Pose2(last.x, last.y, target.yaw)
+                status = "OK"
+            self.global_pub.publish(make_path(self, self.global_path))
+            self.native_reference_pub.publish(make_path(self, reference))
+            self.status_pub.publish(String(data=status))
+            return
         if self.recovery_goal is not None:
             self.mppi_controls = None
             self.local_path = []

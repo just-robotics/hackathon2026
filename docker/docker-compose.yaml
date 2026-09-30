@@ -214,7 +214,7 @@ services:
             - duel
 
     hsl-planning:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_planning trajectory_planner --ros-args -p use_sim_time:=true -p role:=${HSL_ROLE:-explorer} -p random_seed:=${DUEL_SEED:-0} -p arena_bounds:=${DUEL_ARENA_BOUNDS:-[-2.66,-0.4,3.34,4.6]} -p control_mode:=${HSL_CONTROL_MODE:-mppi} -p mpc_path_source:=${HSL_MPC_PATH_SOURCE:-local}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_planning autonomous.launch.py role:=${HSL_ROLE:-explorer} random_seed:=${DUEL_SEED:-0} arena_bounds:=${DUEL_ARENA_BOUNDS:-[-2.66,-0.4,3.34,4.6]} control_mode:=${HSL_CONTROL_MODE:-mppi} mpc_path_source:=${HSL_MPC_PATH_SOURCE:-local} local_backend:=${HSL_LOCAL_BACKEND:-python}"
         extends:
             file: common.yaml
             service: app
@@ -254,7 +254,7 @@ services:
             - duel
 
     hsl-opponent-planning:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_planning trajectory_planner --ros-args -r __ns:=/opponent -p use_sim_time:=true -p role:=${HSL_OPPONENT_ROLE:-guardian} -p random_seed:=${DUEL_OPPONENT_SEED:-1} -p arena_bounds:=${DUEL_ARENA_BOUNDS:-[-2.66,-0.4,3.34,4.6]} -p control_mode:=${HSL_CONTROL_MODE:-mppi} -p mpc_path_source:=${HSL_MPC_PATH_SOURCE:-local}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_planning autonomous.launch.py robot_namespace:=opponent role:=${HSL_OPPONENT_ROLE:-guardian} random_seed:=${DUEL_OPPONENT_SEED:-1} arena_bounds:=${DUEL_ARENA_BOUNDS:-[-2.66,-0.4,3.34,4.6]} control_mode:=${HSL_CONTROL_MODE:-mppi} mpc_path_source:=${HSL_MPC_PATH_SOURCE:-local} local_backend:=${HSL_LOCAL_BACKEND:-python}"
         extends:
             file: common.yaml
             service: app

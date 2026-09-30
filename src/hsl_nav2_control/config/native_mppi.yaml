@@ -1,0 +1,122 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 20.0
+    role: explorer
+    random_seed: 0
+    local_path_length: 1.2
+    goal_checker:
+      xy_goal_tolerance: 0.08
+      yaw_goal_tolerance: 0.20
+      stateful: false
+    MPPI:
+      time_steps: 60
+      model_dt: 0.05
+      batch_size: 1000
+      iteration_count: 1
+      vx_std: 0.20
+      vy_std: 0.0
+      wz_std: 0.40
+      vx_max: 0.50
+      vx_min: 0.0
+      vy_max: 0.0
+      wz_max: 1.50
+      temperature: 0.30
+      gamma: 0.015
+      motion_model: DiffDrive
+      prune_distance: 1.7
+      transform_tolerance: 0.20
+      retry_attempt_limit: 1
+      regenerate_noises: false
+      visualize: false
+      critics: [ConstraintCritic, ObstaclesCritic, GoalCritic, GoalAngleCritic,
+                PathAlignCritic, PathFollowCritic, PathAngleCritic, PreferForwardCritic]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      ObstaclesCritic:
+        enabled: true
+        cost_power: 1
+        repulsion_weight: 1.5
+        critical_weight: 20.0
+        consider_footprint: true
+        collision_cost: 100000.0
+        collision_margin_distance: 0.10
+        near_goal_distance: 0.35
+        inflation_radius: 0.65
+        cost_scaling_factor: 5.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.35
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 10.0
+        max_path_occupancy_ratio: 0.07
+        trajectory_point_step: 4
+        threshold_to_consider: 0.35
+        offset_from_furthest: 4
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.35
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.35
+        max_angle_to_furthest: 1.0
+        mode: 0
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.35
+    costmap:
+      global_frame: map
+      robot_radius: 0.37
+      footprint_padding: 0.0
+      resolution: 0.05
+      width: 4
+      height: 4
+      rolling_window: true
+      update_frequency: 10.0
+      publish_frequency: 2.0
+      transform_tolerance: 0.20
+      track_unknown_space: true
+      always_send_full_costmap: true
+      plugins: [static_layer, obstacle_layer, inflation_layer]
+      static_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_topic: /map
+        map_subscribe_transient_local: true
+        subscribe_to_updates: true
+      obstacle_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: cloud
+        cloud:
+          data_type: PointCloud2
+          marking: true
+          clearing: true
+          min_obstacle_height: 0.08
+          max_obstacle_height: 0.60
+          obstacle_min_range: 0.0
+          obstacle_max_range: 4.0
+          raytrace_min_range: 0.0
+          raytrace_max_range: 4.5
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.65
+        cost_scaling_factor: 5.0

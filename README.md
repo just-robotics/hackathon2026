@@ -527,3 +527,13 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 **Модель не спавнится.** `spawn_entity.py` ждёт готовности `gzserver`;
 смотрите, поднялся ли он в `helm flogs gazebo`, и проверьте пути
 `GAZEBO_MODEL_PATH` / `GAZEBO_RESOURCE_PATH`.
+
+### Экспериментальный официальный MPPI Nav2
+
+Основной локальный backend пока `python`; исходный MPC остаётся доступен через `HSL_CONTROL_MODE=mpc`. Для отдельного сравнения после `helm build duel`:
+
+```bash
+HSL_LOCAL_BACKEND=nav2_cpp python3 benchmarks/run_duel_series.py --runs 3 --start-seed 15 --active-s 90 --scenario 2 --trace
+```
+
+`hsl_planning/autonomous.launch.py` запускает A* и, при `nav2_cpp`, отдельный `hsl_nav2_control/native_mppi` для каждого робота. Официальный Humble MPPIController принимает `navigation/nav2_reference` и публикует `navigation/mppi_cmd_vel` и короткий `navigation/local_path`; финальный `cmd_vel` публикует существующий шлюз. У каждого MPPI свой rolling costmap со статической картой и текущим сканом. Backend требует `HSL_CONTROL_MODE=mppi`; его превосходство пока не подтверждено прогоном.
