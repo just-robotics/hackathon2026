@@ -98,6 +98,61 @@ def wait_report(path, run_id, deadline, stopped=False):
     raise TimeoutError(f"result {path} for {run_id} did not appear")
 
 
+def runtime_snapshot(env, scenario):
+    containers = ["docker-" + name + "-1" for name in (
+        "hsl-planning", "hsl-opponent-planning", "hsl-control", "hsl-opponent-control",
+        "hsl-decision", "hsl-opponent-decision", "hsl-adapter", "hsl-opponent-adapter",
+        "hsl-referee", "hsl-metrics", "hsl-opponent-metrics", "gazebo-duel")]
+    images = command(["docker", "inspect", "--format", "{{.Name}} {{.Id}} {{.Image}}",
+                      *containers], env, timeout=15)
+    runtime = {"scenario_environment": scenario_environment(scenario),
+               "containers": {name.lstrip("/"): {"container_id": cid, "image_id": image}
+                              for name, cid, image in (line.split() for line in images.splitlines())}}
+    paths = []
+    for package in ("hsl_planning", "hsl_decision", "hsl_sim_adapter", "hsl_debug_control",
+                    "hsl_interfaces", "sim_kobuki", "jr_map",
+                    "mpc_motion_control/workspace/src/swarm_controller",
+                    "mpc_motion_control/workspace/src/swarm_msgs"):
+        paths.extend(path for path in (ROOT / "src" / package).rglob("*")
+                     if path.is_file() and path.suffix in
+                     (".py", ".yaml", ".cpp", ".hpp", ".msg", ".world", ".xacro"))
+    paths = sorted(paths)
+    expected = {"/autoware/" + str(path.relative_to(ROOT)):
+                hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+    for container in ("docker-hsl-planning-1", "docker-hsl-opponent-planning-1"):
+        actual = command(["docker", "exec", container, "sha256sum", *expected],
+                         env, timeout=15)
+        actual = {name: digest for digest, name in (line.split(maxsplit=1)
+                  for line in actual.splitlines())}
+        if actual != expected:
+            raise RuntimeError(f"navigation sources in {container} differ from the worktree; rebuild duel")
+    runtime["verified_source_sha256"] = expected
+    nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
+             ("trajectory_planner", "decision_manager", "hsl_cc_mpc", "hsl_lat_mpc",
+              "hsl_mpc_gate")]
+    nodes.append("/duel_referee")
+    # Read only parameter services, before movement or trace collection begins.
+    script = """import json, subprocess, yaml
+nodes = %r
+result = {}
+for node in nodes:
+    output = subprocess.run(['ros2', 'param', 'dump', node, '--no-daemon'],
+                            text=True, capture_output=True, timeout=15, check=True)
+    parsed = yaml.safe_load(output.stdout)
+    params = next((value.get('ros__parameters') for value in (parsed or {}).values()
+                   if isinstance(value, dict)), None)
+    if not isinstance(params, dict):
+        raise RuntimeError('No parameter snapshot for ' + node)
+    result[node] = params
+print(json.dumps(result))
+""" % nodes
+    output = command(["docker", "exec", "docker-hsl-control-1", "bash", "-lc",
+                      "source /autoware/install/setup.bash && python3 - <<'PY'\n" + script + "PY"],
+                     env, timeout=180)
+    runtime["effective_parameters"] = json.loads(output)
+    return runtime
+
+
 def start_traces(series_dir, index, env):
     command(["docker", "cp", str(ROOT / "benchmarks" / "trace_motion.py"),
              "docker-hsl-adapter-1:/tmp/hsl_trace_motion.py"], env, timeout=15)
@@ -265,6 +320,10 @@ def main():
                 except TimeoutError:
                     if attempt == 2:
                         raise
+            runtime = runtime_snapshot(env, args.scenario)
+            (series_dir / f"{index:02d}-runtime.json").write_text(
+                json.dumps(runtime, indent=2, sort_keys=True) + "\n")
+            record["runtime_snapshot"] = f"{index:02d}-runtime.json"
             if args.trace:
                 traces = start_traces(series_dir, index, env)
             if args.probe_status:

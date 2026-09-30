@@ -303,6 +303,9 @@ python3 benchmarks/run_duel_series.py --runs 20 --active-s 360 --build --scenari
 ```
 
 Сводка и журнал каждого запуска сохраняются в `results/series-*/`.
+`NN-runtime.json` содержит ID образов/контейнеров, стартовые параметры сценария
+и параметры узлов. Перед стартом runner сравнивает исходники в обоих planning
+контейнерах с рабочим деревом; при несовпадении требуется `--build`.
 Оценочные метрики пересчитываются в общем интервале судьи:
 `started_at_sim_s`—`finished_at_sim_s` из outcome. Оба отчёта содержат
 `window_source=referee`, совпадающие `window_start_sim_s`/`window_end_sim_s`
