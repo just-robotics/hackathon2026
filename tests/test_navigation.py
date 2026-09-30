@@ -18,7 +18,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
                                local_guidance, reachable_target,
                                reachable_intercept, path_heading_error,
-                               recovery_step, turn_alignment_is_progress,
+                               recovery_step, checked_recovery_target, turn_alignment_is_progress,
                                reusable_route, safe_segment, smooth_control_route,
                                smooth_intercept_target)
 from hsl_planning.mppi import (_initial_path_angle_errors, _project_batch,
@@ -368,6 +368,28 @@ class PlanningTests(unittest.TestCase):
         step = recovery_step(world, near_boundary)
         self.assertIsNotNone(step)
         self.assertLess(cos(step[0]), 0)
+
+    def test_native_escape_rechecks_new_obstacle_and_faces_travel(self):
+        world = VoxelWorld(0.1, 0.2)
+        own = Pose2(0, 0)
+        world.update([], [], None, map_bounds=(-2, -2, 2, 2))
+        previous = Pose2(0, 0.55)
+        retained = checked_recovery_target(world, own, previous)
+        self.assertAlmostEqual(retained.yaw, pi / 2)
+        world.update([(0, 0.55, 0.3)], [], None, map_bounds=(-2, -2, 2, 2))
+        alternate = checked_recovery_target(world, own, previous)
+        self.assertIsNotNone(alternate)
+        self.assertGreater(hypot(alternate.x - previous.x, alternate.y - previous.y), 0.2)
+        self.assertTrue(safe_segment(world, own, alternate))
+
+    def test_native_escape_rechecks_observed_opponent(self):
+        world = VoxelWorld(0.1, 0.2)
+        world.update([], [], None, map_bounds=(-2, -2, 2, 2))
+        own, enemy = Pose2(0, 0), Pose2(0.6, 0)
+        alternate = checked_recovery_target(world, own, Pose2(0.55, 0), enemy, 0.6)
+        self.assertIsNotNone(alternate)
+        self.assertTrue(safe_segment(world, own, alternate, enemy, 0.6))
+        self.assertLess(alternate.x, 0.2)
 
     def test_recovery_can_choose_a_short_step_in_a_tight_free_pocket(self):
         world = VoxelWorld(0.1, 0.2)

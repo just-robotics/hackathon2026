@@ -541,3 +541,18 @@ def recovery_step(world, own, opponent=None, clearance=0.0,
         if options:
             break
     return max(options)[1:] if options else None
+
+
+def checked_recovery_target(world, own, previous=None, opponent=None,
+                            clearance=0.0, safety_margin=0.12):
+    """Retain only a currently reachable escape, with its travel heading."""
+    if previous is not None and safe_segment(
+            world, own, previous, opponent, clearance, safety_margin):
+        return Pose2(previous.x, previous.y,
+                     atan2(previous.y - own.y, previous.x - own.x))
+    step = recovery_step(world, own, opponent, clearance, safety_margin)
+    if step is None:
+        return None
+    heading, length = step
+    return Pose2(own.x + length * cos(heading),
+                 own.y + length * sin(heading), heading)
