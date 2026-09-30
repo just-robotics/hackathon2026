@@ -692,6 +692,45 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(report["turning_by_behavior_fraction"],
                          {"2": 0.5, "4": 0.5})
 
+    def test_metrics_clip_gate_start_and_stop_delay_to_referee_window(self):
+        run = RunMetrics(0.7)
+        run.start(0, 100)
+        for t in range(6):
+            run.sample(t, 0.3 * t, 0, 0.3, 0,
+                       planner_ok=True, planner_status="OK")
+        run.contact(0.5, "wall")
+        run.contact(1, None)
+        run.contact(2, "robot")
+        run.contact(3, None)
+        run.contact(4, "wall")
+        run.record_timing("planner_compute", 10, 0.5)
+        run.record_timing("planner_compute", 20, 2)
+        run.record_timing("planner_compute", 30, 4)
+        run.finish_window(1.5, 3.5, 4)
+        report = run.snapshot(9, 110)
+        self.assertEqual(report["duration_s"], 2)
+        self.assertEqual(report["distance_m"], 0.6)
+        self.assertEqual(report["mean_speed_mps"], 0.3)
+        self.assertEqual(report["sample_coverage_fraction"], 1)
+        self.assertEqual(report["planner_ok_fraction"], 1)
+        self.assertEqual(report["collisions"], 1)
+        self.assertEqual(report["robot_collisions"], 1)
+        self.assertEqual(report["timing_ms"]["planner_compute"]["count"], 1)
+        self.assertEqual(report["real_time_factor"], 0.5)
+
+    def test_metrics_coverage_excludes_gaps_and_recovery_turn_is_active(self):
+        run = RunMetrics()
+        run.start(0)
+        run.sample(0, 0, 0, 0, 0.5, planner_status="RECOVERY_MPPI")
+        run.sample(1, 0, 0, 0, 0.5, planner_status="RECOVERY_MPPI")
+        run.sample(3, 0, 0, 0, 0.5, planner_status="RECOVERY_MPPI")
+        run.stop(3)
+        report = run.snapshot(3)
+        self.assertEqual(report["sample_coverage_fraction"], 0.3333)
+        self.assertEqual(report["active_motion_fraction"], 0.333)
+        self.assertEqual(report["mean_speed_mps"], 0)
+        self.assertEqual(report["planner_ok_fraction"], 0)
+
     def test_metrics_distinguish_commanded_motion_from_physical_stall(self):
         run = RunMetrics(0.7)
         run.start(10)

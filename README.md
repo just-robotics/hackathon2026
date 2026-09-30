@@ -303,6 +303,12 @@ python3 benchmarks/run_duel_series.py --runs 20 --active-s 360 --build --scenari
 ```
 
 Сводка и журнал каждого запуска сохраняются в `results/series-*/`.
+Оценочные метрики пересчитываются в общем интервале судьи:
+`started_at_sim_s`—`finished_at_sim_s` из outcome. Оба отчёта содержат
+`window_source=referee`, совпадающие `window_start_sim_s`/`window_end_sim_s`
+и `sample_coverage_fraction`; runner отклоняет несовпадающие окна.
+Ручной stop без судейского исхода сохраняет окно отдельного разрешения движения
+с `window_source=allow_motion`.
 Для диагностики локального пути добавьте `--trace`: скрипт запустит запись
 активных команд обоих роботов до начала матча и сохранит `*-trace-*.json`
 в каталоге серии. Для снимка первого отказа планировщика добавьте

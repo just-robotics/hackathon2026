@@ -113,6 +113,8 @@ class DuelReferee(Node):
             "guardian_captured": event == "guardian_capture",
             "explorer_reached_goal": event == "explorer_goal",
             "duration_s": round(now - self.started_at, 2),
+            "started_at_sim_s": self.started_at,
+            "finished_at_sim_s": now,
             "wall_duration_s": round(monotonic() - self.wall_started_at, 2),
         }
         body = json.dumps(report, sort_keys=True)

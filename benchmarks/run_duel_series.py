@@ -277,6 +277,11 @@ def main():
                                 time.monotonic() + 45, stopped=True)
             second = wait_report(RESULTS / "opponent/latest.json", run_id,
                                  time.monotonic() + 45, stopped=True)
+            for report in (first, second):
+                if (report.get("window_source") != "referee" or
+                        report.get("window_start_sim_s") != outcome.get("started_at_sim_s") or
+                        report.get("window_end_sim_s") != outcome.get("finished_at_sim_s")):
+                    raise RuntimeError("robot metrics do not share the referee interval")
             record.update(outcome=outcome, robots=[first, second])
             if traces:
                 finish_traces(traces)

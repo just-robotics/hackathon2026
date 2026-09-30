@@ -60,8 +60,12 @@ class MatchMetrics(Node):
         self.planner_status = None
         self.behavior = None
         self.command = None
+        self.pending_stop = None
+        self.window_source = "allow_motion"
+        self.completed = False
         state_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(Bool, "match/allowed", self.on_allowed, state_qos)
+        self.create_subscription(String, "/match/outcome", self.on_outcome, state_qos)
         self.create_subscription(Odometry, self.get_parameter("own_truth_topic").value,
                                  self.on_own, 10)
         self.create_subscription(Odometry, self.get_parameter("opponent_truth_topic").value,
@@ -78,7 +82,8 @@ class MatchMetrics(Node):
                 ("planner_compute", "navigation/planner_cycle_ms"),
                 ("control_compute", "navigation/control_cycle_ms")):
             self.create_subscription(Float32, topic,
-                                     lambda msg, key=name: self.metrics.record_timing(key, msg.data), 10)
+                                     lambda msg, key=name: self.metrics.record_timing(
+                                         key, msg.data, self.now()), 10)
         self.create_subscription(OccupancyGrid, "/map", self.on_map, state_qos)
         self.pub = self.create_publisher(String, "match/metrics", state_qos)
         self.create_timer(0.1, self.sample)
@@ -88,14 +93,38 @@ class MatchMetrics(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def on_allowed(self, msg):
+        if self.completed:
+            return
         now = self.now()
         if msg.data and not self.metrics.active:
             self.metrics.start(now, monotonic())
+            self.pending_stop = None
+            self.window_source = "allow_motion"
+            self.sample()
             self.get_logger().info("Match metrics started")
         elif not msg.data and self.metrics.active:
-            self.metrics.stop(now, monotonic())
-            self.publish()
-            self.save()
+            self.pending_stop = (now, monotonic())
+
+    def on_outcome(self, msg):
+        report = json.loads(msg.data)
+        if report.get("run_id") != self.get_parameter("run_id").value:
+            return
+        if self.completed:
+            return
+        start, end = report.get("started_at_sim_s"), report.get("finished_at_sim_s")
+        if start is None or end is None or self.metrics.started_at is None:
+            return
+        self.sample()
+        self.metrics.finish_window(start, end, report.get("wall_duration_s"))
+        if report.get("event") == "explorer_goal" and self.role == "explorer":
+            self.metrics.goal_at = end
+        if report.get("event") == "guardian_capture" and self.role == "guardian":
+            self.metrics.capture_at = end
+        self.window_source = "referee"
+        self.completed = True
+        self.pending_stop = None
+        self.publish()
+        self.save()
 
     def on_own(self, msg):
         self.own = msg
@@ -109,10 +138,10 @@ class MatchMetrics(Node):
     def on_planner(self, msg):
         self.planner_status = msg.data
         self.planner_ok = msg.data == "OK"
-        self.metrics.observe_stream("planner", monotonic())
+        self.metrics.observe_stream("planner", monotonic(), self.now())
 
     def on_intent(self, msg):
-        self.metrics.observe_stream("decision", monotonic())
+        self.metrics.observe_stream("decision", monotonic(), self.now())
         self.behavior = msg.behavior
         if (self.metrics.active and self.role == "explorer"
                 and msg.reason == "guardian start area reached"
@@ -120,10 +149,10 @@ class MatchMetrics(Node):
             self.metrics.goal_at = self.now()
 
     def on_scan(self, _msg):
-        self.metrics.observe_stream("scan", monotonic())
+        self.metrics.observe_stream("scan", monotonic(), self.now())
 
     def on_command(self, msg):
-        self.metrics.observe_stream("command", monotonic())
+        self.metrics.observe_stream("command", monotonic(), self.now())
         self.command = (msg.linear.x, msg.angular.z, self.now())
 
     def on_map(self, msg):
@@ -146,6 +175,11 @@ class MatchMetrics(Node):
 
     def sample(self):
         now = self.now()
+        if self.pending_stop and monotonic() - self.pending_stop[1] >= 1.0:
+            self.metrics.stop(*self.pending_stop)
+            self.pending_stop = None
+            self.publish()
+            self.save()
         if not self.metrics.active or self.own is None:
             return
         if not 0 <= now - seconds(self.own.header.stamp) <= 0.5:
@@ -172,6 +206,7 @@ class MatchMetrics(Node):
             "run_id": self.get_parameter("run_id").value,
             "seed": self.get_parameter("seed").value,
             "code_revision": self.get_parameter("code_revision").value,
+            "window_source": self.window_source,
             **self.metrics.snapshot(self.now(), monotonic()),
         }
 

@@ -90,6 +90,9 @@ class RunMetrics:
         self.timings = {}
         self.last_stream_at = {}
         self.last_scan_at = None
+        self.samples = []
+        self.contacts = []
+        self.timing_events = []
 
     def start(self, now, wall_now=None):
         self.reset()
@@ -104,26 +107,30 @@ class RunMetrics:
             self.active = False
         self.contact_active = False
 
-    def record_timing(self, name, duration_ms):
+    def record_timing(self, name, duration_ms, sim_now=None):
         if self.active and isfinite(duration_ms) and duration_ms >= 0:
             self.timings.setdefault(name, []).append(duration_ms)
+            self.timing_events.append((sim_now, name, duration_ms))
 
-    def observe_stream(self, name, wall_now):
+    def observe_stream(self, name, wall_now, sim_now=None):
         if not self.active:
             return
         last = self.last_stream_at.get(name)
         if last is not None and wall_now > last:
-            self.record_timing(name + "_period_wall", (wall_now - last) * 1000)
+            self.record_timing(name + "_period_wall", (wall_now - last) * 1000, sim_now)
         self.last_stream_at[name] = wall_now
         if name == "scan":
             self.last_scan_at = wall_now
         elif name == "command" and self.last_scan_at is not None:
-            self.record_timing("scan_to_command_wall", (wall_now - self.last_scan_at) * 1000)
+            self.record_timing("scan_to_command_wall", (wall_now - self.last_scan_at) * 1000,
+                               sim_now)
 
     def sample(self, now, x, y, speed, angular_speed, visible=False, planner_ok=False,
                behavior=None, command=None, planner_status=None):
         if not self.active:
             return
+        self.samples.append((now, x, y, speed, angular_speed, visible, planner_ok,
+                             behavior, command, planner_status))
         if self.last_sample is not None:
             last_t, last_x, last_y, last_speed, last_angular = self.last_sample
             dt = now - last_t
@@ -135,7 +142,8 @@ class RunMetrics:
                 else:
                     self.distance_m += step
                 self.moving_s += dt if speed >= 0.05 else 0.0
-                turning = speed < 0.05 and abs(angular_speed) >= 0.15 and planner_ok
+                motion_plan = planner_ok or planner_status == "RECOVERY_MPPI"
+                turning = speed < 0.05 and abs(angular_speed) >= 0.15 and motion_plan
                 self.turning_s += dt if turning else 0.0
                 still = speed < 0.05 and abs(angular_speed) < 0.15
                 if behavior is not None:
@@ -180,6 +188,7 @@ class RunMetrics:
         """Count a new body impact after separation, with a debounce window."""
         if not self.active:
             return
+        self.contacts.append((now, kind, position))
         if kind is None:
             self.contact_active = False
             return
@@ -199,6 +208,38 @@ class RunMetrics:
             self.last_contact_at = now
         self.contact_active = True
 
+    def finish_window(self, start, end, wall_duration=None):
+        """Replay observations inside the referee interval, clipping boundary steps."""
+        if end < start:
+            raise ValueError("match end precedes start")
+        records = [row for row in self.samples if start <= row[0] <= end]
+        for boundary in (start, end):
+            if any(row[0] == boundary for row in records):
+                continue
+            for left, right in zip(self.samples, self.samples[1:]):
+                if left[0] < boundary < right[0] and right[0] - left[0] <= 1.0:
+                    fraction = (boundary - left[0]) / (right[0] - left[0])
+                    values = tuple(left[k] + fraction * (right[k] - left[k])
+                                   for k in range(1, 5))
+                    records.append((boundary, *values, *left[5:]))
+                    break
+        rebuilt = RunMetrics(self.max_speed)
+        rebuilt.start(start, 0.0 if wall_duration is not None else None)
+        for row in sorted(records, key=lambda row: row[0]):
+            rebuilt.sample(*row)
+        for row in self.contacts:
+            if start <= row[0] <= end:
+                rebuilt.contact(*row)
+        for stamp, name, duration in self.timing_events:
+            if stamp is not None and start <= stamp <= end:
+                rebuilt.record_timing(name, duration, stamp)
+        rebuilt.capture_at = self.capture_at if (
+            self.capture_at is not None and start <= self.capture_at <= end) else None
+        rebuilt.goal_at = self.goal_at if (
+            self.goal_at is not None and start <= self.goal_at <= end) else None
+        rebuilt.stop(end, wall_duration)
+        self.__dict__.update(rebuilt.__dict__)
+
     def snapshot(self, now, wall_now=None):
         elapsed = max(0.0, (self.ended_at if self.ended_at is not None else now)
                       - (self.started_at if self.started_at is not None else now))
@@ -210,6 +251,10 @@ class RunMetrics:
         return {
             "active": self.active,
             "duration_s": round(elapsed, 2),
+            "window_start_sim_s": self.started_at,
+            "window_end_sim_s": self.ended_at,
+            "sample_coverage_fraction": round(
+                self.accel_time_s / elapsed, 4) if elapsed else 0.0,
             "wall_duration_s": round(wall_elapsed, 2) if wall_elapsed is not None else None,
             "real_time_factor": round(elapsed / wall_elapsed, 3) if wall_elapsed else None,
             "timing_ms": {name: timing_summary(values, {
