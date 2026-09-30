@@ -151,6 +151,10 @@ def main():
             "mppi_selected_progress_m": diagnostics.get("selected_progress_m"),
             "mppi_result": diagnostics.get("result"),
             "mppi_recovery": diagnostics.get("recovery"),
+            "mppi_rejected_x_m": diagnostics.get("rejected_x_m"),
+            "mppi_rejected_y_m": diagnostics.get("rejected_y_m"),
+            "mppi_rejected_cost": diagnostics.get("rejected_cost"),
+            "mppi_rejected_trajectory_index": diagnostics.get("rejected_trajectory_index"),
             "planner_status": (status[0].data if status and
                                t - status[2] <= 1.0 else None),
             "behavior": (int(intent[0].behavior) if intent and

@@ -65,7 +65,22 @@ public:
       }
     }
     // Preserve the existing radius + tracking margin for each role.
-    overrides.emplace_back("robot_radius", role_ == "explorer" ? 0.37 : 0.35);
+    const double safety_radius = role_ == "explorer" ? 0.37 : 0.35;
+    overrides.emplace_back("robot_radius", safety_radius);
+    // Circumscribed polygon preserves the full disk clearance while satisfying
+    // the official footprint critic's explicit-shape requirement.
+    constexpr int vertices = 32;
+    const double polygon_radius = safety_radius / std::cos(M_PI / vertices);
+    std::ostringstream footprint;
+    footprint << "[";
+    for (int i = 0; i < vertices; ++i) {
+      if (i) {footprint << ",";}
+      const double angle = 2 * M_PI * i / vertices;
+      footprint << "[" << polygon_radius * std::cos(angle) << ","
+        << polygon_radius * std::sin(angle) << "]";
+    }
+    footprint << "]";
+    overrides.emplace_back("footprint", footprint.str());
     overrides.emplace_back("use_sim_time", get_parameter("use_sim_time").as_bool());
     overrides.emplace_back("robot_base_frame", prefix.empty() ? "base_footprint" :
       prefix.substr(1) + "/base_footprint");
@@ -184,13 +199,26 @@ private:
     scan_pub_->publish(result);
   }
 
-  void publish_stop(const std::string & status)
+  void publish_stop(const std::string & status, const std::string & reason = "")
   {
     cmd_pub_->publish(geometry_msgs::msg::Twist{});
     nav_msgs::msg::Path empty;
     empty.header.frame_id = "map"; empty.header.stamp = now();
     path_pub_->publish(empty);
     std_msgs::msg::String state; state.data = status; status_pub_->publish(state);
+    std::ostringstream json;
+    json << "{\"backend\":\"nav2_cpp\",\"result\":\""
+      << (reason.empty() ? status : reason) << "\",\"recovery\":"
+      << (global_status_ == "RECOVERY_ROUTE" ? "true" : "false")
+      << ",\"first_speed_mps\":0,\"first_omega_radps\":0";
+    if (reason == "swept_collision") {
+      json << ",\"rejected_x_m\":" << rejected_x_
+        << ",\"rejected_y_m\":" << rejected_y_
+        << ",\"rejected_cost\":" << rejected_cost_
+        << ",\"rejected_trajectory_index\":" << rejected_index_;
+    }
+    json << "}";
+    std_msgs::msg::String diag; diag.data = json.str(); diag_pub_->publish(diag);
   }
 
   bool swept_safe(const nav_msgs::msg::Path & path)
@@ -213,7 +241,13 @@ private:
           a.position.x + fraction * (b.position.x - a.position.x),
           a.position.y + fraction * (b.position.y - a.position.y),
           yaw + fraction * dyaw, footprint);
-        if (cost < 0.0 || cost >= nav2_costmap_2d::LETHAL_OBSTACLE) {return false;}
+        if (cost < 0.0 || cost >= nav2_costmap_2d::LETHAL_OBSTACLE) {
+          rejected_x_ = a.position.x + fraction * (b.position.x - a.position.x);
+          rejected_y_ = a.position.y + fraction * (b.position.y - a.position.y);
+          rejected_cost_ = cost;
+          rejected_index_ = i;
+          return false;
+        }
       }
     }
     return true;
@@ -223,6 +257,15 @@ private:
   {
     if (!active_) {return;}
     const auto started = std::chrono::steady_clock::now();
+    tick_control();
+    std_msgs::msg::Float32 timing;
+    timing.data = std::chrono::duration<float, std::milli>(
+      std::chrono::steady_clock::now() - started).count();
+    timing_pub_->publish(timing);
+  }
+
+  void tick_control()
+  {
     std_msgs::msg::Bool ready;
     ready.data = own_ && fresh(own_->header.stamp, 1.2) && fresh(scan_stamp_, 1.8) &&
       costmap_->isCurrent();
@@ -255,7 +298,7 @@ private:
         point.pose.orientation = tf2::toMsg(quaternion);
         path.poses.push_back(point);
       }
-      if (!swept_safe(path)) {publish_stop("NO_LOCAL_PATH"); return;}
+      if (!swept_safe(path)) {publish_stop("NO_LOCAL_PATH", "swept_collision"); return;}
       nav_msgs::msg::Path prefix;
       prefix.header = path.header; prefix.poses.push_back(path.poses.front());
       double length = 0.0;
@@ -277,12 +320,8 @@ private:
       std_msgs::msg::String diag; diag.data = json.str(); diag_pub_->publish(diag);
     } catch (const std::exception & error) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "MPPI: %s", error.what());
-      publish_stop("NO_LOCAL_PATH");
+      publish_stop("NO_LOCAL_PATH", "optimizer_failure");
     }
-    std_msgs::msg::Float32 timing;
-    timing.data = std::chrono::duration<float, std::milli>(
-      std::chrono::steady_clock::now() - started).count();
-    timing_pub_->publish(timing);
   }
 
   VisibleMPPI controller_;
@@ -295,6 +334,8 @@ private:
   nav_msgs::msg::Path::SharedPtr reference_;
   hsl_interfaces::msg::PlanningIntent::SharedPtr intent_;
   builtin_interfaces::msg::Time scan_stamp_;
+  double rejected_x_{0.0}, rejected_y_{0.0}, rejected_cost_{0.0};
+  size_t rejected_index_{0};
   std::string role_, global_status_;
   bool active_{false};
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
