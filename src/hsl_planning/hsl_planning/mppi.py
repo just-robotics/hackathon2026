@@ -330,25 +330,6 @@ def _reference_prefix(path, max_length=1.2):
     return prefix
 
 
-def _spaced_reference(path, minimum_step=0.06):
-    """Remove near-coincident poses before Lat-MPC estimates path curvature."""
-    if len(path) < 4:
-        return path
-    spaced = [path[0]]
-    for point in path[1:-1]:
-        if hypot(point.x - spaced[-1].x,
-                 point.y - spaced[-1].y) >= minimum_step:
-            spaced.append(point)
-    last = path[-1]
-    if (len(spaced) > 1 and
-            hypot(last.x - spaced[-1].x,
-                  last.y - spaced[-1].y) < 0.5 * minimum_step):
-        spaced[-1] = last
-    else:
-        spaced.append(last)
-    return spaced if len(spaced) >= 3 else path
-
-
 def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
                         max_angular=1.5, horizon=3.0, dt=0.15,
                         batch_size=192, iterations=2, temperature=0.3,
@@ -576,11 +557,6 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
     selected_cost, selected_progress, best_trajectory, best_controls = selected
     optimized_points = len(best_trajectory)
     best_trajectory = _reference_prefix(best_trajectory)
-    candidate = _spaced_reference(best_trajectory)
-    if (candidate != best_trajectory and
-            _safe_path(world, candidate, opponent, opponent_velocity,
-                       opponent_clearance, safety_margin, dt)):
-        best_trajectory = candidate
     best_details.update({"result": "ok", "selected_cost": selected_cost,
                          "selected_progress": selected_progress,
                          "selected_type": selected_type,
