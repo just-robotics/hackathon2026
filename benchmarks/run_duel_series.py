@@ -107,13 +107,16 @@ def start_traces(series_dir, index, env):
     control_mode = env.get("HSL_CONTROL_MODE", "mpc")
     if control_mode not in ("mpc", "mppi"):
         raise ValueError("HSL_CONTROL_MODE must be mpc or mppi")
+    path_source = ("local" if control_mode == "mppi" else
+                   env.get("HSL_MPC_PATH_SOURCE", "local"))
     for role, namespace in (("first", ""), ("second", " --namespace opponent")):
         destination = series_dir / f"{index:02d}-trace-{role}.json"
         output = destination.open("w")
         script = ("source /autoware/install/setup.bash && python3 "
                   f"/tmp/hsl_trace_motion.py --wall-seconds 1200 "
                   f"--spawn-x {spawn_x} --spawn-y {spawn_y} "
-                  f"--control-mode {control_mode}" + namespace)
+                  f"--control-mode {control_mode} "
+                  f"--control-path-source {path_source} --timeseries" + namespace)
         process = subprocess.Popen(
             ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
             cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)

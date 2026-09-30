@@ -19,7 +19,7 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_
                                local_guidance, reachable_target,
                                reachable_intercept, path_heading_error,
                                recovery_step, turn_alignment_is_progress,
-                               reusable_route, safe_segment,
+                               reusable_route, safe_segment, smooth_control_route,
                                smooth_intercept_target)
 from hsl_planning.mppi import (_initial_path_angle_errors, _project_batch,
                                _pruned_route,
@@ -165,6 +165,20 @@ class DecisionTests(unittest.TestCase):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_smoothed_long_mpc_route_checks_every_segment(self):
+        world = VoxelWorld(0.1, 0.22)
+        world.update([(1.0, 0.0, 0.2)], [], None,
+                     map_bounds=(-1.0, -1.0, 3.0, 2.0))
+        route = [Pose2(0.0, 0.0), Pose2(0.0, 0.6),
+                 Pose2(0.5, 0.6), Pose2(1.0, 0.6),
+                 Pose2(1.5, 0.6), Pose2(2.0, 0.6), Pose2(2.0, 0.0)]
+        result = smooth_control_route(world, route, safety_margin=0.12)
+        self.assertEqual((result[0].x, result[0].y), (0.0, 0.0))
+        self.assertEqual((result[-1].x, result[-1].y), (2.0, 0.0))
+        self.assertGreater(len(result), len(route))
+        self.assertTrue(all(safe_segment(world, a, b, safety_margin=0.12)
+                            for a, b in zip(result, result[1:])))
+
     def test_direct_mppi_commands_respect_stock_mpc_actuator_rates(self):
         world = VoxelWorld(0.1, 0.22)
         world.update([], [], None, map_bounds=(-2, -2, 5, 2))

@@ -21,6 +21,7 @@ from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
                    local_guidance, path_heading_error, reachable_target,
                    recovery_step, turn_alignment_is_progress,
                    reusable_route,
+                   smooth_control_route,
                    smooth_intercept_target)
 
 
@@ -89,12 +90,16 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("mppi_model_dt", 0.15)
         self.declare_parameter("mppi_temperature", 0.3)
         self.declare_parameter("control_mode", "mpc")
+        self.declare_parameter("mpc_path_source", "local")
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
         self.control_mode = self.get_parameter("control_mode").value
+        self.mpc_path_source = self.get_parameter("mpc_path_source").value
         if self.control_mode not in ("mpc", "mppi"):
             raise ValueError("control_mode must be mpc or mppi")
+        if self.mpc_path_source not in ("local", "global", "smoothed"):
+            raise ValueError("mpc_path_source must be local, global or smoothed")
         if self.role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         self.local_safety_margin = 0.14 if self.role == "explorer" else 0.12
@@ -175,6 +180,7 @@ class TrajectoryPlanner(Node):
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
         self.local_pub = self.create_publisher(Path, "navigation/local_path", 10)
+        self.mpc_path_pub = self.create_publisher(Path, "navigation/mpc_path", 10)
         self.direct_cmd_pub = self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
         self.status_pub = self.create_publisher(String, "navigation/planner_status", 10)
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
@@ -244,6 +250,8 @@ class TrajectoryPlanner(Node):
         self.direct_controls = None
         self.global_pub.publish(make_path(self, []))
         self.local_pub.publish(make_path(self, []))
+        if self.mpc_path_source == "smoothed":
+            self.mpc_path_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
 
     def recovery_path(self, own, enemy, enemy_velocity, intent):
@@ -506,6 +514,8 @@ class TrajectoryPlanner(Node):
                     local = [own, Pose2(own.x, own.y, step[0])]
                 self.local_path = local
                 self.local_pub.publish(make_path(self, local))
+                if self.mpc_path_source == "smoothed":
+                    self.mpc_path_pub.publish(make_path(self, local))
                 self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
                 return
             self.local_pub.publish(make_path(self, []))
@@ -513,6 +523,12 @@ class TrajectoryPlanner(Node):
             return
         self.global_pub.publish(make_path(self, self.global_path))
         self.local_pub.publish(make_path(self, local))
+        if self.mpc_path_source == "smoothed":
+            control_route = (local if self.recovery_goal is not None else
+                             smooth_control_route(self.world, self.global_path,
+                                                  enemy, intent.opponent_clearance,
+                                                  self.local_safety_margin))
+            self.mpc_path_pub.publish(make_path(self, control_route))
         self.status_pub.publish(String(data="OK"))
 
 

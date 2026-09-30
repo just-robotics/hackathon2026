@@ -19,11 +19,31 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Bool, Float64, String
 
 
+def signed_polyline_distance(x, y, path):
+    """Signed distance to the nearest segment of a Path, in metres."""
+    points = [item.pose.position for item in path.poses]
+    nearest = None
+    for a, b in zip(points, points[1:]):
+        dx, dy = b.x - a.x, b.y - a.y
+        squared = dx * dx + dy * dy
+        if squared < 1e-8:
+            continue
+        t = max(0.0, min(1.0, ((x - a.x) * dx + (y - a.y) * dy) / squared))
+        signed = (dx * (y - a.y) - dy * (x - a.x)) / squared ** 0.5
+        distance = hypot(x - a.x - t * dx, y - a.y - t * dy)
+        if nearest is None or distance < nearest[0]:
+            nearest = distance, signed
+    return round(nearest[1], 4) if nearest else None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="")
     parser.add_argument("--wall-seconds", type=float, default=60)
     parser.add_argument("--control-mode", choices=("mpc", "mppi"), default="mpc")
+    parser.add_argument("--control-path-source", choices=("local", "global", "smoothed"),
+                        default="local")
+    parser.add_argument("--timeseries", action="store_true")
     parser.add_argument("--spawn-x", type=float, default=-0.34)
     parser.add_argument("--spawn-y", type=float, default=0.4)
     args = parser.parse_args()
@@ -49,6 +69,7 @@ def main():
     opponent_position_errors = []
     controller_speed_references = []
     controller_curve_limits = []
+    time_series = []
     subscriptions = []
 
     def stamp(message):
@@ -66,10 +87,36 @@ def main():
                 controller_curve_limits.append(float(message.data))
         return callback
 
+    def on_pose(message):
+        remember("pose")(message)
+        if not args.timeseries or not latest.get("allowed", False):
+            return
+        t = stamp(message)
+        if not time_series:
+            latest["series_t0"] = t
+        p = message.pose.pose.position
+        global_path = latest.get("global_path")
+        control_path = latest.get("control_path")
+        def offset(record):
+            return (signed_polyline_distance(p.x, p.y, record[0])
+                    if record and t - record[2] <= 1.0 else None)
+        command = latest.get("cmd")
+        time_series.append({
+            "t_s": round(t - latest["series_t0"], 3),
+            "speed_mps": round(hypot(message.twist.twist.linear.x,
+                                     message.twist.twist.linear.y), 4),
+            "lateral_global_m": offset(global_path),
+            "lateral_control_m": offset(control_path),
+            "cmd_speed_mps": (round(command[0].linear.x, 4)
+                              if command and t - command[2] <= 0.5 else None),
+        })
+
     def on_path(message):
         previous = latest.get("path")
         latest["path"] = (message, time.monotonic(),
                            stamp(message))
+        if args.control_mode == "mppi" or args.control_path_source == "local":
+            latest["control_path"] = latest["path"]
         if not latest.get("allowed", False):
             return
         samples["path_updates"] += 1
@@ -160,6 +207,9 @@ def main():
             samples["rotation_target_flips"] += 1
 
     def on_global_path(message):
+        latest["global_path"] = (message, time.monotonic(), stamp(message))
+        if args.control_mode == "mpc" and args.control_path_source == "global":
+            latest["control_path"] = latest["global_path"]
         if not latest.get("allowed", False):
             return
         pose = latest.get("pose")
@@ -190,10 +240,11 @@ def main():
         ("mppi", Twist, "navigation/mppi_cmd_vel"),
         ("v_ref", Float64, "v_ref"),
         ("v_curve", Float64, "v_curve"),
-        ("pose", Odometry, "navigation/self"),
     ):
         subscriptions.append(node.create_subscription(
             kind, prefix + "/" + topic, remember(name), 10))
+    subscriptions.append(node.create_subscription(
+        Odometry, prefix + "/navigation/self", on_pose, 10))
     subscriptions.append(node.create_subscription(
         PointCloud2, prefix + "/navigation/scan", remember("scan"),
         qos_profile_sensor_data))
@@ -215,6 +266,11 @@ def main():
         Path, prefix + "/navigation/local_path", on_path, 10))
     subscriptions.append(node.create_subscription(
         Path, prefix + "/navigation/global_path", on_global_path, 10))
+    if args.control_mode == "mpc" and args.control_path_source == "smoothed":
+        subscriptions.append(node.create_subscription(
+            Path, prefix + "/navigation/mpc_path",
+            lambda message: latest.__setitem__(
+                "control_path", (message, time.monotonic(), stamp(message))), 10))
 
     truth_topic = ("/opponent/localization/pose" if not prefix
                    else "/localization/pose")
@@ -243,6 +299,7 @@ def main():
         Odometry, prefix + "/navigation/opponent", on_opponent_estimate, 10))
 
     def on_command(message):
+        latest["cmd"] = (message, time.monotonic(), stamp(message))
         if not latest.get("allowed", False):
             return
         sim_now = node.get_clock().now().nanoseconds * 1e-9
@@ -403,6 +460,10 @@ def main():
                   max(1, len(controller_curve_limits)), 3),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
               "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}
+    if args.timeseries:
+        report["time_series"] = time_series
+        report["control_path_source"] = ("local" if args.control_mode == "mppi"
+                                         else args.control_path_source)
     print(json.dumps(report, indent=2, sort_keys=True))
     node.destroy_node()
     rclpy.shutdown()

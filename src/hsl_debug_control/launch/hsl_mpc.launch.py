@@ -17,6 +17,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("robot_namespace", default_value=""),
         DeclareLaunchArgument("control_mode", default_value="mpc"),
+        DeclareLaunchArgument("mpc_path_source", default_value="local"),
         OpaqueFunction(function=control_nodes),
     ])
 
@@ -24,8 +25,11 @@ def generate_launch_description():
 def control_nodes(context):
     namespace = LaunchConfiguration("robot_namespace").perform(context).strip("/")
     control_mode = LaunchConfiguration("control_mode").perform(context)
+    mpc_path_source = LaunchConfiguration("mpc_path_source").perform(context)
     if control_mode not in ("mpc", "mppi"):
         raise ValueError("control_mode must be mpc or mppi")
+    if mpc_path_source not in ("local", "global", "smoothed"):
+        raise ValueError("mpc_path_source must be local, global or smoothed")
     prefix = f"/{namespace}" if namespace else ""
     return [
         Node(package="swarm_controller", executable="swarm_cc_mpc_node",
@@ -42,7 +46,9 @@ def control_nodes(context):
                  "long_cmd_topic": prefix + "/navigation/long_cmd",
                  "use_sim_time": True,
                  "cmd_vel_topic": prefix + "/navigation/mpc_cmd_vel",
-                 "pacemaker_path_topic": prefix + "/navigation/local_path",
+                 "pacemaker_path_topic": prefix + "/navigation/" +
+                                         ("mpc_path" if mpc_path_source == "smoothed"
+                                          else mpc_path_source + "_path"),
                  "pose_topic": prefix + "/navigation/self",
                  "odom_topic": prefix + "/navigation/self",
              }]),
