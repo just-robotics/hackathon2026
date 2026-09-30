@@ -47,7 +47,8 @@ def generate_launch_description():
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             os.path.join(gazebo_share, "launch", "gzserver.launch.py")),
             launch_arguments={"world": world, "verbose": "true", "init": "true",
-                              "factory": "true", "force_system": "false"}.items()),
+                              "factory": "true", "force_system": "false",
+                              "params_file": os.path.join(share, "config", "gazebo_duel.yaml")}.items()),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             os.path.join(gazebo_share, "launch", "gzclient.launch.py")),
             condition=UnlessCondition(LaunchConfiguration("headless"))),

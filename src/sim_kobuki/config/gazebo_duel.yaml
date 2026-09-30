@@ -1,0 +1,5 @@
+/gazebo:
+  ros__parameters:
+    # ROS-clock timers at 20 Hz need updates finer than 0.05 s.
+    # This changes clock publication, not the physics timestep or speed.
+    publish_rate: 100.0

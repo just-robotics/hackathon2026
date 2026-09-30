@@ -4,7 +4,7 @@ project(sim_kobuki)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY description launch meshes worlds
+  DIRECTORY config description launch meshes worlds
   DESTINATION share/${PROJECT_NAME}
 )
 

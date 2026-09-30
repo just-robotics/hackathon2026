@@ -95,3 +95,5 @@ ID образов и параметрами узлов; проверяет SHA25
 - `HSL_LOCAL_BACKEND=python` остаётся default. `nav2_cpp` использует официальный пакет Humble `nav2_mppi_controller`, требует `HSL_CONTROL_MODE=mppi`. Запуск planner переведён на `hsl_planning/autonomous.launch.py`; native включается только явным параметром.
 - Python в native-режиме публикует глобальный маршрут, `navigation/nav2_reference` и `navigation/global_status`; C++ — единственный издатель локального пути, MPPI-команды и итогового planner_status. Финальный cmd_vel остаётся за gate. Не включать одновременно двух издателей MPPI-команд.
 - Runner ждёт `native_ready` обоих стеков и сохраняет параметры native/costmap. Native compute измеряется отдельно от A*. Перед оценкой убедиться в совпадении source hashes и образа. Не считать C++ backend проверенным до фактических заездов.
+
+- Duel передаёт Gazebo `config/gazebo_duel.yaml`: publish_rate100Гц для clock при контроллере20Гц/model_dt.05с. Это частота публикации часов, не ускорение физики. Runner сохраняет `/gazebo` в runtime; сравнивайте фактические циклы, не только объявленный timer period. Одиночный launch не изменён.

@@ -537,3 +537,5 @@ HSL_LOCAL_BACKEND=nav2_cpp python3 benchmarks/run_duel_series.py --runs 3 --star
 ```
 
 `hsl_planning/autonomous.launch.py` запускает A* и, при `nav2_cpp`, отдельный `hsl_nav2_control/native_mppi` для каждого робота. Официальный Humble MPPIController принимает `navigation/nav2_reference` и публикует `navigation/mppi_cmd_vel` и короткий `navigation/local_path`; финальный `cmd_vel` публикует существующий шлюз. У каждого MPPI свой rolling costmap со статической картой и текущим сканом. Backend требует `HSL_CONTROL_MODE=mppi`; его превосходство пока не подтверждено прогоном.
+
+В `duel` файл `sim_kobuki/config/gazebo_duel.yaml` задаёт публикацию `/clock` на100Гц, чтобы ROS-таймеры MPPI и gate20Гц не ограничивались стандартными часами Gazebo10Гц. Физический timestep не меняется. Runner сохраняет эффективные параметры `/gazebo`; после rebuild сверяйте publish_rate и фактические числа циклов.

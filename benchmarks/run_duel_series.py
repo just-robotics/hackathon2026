@@ -139,7 +139,7 @@ def runtime_snapshot(env, scenario):
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
              ("trajectory_planner", "decision_manager", "hsl_cc_mpc", "hsl_lat_mpc",
               "hsl_mpc_gate")]
-    nodes.append("/duel_referee")
+    nodes.extend(("/duel_referee", "/gazebo"))
     if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
         nodes.extend(prefix + name for prefix in ("/", "/opponent/")
                      for name in ("native_mppi", "native_mppi/native_costmap"))
