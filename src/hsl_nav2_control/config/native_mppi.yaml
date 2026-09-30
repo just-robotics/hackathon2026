@@ -86,7 +86,9 @@
         threshold_to_consider: 0.35
     costmap:
       global_frame: map
-      robot_radius: 0.37
+      # Kobuki collision body radius .178 m plus .052 m protected clearance.
+      # Matches trajectory_planner.robot_radius; MPPI proximity cost is separate.
+      robot_radius: 0.23
       footprint_padding: 0.0
       resolution: 0.05
       width: 4

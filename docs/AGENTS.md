@@ -97,3 +97,5 @@ ID образов и параметрами узлов; проверяет SHA25
 - Runner ждёт `native_ready` обоих стеков и сохраняет параметры native/costmap. Native compute измеряется отдельно от A*. Перед оценкой убедиться в совпадении source hashes и образа. Не считать C++ backend проверенным до фактических заездов.
 
 - Duel передаёт Gazebo `config/gazebo_duel.yaml`: publish_rate100Гц для clock при контроллере20Гц/model_dt.05с. Это частота публикации часов, не ускорение физики. Runner сохраняет `/gazebo` в runtime; сравнивайте фактические циклы, не только объявленный timer period. Одиночный launch не изменён.
+
+- Native читает защитный радиус из costmap.robot_radius (кандидат.23м, как A*; collision cylinder модели.178м). Не добавлять tracking margin ещё раз в этот твёрдый контур без обоснования проходимости/измерений. Полный swept-check сохранён; proximity preference задаётся стандартным ObstaclesCritic.

@@ -64,8 +64,12 @@ public:
         overrides.emplace_back(local_name, get_parameter(name).get_parameter_value());
       }
     }
-    // Preserve the existing radius + tracking margin for each role.
-    const double safety_radius = role_ == "explorer" ? 0.37 : 0.35;
+    // Use the same protected body envelope as the global planner. The
+    // obstacle critic still scores proximity outside the collision footprint.
+    const double safety_radius = get_parameter("costmap.robot_radius").as_double();
+    if (!std::isfinite(safety_radius) || safety_radius <= 0.0) {
+      throw std::invalid_argument("costmap.robot_radius must be finite and positive");
+    }
     overrides.emplace_back("robot_radius", safety_radius);
     // Circumscribed polygon preserves the full disk clearance while satisfying
     // the official footprint critic's explicit-shape requirement.
