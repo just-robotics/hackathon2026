@@ -117,6 +117,12 @@ def main():
         command = latest.get("cmd")
         mppi = latest.get("mppi")
         status = latest.get("status")
+        intent = latest.get("intent")
+        opponent = latest.get("opponent_estimate")
+        opponent_message = (opponent[0] if opponent and
+                            t - stamp(opponent[0]) <= 1.0 else None)
+        opponent_position = (opponent_message.pose.pose.position
+                             if opponent_message else None)
         time_series.append({
             "t_s": round(t - latest["series_t0"], 3),
             "speed_mps": round(hypot(message.twist.twist.linear.x,
@@ -135,6 +141,11 @@ def main():
                                  if mppi and t - mppi[2] <= 0.5 else None),
             "planner_status": (status[0].data if status and
                                t - status[2] <= 1.0 else None),
+            "behavior": (int(intent[0].behavior) if intent and
+                         t - intent[2] <= 1.0 else None),
+            "opponent_distance_m": (round(hypot(opponent_position.x - p.x,
+                                                 opponent_position.y - p.y), 4)
+                                     if opponent_position else None),
         })
 
     def on_path(message):
