@@ -101,6 +101,7 @@ def main():
             return (signed_polyline_distance(p.x, p.y, record[0])
                     if record and t - record[2] <= 1.0 else None)
         command = latest.get("cmd")
+        status = latest.get("status")
         time_series.append({
             "t_s": round(t - latest["series_t0"], 3),
             "speed_mps": round(hypot(message.twist.twist.linear.x,
@@ -109,6 +110,10 @@ def main():
             "lateral_control_m": offset(control_path),
             "cmd_speed_mps": (round(command[0].linear.x, 4)
                               if command and t - command[2] <= 0.5 else None),
+            "cmd_omega_radps": (round(command[0].angular.z, 4)
+                                 if command and t - command[2] <= 0.5 else None),
+            "planner_status": (status[0].data if status and
+                               t - status[2] <= 1.0 else None),
         })
 
     def on_path(message):
