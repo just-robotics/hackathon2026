@@ -89,7 +89,7 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("mppi_horizon", 3.0)
         self.declare_parameter("mppi_model_dt", 0.15)
         self.declare_parameter("mppi_temperature", 0.3)
-        self.declare_parameter("control_mode", "mpc")
+        self.declare_parameter("control_mode", "mppi")
         self.declare_parameter("mpc_path_source", "local")
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
@@ -529,7 +529,9 @@ class TrajectoryPlanner(Node):
                                                   enemy, intent.opponent_clearance,
                                                   self.local_safety_margin))
             self.mpc_path_pub.publish(make_path(self, control_route))
-        self.status_pub.publish(String(data="OK"))
+        status = ("OK" if self.control_mode == "mpc" or self.direct_controls
+                  else "RECOVERY_FALLBACK")
+        self.status_pub.publish(String(data=status))
 
 
 def main():

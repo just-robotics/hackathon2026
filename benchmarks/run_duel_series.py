@@ -104,7 +104,7 @@ def start_traces(series_dir, index, env):
     traces = []
     spawn_x = float(env.get("SPAWN_X", "-0.34"))
     spawn_y = float(env.get("DUEL_SPAWN_Y", "0.4"))
-    control_mode = env.get("HSL_CONTROL_MODE", "mpc")
+    control_mode = env.get("HSL_CONTROL_MODE", "mppi")
     if control_mode not in ("mpc", "mppi"):
         raise ValueError("HSL_CONTROL_MODE must be mpc or mppi")
     path_source = ("local" if control_mode == "mppi" else

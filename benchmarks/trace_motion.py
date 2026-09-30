@@ -40,7 +40,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="")
     parser.add_argument("--wall-seconds", type=float, default=60)
-    parser.add_argument("--control-mode", choices=("mpc", "mppi"), default="mpc")
+    parser.add_argument("--control-mode", choices=("mpc", "mppi"), default="mppi")
     parser.add_argument("--control-path-source", choices=("local", "global", "smoothed"),
                         default="local")
     parser.add_argument("--timeseries", action="store_true")
@@ -305,6 +305,18 @@ def main():
         sim_now = node.get_clock().now().nanoseconds * 1e-9
         pose = latest.get("pose")
         samples["total"] += 1
+        current_status = latest.get("status")
+        if current_status and current_status[0].data in (
+                "RECOVERY_FALLBACK", "RECOVERY_ESCAPE"):
+            samples["fallback_total"] += 1
+            mpc_record = latest.get("mpc")
+            if mpc_record and sim_now - mpc_record[2] <= 0.5:
+                samples["fallback_mpc_fresh"] += 1
+                if (abs(mpc_record[0].linear.x) > 0.02 or
+                        abs(mpc_record[0].angular.z) > 0.15):
+                    samples["fallback_mpc_nonzero"] += 1
+            if abs(message.linear.x) > 0.02 or abs(message.angular.z) > 0.15:
+                samples["fallback_cmd_nonzero"] += 1
         sums["cmd_linear"] += message.linear.x
         sums["cmd_angular_abs"] += abs(message.angular.z)
         if message.linear.x > 0.3:
@@ -459,7 +471,16 @@ def main():
                   sum(value < 0.2 for value in controller_curve_limits) /
                   max(1, len(controller_curve_limits)), 3),
               "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
-              "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None}
+              "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None,
+              "fallback": {
+                  "samples": samples["fallback_total"],
+                  "mpc_fresh_fraction": round(samples["fallback_mpc_fresh"] /
+                                              max(1, samples["fallback_total"]), 3),
+                  "mpc_nonzero_fraction": round(samples["fallback_mpc_nonzero"] /
+                                                max(1, samples["fallback_total"]), 3),
+                  "final_nonzero_fraction": round(samples["fallback_cmd_nonzero"] /
+                                                  max(1, samples["fallback_total"]), 3),
+              }}
     if args.timeseries:
         report["time_series"] = time_series
         report["control_path_source"] = ("local" if args.control_mode == "mppi"

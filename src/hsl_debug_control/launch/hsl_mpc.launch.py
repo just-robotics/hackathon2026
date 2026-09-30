@@ -16,7 +16,7 @@ def config(name):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("robot_namespace", default_value=""),
-        DeclareLaunchArgument("control_mode", default_value="mpc"),
+        DeclareLaunchArgument("control_mode", default_value="mppi"),
         DeclareLaunchArgument("mpc_path_source", default_value="local"),
         OpaqueFunction(function=control_nodes),
     ])

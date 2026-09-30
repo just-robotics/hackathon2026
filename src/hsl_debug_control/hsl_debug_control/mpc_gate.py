@@ -33,7 +33,7 @@ class MpcGate(Node):
         self.command = None
         self.mppi_command = None
         self.planner_status = None
-        self.declare_parameter("control_mode", "mpc")
+        self.declare_parameter("control_mode", "mppi")
         self.control_mode = self.get_parameter("control_mode").value
         if self.control_mode not in ("mpc", "mppi"):
             raise ValueError("control_mode must be mpc or mppi")

@@ -595,6 +595,7 @@ class PlanningTests(unittest.TestCase):
         mppi = (0.3, -0.2, 10.0)
         self.assertEqual(select_control_command("mppi", "OK", mpc, mppi), mppi)
         self.assertEqual(select_control_command("mppi", "RECOVERY_ESCAPE", mpc, mppi), mpc)
+        self.assertEqual(select_control_command("mppi", "RECOVERY_FALLBACK", mpc, mppi), mpc)
         self.assertIsNone(select_control_command("mppi", "OK", mpc, None))
         self.assertEqual(select_control_command("mpc", "OK", mpc, mppi), mpc)
 
