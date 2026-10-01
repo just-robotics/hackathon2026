@@ -158,6 +158,12 @@ def generate_launch_description():
             # обслуживает сервис спавна
             "init": "true",
             "factory": "true",
+            # /clock по умолчанию идёт на 10 Гц, а это потолок частоты для
+            # всех нод на симулированном времени: таймер ROS не срабатывает
+            # чаще, чем приходит время
+            "params_file": os.path.join(
+                package_share, "config", "gazebo_clock.yaml"
+            ),
         }.items(),
     )
 

@@ -72,7 +72,7 @@ services:
     # Ноды кладутся в namespace робота (/defender/control/...), иначе два
     # контроллера спорили бы за одни имена нод. Топики передаются полными.
     planning_defender:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_planning.launch.xml ns:=defender trajectory:=${MPC_TRAJECTORY:-lanelet} trajectory_file:=${MPC_TRAJECTORY_FILE:-my_trajectory5.yaml} trajectory_topic:=/defender/planning/trajectory pose_topic:=/defender/odom frame_id:=defender/odom"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_game_planning.launch.xml ns:=defender role:=defender base_frame:=defender/base_footprint goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
         extends:
             file: common.yaml
             service: app
@@ -88,7 +88,7 @@ services:
             - duel
 
     planning_attacker:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_planning.launch.xml ns:=attacker trajectory:=${MPC_TRAJECTORY:-lanelet} trajectory_file:=${MPC_TRAJECTORY_FILE:-my_trajectory5.yaml} trajectory_topic:=/attacker/planning/trajectory pose_topic:=/attacker/odom frame_id:=attacker/odom"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_game_planning.launch.xml ns:=attacker role:=attacker base_frame:=attacker/base_footprint goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
         extends:
             file: common.yaml
             service: app
@@ -97,6 +97,44 @@ services:
 
     control_attacker:
         command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_control.launch.xml ns:=attacker lateral:=${MPC_LATERAL:-true} longitudinal:=${MPC_LONGITUDINAL:-cc} trajectory_topic:=/attacker/planning/trajectory odom_topic:=/attacker/odom cmd_vel_topic:=/attacker/cmd_vel"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    # Карта для дуэли: мир totami и origin в начале координат мира. Своя, а
+    # не общий сервис map, потому что у одиночного режима другой мир и
+    # origin привязан к точке спавна.
+    map_duel:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_map.launch.xml map:=${DUEL_MAP:-totami} resolution:=${MAP_RESOLUTION:-0.05} spawn_x:=0.0 spawn_y:=0.0 frame_id:=world publish_tf:=false"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
+
+    # RViz с готовым конфигом дуэли: карта, роботы, пути, зона и панель
+    # статуса. Отдельный сервис, потому что окно нужно не всегда, а
+    # потенциальные поля считаются только пока на них кто-то подписан.
+    rviz:
+        command: $CMD "source /autoware/install/setup.bash && rviz2 -d /autoware/install/jr_launch/share/jr_launch/config/duel.rviz"
+        extends:
+            file: common.yaml
+            service: app
+        environment:
+            DISPLAY: ${DISPLAY:-:0}
+            XAUTHORITY: /tmp/.xauthority
+            QT_X11_NO_MITSHM: "1"
+        volumes:
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - ${XAUTHORITY:-/dev/null}:/tmp/.xauthority:ro
+        profiles:
+            - rviz
+
+    # Судья: следит за условиями победы и останавливает обоих роботов.
+    referee:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_referee.launch.xml zone_x:=${BLUE_ZONE_X:-3.5} zone_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
         extends:
             file: common.yaml
             service: app

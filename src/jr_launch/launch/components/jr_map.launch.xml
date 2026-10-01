@@ -28,8 +28,15 @@
   <!-- Связь карты с деревом TF. Без неё фрейма map не существует, и RViz не
        может разместить карту ("No map received"), хотя топик публикуется.
        Трансформ нулевой: origin карты уже отсчитан от точки спавна, а от неё
-       же считает одометрию diff_drive, поэтому map и odom совпадают. -->
+       же считает одометрию diff_drive, поэтому map и odom совпадают.
+
+       В дуэли он не нужен и вреден: там фрейма odom нет, у каждого робота
+       свой defender/odom, и узел повесил бы в дереве пустую ветку. Карта там
+       публикуется сразу в world, который уже есть. -->
+  <arg name="publish_tf" default="true" description="публиковать map -> odom"/>
+
   <node pkg="tf2_ros" exec="static_transform_publisher" name="map_to_odom_tf"
+        if="$(var publish_tf)"
         args="--x 0.0 --y 0.0 --z 0.0
               --roll 0.0 --pitch 0.0 --yaw 0.0
               --frame-id $(var frame_id)
