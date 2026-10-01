@@ -58,8 +58,29 @@ def main():
         default=0.10,
         help="доля сканов, в которой ячейка должна быть занята",
     )
+    # Вблизи лидара лучи бьют в пол почти отвесно, и шум дальности уходит в
+    # высоту: одиночные точки до 6-14 см. За бэг они набирают долю share
+    # почти в каждой ячейке, и у лидара вырастало пятно фона радиусом ~0.5 м,
+    # которое съедало подъехавшего робота. Ниже 8 см детектор робота всё
+    # равно не ищет (min_top), так что фону эти высоты не нужны.
     parser.add_argument(
-        "--min-height", type=float, default=0.03, help="точки ниже -- пол, м"
+        "--min-height",
+        type=float,
+        default=0.08,
+        help="точки ниже -- пол, в фон не идут, м",
+    )
+    parser.add_argument(
+        "--segments",
+        type=int,
+        default=10,
+        help="на сколько равных отрезков по времени делится бэг",
+    )
+    parser.add_argument(
+        "--min-segments",
+        type=int,
+        default=7,
+        help="в скольких отрезках ячейка должна быть занята: "
+        "задержавшийся робот занимает ячейки в одном-двух",
     )
     arguments = parser.parse_args()
 
@@ -97,10 +118,18 @@ def main():
     scans = [points @ rotation.T + translation for points in clouds]
 
     plane, floor_std = background.fit_floor(np.concatenate(scans[:50]))
-    keys = background.occupied_cells(
-        scans, arguments.cell, arguments.share, arguments.min_height, plane
+    keys, tops = background.occupied_cells(
+        scans,
+        arguments.cell,
+        arguments.share,
+        arguments.min_height,
+        plane,
+        arguments.segments,
+        arguments.min_segments,
     )
-    background.save(arguments.output, keys, arguments.cell, plane, arguments.frame)
+    background.save(
+        arguments.output, keys, tops, arguments.cell, plane, arguments.frame
+    )
 
     a, b, c = plane
     print(

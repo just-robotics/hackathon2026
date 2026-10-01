@@ -335,6 +335,11 @@ class RobotDetector(Node):
         ).value
         z_slice = self.declare_parameter("z_slice", 0.25).value
         background_file = self.declare_parameter("background_file", "").value
+        # точка в ячейке фона выкидывается, только если не выше верха
+        # предмета в ней на столько, м
+        self.background_margin = self.declare_parameter(
+            "background_margin", 0.05
+        ).value
         # дальше этого по плоскости от лидара точки не смотрим; 0 -- без обрезки
         self.max_range = self.declare_parameter("max_range", 0.0).value
         cloud_topic = self.declare_parameter("cloud_topic", "livox/lidar").value
@@ -382,12 +387,17 @@ class RobotDetector(Node):
                 raise SystemExit(1)
             self.bounds = arena_bounds(self.boxes)
 
-        # Фон, записанный лидаром: занятые ячейки и плоскость пола. Высоты
-        # точек дальше считаются от этой плоскости, а не от z=0.
+        # Фон, записанный лидаром: занятые ячейки с высотой верха предмета и
+        # плоскость пола. Высоты точек дальше считаются от этой плоскости, а
+        # не от z=0.
         self.grid = None
         self.floor_plane = np.zeros(3)
         if background_file:
-            self.grid = background.load(background_file)
+            try:
+                self.grid = background.load(background_file)
+            except ValueError as error:
+                self.get_logger().error(str(error))
+                raise SystemExit(1)
             self.floor_plane = self.grid["plane"]
             if self.grid["frame"] != self.world_frame:
                 self.get_logger().warning(
@@ -588,9 +598,8 @@ class RobotDetector(Node):
                 <= self.max_range
             )
         if self.grid is not None:
-            keep &= ~np.isin(
-                background.cell_keys(world[:, :2], self.grid["cell"]),
-                self.grid["keys"],
+            keep &= ~background.covered(
+                world[:, :2], world[:, 2], self.grid, self.background_margin
             )
         foreground = world[keep]
         labels, count = cluster_xy(foreground[:, :2], self.cluster_tolerance)
