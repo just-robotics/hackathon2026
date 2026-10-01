@@ -177,7 +177,18 @@ python3 benchmarks/run_duel_series.py --isolated-project hsl-eval --runs 1 --sta
 python3 -m pytest -q tests helm_launch/tests/tests.py
 python3 benchmarks/run_duel_series.py --runs 3 --start-seed 19 --first-role guardian --active-s 90 --scenario 3 --trace --audit-start
 python3 benchmarks/report_motion.py results/series-YYYYMMDDTHHMMSSZ
+python3 benchmarks/report_straight_motion.py results/series-YYYYMMDDTHHMMSSZ > /tmp/straight-motion.json
 ```
+
+`report_straight_motion.py` отдельно оценивает измеренные коррекции на
+прямой reference: минимум0,45м впереди, изменение направления сегментов
+≤0,05rad; скорость≥0,05м/с. Смена знака omega считается за пределами
+deadband±0,05rad/s; смена поведения/направления reference, остановка или
+gap>0,3s сбрасывают последовательность. Время/RMS взвешены по sim-интервалам
+внутри referee window. Нехватка геометрии исключается, её покрытие явно
+показано. Прямая reference не доказывает свободный коридор; коррекция
+не автоматически означает дефект. Доли дугового движения также считаются
+по времени, по порогам speed≥0,05 и |omega|≥0,1 на обоих концах интервала.
 
 Финальная оценка — не менее20 независимых заездов до первого события или
 360с активного симуляционного времени. Скорость измеряется за весь матч,

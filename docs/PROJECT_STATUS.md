@@ -2,6 +2,34 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — анализ прямых участков во время полной20
+
+Предыдущий goal-turn — progress: safe continuous goal813b515 реализован,
+141 тест/Compose/сборка и matched3 завершены, новая20 запущена.
+Текущая серия224501Z подтверждена живым PID3288247 и exec87168;
+первые seeds0/1 explorer_goal17.7/18.1s, speeds .387/.418 и .344/.420.
+Это промежуточные данные, не итог20; навигационные source/image не менялись.
+
+Добавлен offline benchmarks/report_straight_motion.py: измеренные omega
+sign changes на прямой observed global reference, angular/lateral RMS,
+временное покрытие и arc motion. Прямая — >=.45m впереди, угол сегментов
+<=.05rad, скорость>=.05. Sign deadband .05rad/s; reset при turn/stop,
+смене referenceheading/behavior или gap>.3s. Используются интервалы с
+обоими концами в referee window, без экстраполяции и заполнения пробелов.
+Это диагностика, не новый limiter/control heuristic.
+6 регрессий проверяют duplicate/short/turn geometry, noise/deadband,
+неравномерные dt, gaps/stops/windows, смену пути/поведения и раздельные роли.
+README/AGENTS описывают ограничения: до6 globalpoints, cached geometry,
+reference straightness не доказывает clearance, коррекция не автоматическидефект.
+
+JSON straight-motion.json сохранён для completed height20(210408Z) и short3
+(223730Z). В height20 E/G: straight exposure118.96/144.72s, flips47/51,
+rate23.7/21.1permin, mean individual straight lateralRMS .071/.028m.
+В short3: exposure15.08/18.90s, flips4/10, rate15.9/31.7permin,
+lateral .077/.026m. Наборы/исходы различаются; не объявлять улучшение/
+регрессию алгоритма из этих разных серий. Следующий шаг — такой же анализ
+всех20 текущих матчей и конкретных участков с частыми коррекциями.
+
 ## 02.10.2026 — полная серия20 запущена
 
 После matched3 записан4165d62, checkpoint/continuous-pursuit-three-20261002.
