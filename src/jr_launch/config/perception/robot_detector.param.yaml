@@ -59,3 +59,4 @@
       seed_heading_std: 0.35
       v_flip: 0.05
       move_threshold: 0.3
+      move_min_hits: 10

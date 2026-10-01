@@ -61,6 +61,10 @@ class TrackerConfig:
     v_flip: float = 0.05
     # трек, сдвинувшийся от места рождения дальше этого, -- точно не коробка
     move_threshold: float = 0.3
+    # Но сдвиг засчитывается только треку, набравшему столько надёжных
+    # детекций: три детекции круглого предмета с разбросом 0.3 м иначе
+    # «ехали» и уводили выбор от стоящего робота (бэг rot_1m).
+    move_min_hits: int = 10
 
 
 class Track:
@@ -82,10 +86,14 @@ class Track:
         self.last_update = time
         self.hits = 1
         self.strong_hits = int(detection.strong)
-        self.origin = self.state[:2].copy()
+        # Сдвиг считается только по надёжным детекциям: центр по центроиду
+        # гуляет на ±10 см, и за минуту неподвижный предмет набрал бы
+        # «движение» из одного шума.
+        self.origin = None
         self.travel = 0.0
         self.history = deque()
         self._remember(time, detection)
+        self._measure_travel(detection)
 
     @property
     def confirmed(self) -> bool:
@@ -93,7 +101,10 @@ class Track:
 
     @property
     def moved(self) -> bool:
-        return self.travel >= self.config.move_threshold
+        return (
+            self.strong_hits >= self.config.move_min_hits
+            and self.travel >= self.config.move_threshold
+        )
 
     def predict(self, time: float):
         """Продвинуть трек к моменту time
@@ -196,9 +207,19 @@ class Track:
         self.hits += 1
         self.strong_hits += int(detection.strong)
         self.last_update = time
-        self.travel = max(
-            self.travel, float(np.linalg.norm(self.state[:2] - self.origin))
-        )
+        self._measure_travel(detection)
+
+    def _measure_travel(self, detection):
+        """Обновить наибольший сдвиг от первой надёжной детекции"""
+        if not detection.strong:
+            return
+
+        center = np.array(detection.center, dtype=float)
+        if self.origin is None:
+            self.origin = center
+            return
+
+        self.travel = max(self.travel, float(np.linalg.norm(center - self.origin)))
 
     def _flip(self):
         """Развернуть курс на pi со сменой знака скорости
