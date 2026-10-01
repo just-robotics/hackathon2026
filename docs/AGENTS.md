@@ -133,3 +133,8 @@ Referee публикует общее `/match/active` (Bool, transient local,10�
 при false или пропаже heartbeat дольше0,5с sim gate выдаёт нули, а planner
 сбрасывает отсчёт watchdog. Перед сериями проверяй этот параметр и отсутствие
 ненулевых команд первого робота до started_at referee.
+
+`benchmarks/run_duel_series.py --audit-start` проверяет оба gate до старта и
+при разрешении только первому роботу, затем выполняет обычный start_match.
+Пассивный audit требует общий active=false, ровно одну permission в partial
+фазе,10 нулевых команд и одного издателя у каждого. Он не публикует команды.

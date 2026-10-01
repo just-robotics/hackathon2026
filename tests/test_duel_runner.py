@@ -40,8 +40,9 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
     for prefix, role, seed in (("/", "explorer", 20), ("/opponent/", "guardian", 1000023)):
         params[prefix + "trajectory_planner"] = {
             "role": role, "random_seed": seed, "local_backend": "nav2_cpp",
-            "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"])}
+            "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]), "require_match_active": True}
         params[prefix + "decision_manager"] = {"role": role}
+        params[prefix + "hsl_mpc_gate"] = {"require_match_active": True}
         params[prefix + "native_mppi"] = {"role": role, "random_seed": seed}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)

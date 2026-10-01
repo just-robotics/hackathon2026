@@ -160,8 +160,10 @@ def validate_runtime_metadata(runtime, env):
                               ("/opponent/", env["HSL_OPPONENT_ROLE"], int(env["DUEL_OPPONENT_SEED"]))):
         checks = {"trajectory_planner": {"role": role, "random_seed": seed,
                   "local_backend": env["HSL_LOCAL_BACKEND"],
-                  "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"])},
-                  "decision_manager": {"role": role}}
+                  "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]),
+                  "require_match_active": True},
+                  "decision_manager": {"role": role},
+                  "hsl_mpc_gate": {"require_match_active": True}}
         if env["HSL_LOCAL_BACKEND"] == "nav2_cpp":
             checks["native_mppi"] = {"role": role, "random_seed": seed}
         for node, values in checks.items():
@@ -353,6 +355,8 @@ def main():
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--trace", action="store_true",
                         help="record active cmd/path diagnostics for each robot")
+    parser.add_argument("--audit-start", action="store_true",
+                        help="verify both gates before and after granting only the first permission")
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
     parser.add_argument("--scenario", type=int, choices=SCENARIOS, default=1)
@@ -413,6 +417,17 @@ def main():
                 traces = start_traces(series_dir, index, env)
             if args.probe_status:
                 probes = start_probes(series_dir, index, args.probe_status, env)
+            if args.audit_start:
+                command(["docker", "cp", str(ROOT / "benchmarks" / "audit_motion_gate.py"),
+                         "docker-hsl-control-1:/tmp/audit_motion_gate.py"], env, timeout=15)
+                audit = ["docker", "exec", "docker-hsl-control-1", "bash", "-lc",
+                         "source /autoware/install/setup.bash && python3 /tmp/audit_motion_gate.py"]
+                command(audit, env, timeout=25, log=series_dir / f"{index:02d}-gate-before-start.json")
+                command(["docker", "exec", "docker-hsl-decision-1", "bash", "-lc",
+                         "source /autoware/install/setup.bash && ros2 service call /match/allow_motion "
+                         "std_srvs/srv/SetBool '{data: true}'"], env, timeout=30)
+                command(audit[:-1] + [audit[-1] + " --partial-start"], env, timeout=25,
+                        log=series_dir / f"{index:02d}-gate-partial-start.json")
             command(["helm", "start_match"], env, timeout=45,
                     log=series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
