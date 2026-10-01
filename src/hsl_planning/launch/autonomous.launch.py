@@ -39,6 +39,10 @@ def nodes(context):
                                # explicitly permits backwards travel.
                                "MPPI.PreferForwardCritic.enabled":
                                    values["role"] == "guardian",
+                               # Explorer goals specify position/contact only;
+                               # a reverse departure has no required terminal yaw.
+                               "MPPI.GoalAngleCritic.enabled":
+                                   values["role"] == "guardian",
                                "random_seed": int(values["random_seed"])}], output="screen"))
     for process in list(result):
         result.append(RegisterEventHandler(OnProcessExit(

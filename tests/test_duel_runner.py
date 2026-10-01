@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 import json
 import pytest
-from run_duel_series import classify_runtime, validate_runtime_metadata
+from run_duel_series import classify_runtime, validate_runtime_metadata, roles_for_run
 from scenarios import scenario_environment
 
 
@@ -46,7 +46,8 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,
             "MPPI": {"PathAngleCritic": {"forward_preference": role == "guardian"},
-                     "PreferForwardCritic": {"enabled": role == "guardian"}}}
+                     "PreferForwardCritic": {"enabled": role == "guardian"},
+                     "GoalAngleCritic": {"enabled": role == "guardian"}}}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
     referee["run_id"] = "manual"
@@ -72,3 +73,9 @@ def test_compose_preserves_scientific_looking_revision_as_ros_string():
             ros_arg = next(arg for arg in shlex.split(shell_command)
                            if arg.startswith("code_revision:="))
             assert yaml.safe_load(ros_arg.split(":=", 1)[1]) == revision
+
+
+def test_fixed_assignment_reproduces_explorer_on_the_second_start():
+    assert roles_for_run(0, "guardian") == roles_for_run(1) == ("guardian", "explorer")
+    assert roles_for_run(19, "guardian") == ("guardian", "explorer")
+    assert roles_for_run(0) == ("explorer", "guardian")

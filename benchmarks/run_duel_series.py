@@ -22,6 +22,14 @@ from hsl_planning.backend import resolve_backend
 RESULTS = ROOT / "results"
 
 
+def roles_for_run(index, first_role="alternate"):
+    if first_role == "alternate":
+        first_role = "explorer" if index % 2 == 0 else "guardian"
+    if first_role not in ("explorer", "guardian"):
+        raise ValueError("first_role must be alternate, explorer or guardian")
+    return first_role, "guardian" if first_role == "explorer" else "explorer"
+
+
 def revision():
     commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
                                      cwd=ROOT, text=True).strip()
@@ -179,7 +187,8 @@ def validate_runtime_metadata(runtime, env):
             checks["native_mppi"] = {
                 "role": role, "random_seed": seed,
                 "MPPI.PathAngleCritic.forward_preference": role == "guardian",
-                "MPPI.PreferForwardCritic.enabled": role == "guardian"}
+                "MPPI.PreferForwardCritic.enabled": role == "guardian",
+                "MPPI.GoalAngleCritic.enabled": role == "guardian"}
         for node, values in checks.items():
             for name, value in values.items():
                 actual = parameter_value(params[prefix + node], name)
@@ -364,6 +373,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--start-seed", type=int, default=0)
+    parser.add_argument("--first-role", choices=("alternate", "explorer", "guardian"),
+                        default="alternate", help="fix physical role assignment or alternate it")
     parser.add_argument("--active-s", type=float, default=360.0)
     parser.add_argument("--wall-timeout-s", type=float, default=1200.0)
     parser.add_argument("--build", action="store_true")
@@ -389,8 +400,7 @@ def main():
                 timeout=1800, log=series_dir / "build.log")
     for index in range(args.runs):
         seed = args.start_seed + index
-        first_role = "explorer" if index % 2 == 0 else "guardian"
-        second_role = "guardian" if first_role == "explorer" else "explorer"
+        first_role, second_role = roles_for_run(index, args.first_role)
         run_id = f"{series_id}-{index:02d}"
         env = os.environ.copy()
         env["HSL_LOCAL_BACKEND"] = resolve_backend(
@@ -487,7 +497,8 @@ def main():
             runs, indent=2, sort_keys=True) + "\n")
     aggregate = summary(runs)
     aggregate.update(series_id=series_id, code_revision=code_revision,
-                     active_limit_s=args.active_s, scenario=args.scenario)
+                     active_limit_s=args.active_s, scenario=args.scenario,
+                     role_assignment=args.first_role)
     (series_dir / "summary.json").write_text(json.dumps(
         aggregate, indent=2, sort_keys=True) + "\n")
     print(json.dumps(aggregate, indent=2, sort_keys=True), flush=True)

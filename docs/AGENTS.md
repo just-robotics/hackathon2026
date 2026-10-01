@@ -143,3 +143,10 @@ Referee публикует общее `/match/active` (Bool, transient local,10�
 PreferForwardCritic.enabled=false, guardian обаtrue. Это штатные параметры
 Nav2; диапазоны скорости/полный swept-check сохранены. Сравнивать с общей
 границей стартаf6ede84, а не выдавать единичный результат за стабилизацию.
+
+`--first-role guardian|explorer` фиксирует физическое назначение ролей во всей
+серии, default alternate чередует их. Для воспроизведения слабого seed19
+explorer на втором старте нужно --first-role guardian. Не сравнивай его с
+обычным одиночным seed19, который по default ставит explorer первым.
+В новом native кандидате GoalAngleCritic выключен только у explorer:
+касание площадки/отход не имеют terminal yaw. Guardian сохраняет critic.
