@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Планирование на потенциальном поле для дуэли.
+
+     Путь строится градиентным спуском: цель притягивает, стены из /map и
+     соперник отталкивают. Роль задаёт поведение:
+
+       attacker  цель это синяя зона, соперник отталкивает;
+       defender  цель это точка перехвата на предсказанном пути атакующего,
+                 отталкивают только стены.
+
+     Публикуется nav_msgs/Path в planning/trajectory: тот же тип и топик,
+     что у прежнего планировщика, поэтому контроллер MPC не меняется. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <arg name="ns" default="" description="пространство имён робота"/>
+  <arg name="role" default="attacker" description="attacker | defender"/>
+  <arg name="base_frame" default="attacker/base_footprint"/>
+  <arg name="output_frame" default="world"/>
+
+  <!-- Цель атакующего: центр синей площадки totami. Защитник цель
+       вычисляет сам и этот параметр не использует. -->
+  <arg name="goal_x" default="3.5"/>
+  <arg name="goal_y" default="0.0"/>
+
+  <!-- Перепланирование идёт на каждом тике целиком, от своей позы. Один
+       цикл занимает около 7 мс на карте totami, поэтому в бюджет 20 мс он
+       укладывается, а соперник между тиками смещается на сантиметр. Совпадает
+       с частотой одометрии, так что путь обновляется на каждую новую позу. -->
+  <arg name="rate" default="50.0" description="частота перепланирования, Гц"/>
+  <arg name="step" default="0.1" description="шаг спуска, м"/>
+  <arg name="max_points" default="150" description="предел длины пути"/>
+  <arg name="opponent_repulsion" default="3.0"/>
+  <arg name="opponent_sigma" default="0.8"/>
+  <arg name="wall_repulsion" default="2.0"/>
+  <arg name="wall_sigma" default="0.45"/>
+  <!-- Визуализация поля в planning/potential_field. Считается только при
+       наличии подписчиков и реже самого планирования: сетка дороже спуска. -->
+  <arg name="field_resolution" default="0.1" description="ячейка поля, м"/>
+  <arg name="field_rate" default="2.0" description="частота отрисовки, Гц"/>
+
+  <arg name="intercept_speed" default="0.5"
+       description="с какой скоростью защитник рассчитывает сближаться"/>
+
+  <group>
+    <push-ros-namespace namespace="$(var ns)"/>
+    <node pkg="jr_planning" exec="potential_field_planner.py"
+          name="potential_field_planner" output="screen">
+      <param name="role" value="$(var role)"/>
+      <param name="base_frame" value="$(var base_frame)"/>
+      <param name="output_frame" value="$(var output_frame)"/>
+      <param name="goal" value="[$(var goal_x), $(var goal_y)]"/>
+      <param name="rate" value="$(var rate)"/>
+      <param name="step" value="$(var step)"/>
+      <param name="max_points" value="$(var max_points)"/>
+      <param name="opponent_repulsion" value="$(var opponent_repulsion)"/>
+      <param name="opponent_sigma" value="$(var opponent_sigma)"/>
+      <param name="wall_repulsion" value="$(var wall_repulsion)"/>
+      <param name="wall_sigma" value="$(var wall_sigma)"/>
+      <param name="field_resolution" value="$(var field_resolution)"/>
+      <param name="field_rate" value="$(var field_rate)"/>
+      <param name="intercept_speed" value="$(var intercept_speed)"/>
+      <param name="use_sim_time" value="$(var simulation)"/>
+    </node>
+  </group>
+</launch>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Игровое планирование: минимакс против худшего ответа соперника.
+
+     Планировщик решает U* = argmin_U max_V J(U, V): перебирает свои манёвры,
+     для каждого прогнозирует самый опасный ответ соперника и выбирает тот,
+     что лучше всего сохраняет возможность выполнить задачу.
+
+     Роли отличаются знаком J: атакующий минимизирует, защитник максимизирует.
+     Публикуется nav_msgs/Path в planning/trajectory, как и у прежнего
+     планировщика, поэтому контроллер MPC не меняется. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <arg name="ns" default="" description="пространство имён робота"/>
+  <arg name="role" default="attacker" description="attacker | defender"/>
+  <arg name="base_frame" default="attacker/base_footprint"/>
+  <arg name="output_frame" default="world"/>
+
+  <!-- Цель атакующего: центр синей площадки totami. Защитник максимизирует
+       ту же J, поэтому цель ему нужна та же. -->
+  <arg name="goal_x" default="3.5"/>
+  <arg name="goal_y" default="0.0"/>
+
+  <arg name="rate" default="20.0" description="частота перепланирования, Гц"/>
+
+  <!-- Горизонт: короткий не видит перехвата, длинный делает прогноз ответа
+       соперника недостоверным, он тоже пересчитывает план каждый тик. -->
+  <arg name="horizon" default="2.0" description="горизонт прогноза, с"/>
+  <arg name="dt" default="0.1" description="шаг модели, с"/>
+
+  <arg name="v_max" default="0.5" description="максимальная скорость, м/с"/>
+  <arg name="w_max" default="1.5" description="максимальный поворот, рад/с"/>
+
+  <arg name="speed_options" default="3" description="вариантов скорости"/>
+  <arg name="turn_options" default="11" description="вариантов поворота"/>
+  <arg name="opponent_turn_options" default="9" description="ответов соперника"/>
+
+  <arg name="catch_penalty" default="50.0"/>
+  <arg name="wall_penalty" default="20.0"/>
+  <arg name="catch_distance" default="0.1" description="зазор поимки, м"/>
+  <arg name="wall_clearance" default="0.25" description="запас до стен, м"/>
+
+  <group>
+    <push-ros-namespace namespace="$(var ns)"/>
+    <node pkg="jr_planning" exec="game_mpc_planner.py"
+          name="game_mpc_planner" output="screen">
+      <param name="role" value="$(var role)"/>
+      <param name="base_frame" value="$(var base_frame)"/>
+      <param name="output_frame" value="$(var output_frame)"/>
+      <param name="goal" value="[$(var goal_x), $(var goal_y)]"/>
+      <param name="rate" value="$(var rate)"/>
+      <param name="horizon" value="$(var horizon)"/>
+      <param name="dt" value="$(var dt)"/>
+      <param name="v_max" value="$(var v_max)"/>
+      <param name="w_max" value="$(var w_max)"/>
+      <param name="speed_options" value="$(var speed_options)"/>
+      <param name="turn_options" value="$(var turn_options)"/>
+      <param name="opponent_turn_options" value="$(var opponent_turn_options)"/>
+      <param name="catch_penalty" value="$(var catch_penalty)"/>
+      <param name="wall_penalty" value="$(var wall_penalty)"/>
+      <param name="catch_distance" value="$(var catch_distance)"/>
+      <param name="wall_clearance" value="$(var wall_clearance)"/>
+      <param name="use_sim_time" value="$(var simulation)"/>
+    </node>
+  </group>
+</launch>
