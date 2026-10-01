@@ -14,7 +14,7 @@ from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
-from std_msgs.msg import Float32, String
+from std_msgs.msg import Bool, Float32, String
 
 from .mppi import mppi_local_guidance
 from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
@@ -92,6 +92,9 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("mppi_temperature", 0.3)
         self.declare_parameter("control_mode", "mppi")
         self.declare_parameter("local_backend", "python")
+        self.declare_parameter("require_match_active", False)
+        self.require_match_active = self.get_parameter("require_match_active").value
+        self.match_state = None
         self.declare_parameter("mpc_path_source", "local")
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
@@ -186,6 +189,8 @@ class TrajectoryPlanner(Node):
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
                                  qos_profile_sensor_data)
         grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        if self.require_match_active:
+            self.create_subscription(Bool, "/match/active", self.on_match_active, grid_qos)
         self.create_subscription(OccupancyGrid, "navigation/known_grid",
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
@@ -210,6 +215,9 @@ class TrajectoryPlanner(Node):
 
     def now(self):
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def on_match_active(self, msg):
+        self.match_state = (msg.data, self.now())
 
     def on_own(self, msg):
         if msg.header.frame_id == self.frame:
@@ -364,6 +372,15 @@ class TrajectoryPlanner(Node):
 
     def _tick(self):
         now = self.now()
+        if (self.require_match_active and
+                not (self.match_state and self.match_state[0] and
+                     0 <= now - self.match_state[1] <= 0.5)):
+            self.progress_pose = None
+            self.progress_since = None
+            self.nominal_retry = 0
+            self.mppi_controls = None
+            self.publish_empty("WAIT_OR_STOP")
+            return
         if not self.own or not self.intent or self.intent.behavior in (0, 1):
             self.publish_empty("WAIT_OR_STOP")
             return

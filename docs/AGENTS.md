@@ -126,3 +126,10 @@ Explorer при близкой угрозе использует безопас�
 
 В ROS CLI code_revision передавай как YAML-строку с сохранёнными кавычками:
 короткий SHA вида5787e30 иначе распознаётся числом и ломает referee/metrics.
+
+Referee публикует общее `/match/active` (Bool, transient local,10Гц).
+Автономные launch требуют require_match_active=true у planner и gate:
+оба ждут свежую true, которая появляется только после двух permissions;
+при false или пропаже heartbeat дольше0,5с sim gate выдаёт нули, а planner
+сбрасывает отсчёт watchdog. Перед сериями проверяй этот параметр и отсутствие
+ненулевых команд первого робота до started_at referee.

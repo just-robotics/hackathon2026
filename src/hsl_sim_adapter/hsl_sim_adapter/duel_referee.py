@@ -61,6 +61,8 @@ class DuelReferee(Node):
                                  lambda msg: self.on_pose(1, msg), 10)
         self.create_subscription(OccupancyGrid, "/map", self.on_map, qos)
         self.outcome_pub = self.create_publisher(String, "/match/outcome", qos)
+        self.active_pub = self.create_publisher(Bool, "/match/active", qos)
+        self.active_pub.publish(Bool(data=False))
         self.stop_clients = [self.create_client(SetBool, name) for name in
                              ("/match/allow_motion", "/opponent/match/allow_motion")]
         self.create_timer(0.1, self.tick)
@@ -82,15 +84,18 @@ class DuelReferee(Node):
 
     def tick(self):
         if self.finished:
+            self.active_pub.publish(Bool(data=False))
             self.stop_both()
             return
         if not all(self.allowed):
+            self.active_pub.publish(Bool(data=False))
             return
         now = self.now()
         if self.started_at is None:
             self.started_at = now
             self.wall_started_at = monotonic()
             self.get_logger().info(f"Duel {self.run_id} started")
+        self.active_pub.publish(Bool(data=True))
         positions = [pose3(msg, self.spawn) if msg is not None
                      and 0 <= now - seconds(msg.header.stamp) <= 0.5 else None
                      for msg in self.poses]
@@ -104,6 +109,7 @@ class DuelReferee(Node):
 
     def finish(self, event, now):
         self.finished = True
+        self.active_pub.publish(Bool(data=False))
         roles = [self.first_role, self.second_role]
         report = {
             "run_id": self.run_id, "seed": self.seed,

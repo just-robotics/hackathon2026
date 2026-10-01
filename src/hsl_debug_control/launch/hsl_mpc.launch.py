@@ -54,5 +54,6 @@ def control_nodes(context):
              }]),
         Node(package="hsl_debug_control", executable="mpc_gate",
              namespace=namespace, name="hsl_mpc_gate", output="screen",
-             parameters=[{"use_sim_time": True, "control_mode": control_mode}]),
+             parameters=[{"use_sim_time": True, "control_mode": control_mode,
+                          "require_match_active": True}]),
     ]

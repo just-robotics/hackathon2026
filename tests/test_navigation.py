@@ -11,7 +11,7 @@ for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_ad
     sys.path.insert(0, str(ROOT / package))
 
 from hsl_debug_control.core import (follow, path_turning_decision, safe_follow,
-                                    safe_mpc_command, select_control_command)
+                                    safe_mpc_command, select_control_command, match_is_active)
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
@@ -640,6 +640,14 @@ class PlanningTests(unittest.TestCase):
         self.assertIsNone(rotation)
         self.assertFalse(turning)
         self.assertFalse(is_curve)
+
+    def test_common_match_permission_is_required_and_expires(self):
+        self.assertFalse(match_is_active(10.0, None))
+        self.assertFalse(match_is_active(10.0, (False, 10.0)))
+        self.assertTrue(match_is_active(10.2, (True, 10.0)))
+        self.assertFalse(match_is_active(10.6, (True, 10.0)))
+        self.assertFalse(match_is_active(9.0, (True, 10.0)))
+        self.assertFalse(match_is_active(10.2, (False, 10.1)))
 
     def test_mpc_gate_preserves_controller_angular_range(self):
         for angular in (-1.5, 1.5):

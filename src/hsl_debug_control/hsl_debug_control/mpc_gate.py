@@ -8,12 +8,12 @@ from geometry_msgs.msg import Twist
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Float32, String
+from std_msgs.msg import Bool, Float32, String
 
 from .core import (DIRECT_MPPI_STATUSES, angle_error, path_turning_decision,
-                   safe_mpc_command, select_control_command)
+                   safe_mpc_command, select_control_command, match_is_active)
 
 
 def seconds(stamp):
@@ -35,6 +35,12 @@ class MpcGate(Node):
         self.planner_status = None
         self.declare_parameter("control_mode", "mppi")
         self.control_mode = self.get_parameter("control_mode").value
+        self.declare_parameter("require_match_active", False)
+        self.require_match_active = self.get_parameter("require_match_active").value
+        self.match_state = None
+        if self.require_match_active:
+            qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+            self.create_subscription(Bool, "/match/active", self.on_match_active, qos)
         if self.control_mode not in ("mpc", "mppi"):
             raise ValueError("control_mode must be mpc or mppi")
         self.turning_to_path = False
@@ -52,6 +58,9 @@ class MpcGate(Node):
 
     def now(self):
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def on_match_active(self, msg):
+        self.match_state = (msg.data, self.now())
 
     def on_pose(self, msg):
         self.pose_stamp = seconds(msg.header.stamp)
@@ -88,6 +97,10 @@ class MpcGate(Node):
 
     def _tick(self):
         now = self.now()
+        if self.require_match_active and not match_is_active(now, self.match_state):
+            self.turning_to_path = False
+            self.pub.publish(Twist())
+            return
         rotation_error = None
         if self.path and len(self.path[0]) >= 2:
             start = self.path[0][0].pose.position

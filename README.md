@@ -530,6 +530,12 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 
 ### Основной локальный MPPI Nav2
 
+В автономном `duel` движение обоих роботов дополнительно закрыто общим
+`/match/active` от referee. Он становится true после обоих разрешений и false
+после первого исхода; отсутствие свежего heartbeat тоже закрывает движение.
+Так последовательные сервисные вызовы `start_match` не дают первому роботу
+неизмеренный ранний старт.
+
 Основной `HSL_LOCAL_BACKEND=auto` выбирает оригинальный C++ MPPI Nav2 при `HSL_CONTROL_MODE=mppi`. После `helm build duel` обычные `helm start_match1/2/3` используют его. Резервный исходный MPC: `HSL_CONTROL_MODE=mpc HSL_MPC_PATH_SOURCE=global helm start_match2`; auto выбирает совместимый Python planner. Предыдущая Python-адаптация: `HSL_LOCAL_BACKEND=python helm start_match2`. Для серии:
 
 ```bash

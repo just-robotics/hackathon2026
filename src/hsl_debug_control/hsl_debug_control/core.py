@@ -105,3 +105,8 @@ def safe_mpc_command(now, pose_stamp, scan_stamp, path, intent, command,
     if now - command_stamp > command_timeout:
         return 0.0, 0.0
     return max(-max_speed, min(max_speed, linear)), angular
+
+
+def match_is_active(now, state, timeout=0.5):
+    """Fail closed until the common referee start, and if its heartbeat stops."""
+    return bool(state and state[0] and 0.0 <= now - state[1] <= timeout)

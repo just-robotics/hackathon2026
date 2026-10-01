@@ -19,7 +19,7 @@ def nodes(context):
     values["local_backend"] = backend
     params = {key: values[key] for key in (
         "role", "control_mode", "mpc_path_source", "local_backend")}
-    params.update(use_sim_time=True, random_seed=int(values["random_seed"]),
+    params.update(use_sim_time=True, require_match_active=True, random_seed=int(values["random_seed"]),
                   arena_bounds=[float(v) for v in json.loads(values["arena_bounds"])])
     planner = Node(package="hsl_planning", executable="trajectory_planner",
                    namespace=values["robot_namespace"], parameters=[params], output="screen")
