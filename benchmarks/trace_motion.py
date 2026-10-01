@@ -127,6 +127,15 @@ def main():
                             t - stamp(opponent[0]) <= 1.0 else None)
         opponent_position = (opponent_message.pose.pose.position
                              if opponent_message else None)
+        intent_message = intent[0] if intent and t - intent[2] <= 1.0 else None
+        enemy_velocity = None
+        if opponent_message:
+            eq = opponent_message.pose.pose.orientation
+            course = atan2(2 * (eq.w * eq.z + eq.x * eq.y),
+                           1 - 2 * (eq.y * eq.y + eq.z * eq.z))
+            velocity = opponent_message.twist.twist.linear
+            enemy_velocity = [round(cos(course) * velocity.x - sin(course) * velocity.y, 4),
+                              round(sin(course) * velocity.x + cos(course) * velocity.y, 4)]
         global_positions = ([item.pose.position for item in global_path[0].poses]
                             if global_path and t - global_path[2] <= 1.0 else [])
         time_series.append({
@@ -167,6 +176,13 @@ def main():
                                t - status[2] <= 1.0 else None),
             "behavior": (int(intent[0].behavior) if intent and
                          t - intent[2] <= 1.0 else None),
+            "intent_sim_s": intent[2] if intent_message else None,
+            "global_path_sim_s": global_path[2] if global_positions else None,
+            "opponent_sim_s": stamp(opponent_message) if opponent_message else None,
+            "intent_target_xy_m": ([round(intent_message.target.position.x, 4),
+                                    round(intent_message.target.position.y, 4)]
+                                   if intent_message and intent_message.has_target else None),
+            "opponent_velocity_map_mps": enemy_velocity,
             "opponent_xy_m": ([round(opponent_position.x, 4),
                                round(opponent_position.y, 4)]
                               if opponent_position else None),
