@@ -142,6 +142,17 @@ def wait_report(path, run_id, deadline, stopped=False, runtime=None, env=None):
     raise TimeoutError(f"result {path} for {run_id} did not appear")
 
 
+def parameter_value(parameters, name):
+    if name in parameters:
+        return parameters[name]
+    value = parameters
+    for part in name.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
 def validate_runtime_metadata(runtime, env):
     params = runtime["effective_parameters"]
     expected = {
@@ -171,7 +182,7 @@ def validate_runtime_metadata(runtime, env):
                 "MPPI.PreferForwardCritic.enabled": role == "guardian"}
         for node, values in checks.items():
             for name, value in values.items():
-                actual = params[prefix + node].get(name)
+                actual = parameter_value(params[prefix + node], name)
                 if actual != value:
                     raise RuntimeError(f"{prefix + node} {name}={actual!r}, expected {value!r}; runtime does not belong to this evaluation")
 
