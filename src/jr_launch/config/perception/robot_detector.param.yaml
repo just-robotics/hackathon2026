@@ -43,20 +43,19 @@
       measurement_std: 0.03
       fallback_std: 0.10
 
+    # Фильтр Калмана с постоянной скоростью; курс -- из вектора скорости.
+    # accel_std меньше -- сильнее сглаживание у стоящего робота, но дольше
+    # догонять резкий старт.
     tracker:
       accel_std: 0.5
-      yaw_accel_std: 3.0
-      position_std: 0.02
-      omega_decay: 1.0
-      wander_std: 0.3
+      position_std: 0.01
+      initial_speed_std: 0.5
+      heading_speed: 0.05
+      omega_time: 0.5
       gate: 9.21
       confirm_hits: 3
       tentative_coast: 0.35
       max_coast: 1.5
       max_tracks: 8
-      seed_distance: 0.12
-      seed_window: 1.0
-      seed_heading_std: 0.35
-      v_flip: 0.05
       move_threshold: 0.3
       move_min_hits: 10

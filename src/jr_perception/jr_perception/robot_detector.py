@@ -173,10 +173,11 @@ def xyz_to_cloud(header: Header, points: np.ndarray) -> PointCloud2:
 def track_to_odometry(header: Header, child_frame: str, track) -> Odometry:
     """Трек соперника как nav_msgs/Odometry
 
-    Пока курс не известен, его дисперсия pi^2, а скорости -- 1 (м/с)^2 и
-    1 (рад/с)^2: оценки нет.
+    Пока курс не известен, его дисперсия pi^2, а omega -- 1 (рад/с)^2:
+    оценки нет. Скорость фильтр оценивает всегда.
     """
     x, y, theta, v, omega = track.state
+    cov = track.cov
 
     message = Odometry()
     message.header = header
@@ -191,16 +192,15 @@ def track_to_odometry(header: Header, child_frame: str, track) -> Odometry:
     pose_covariance = np.diag([0.0, 0.0, 1e-6, 1e-6, 1e-6, 0.0])
     for a, i in zip((0, 1, 5), (X, Y, THETA)):
         for b, j in zip((0, 1, 5), (X, Y, THETA)):
-            pose_covariance[a, b] = track.cov[i, j]
+            pose_covariance[a, b] = cov[i, j]
     message.pose.covariance = pose_covariance.reshape(-1).tolist()
 
     message.twist.twist.linear.x = float(v)
     message.twist.twist.angular.z = float(omega)
-    twist_covariance = np.diag([1.0, 1e-6, 1e-6, 1e-6, 1e-6, 1.0])
-    if track.heading_known:
-        for a, i in zip((0, 5), (V, OMEGA)):
-            for b, j in zip((0, 5), (V, OMEGA)):
-                twist_covariance[a, b] = track.cov[i, j]
+    twist_covariance = np.diag([0.0, 1e-6, 1e-6, 1e-6, 1e-6, 0.0])
+    for a, i in zip((0, 5), (V, OMEGA)):
+        for b, j in zip((0, 5), (V, OMEGA)):
+            twist_covariance[a, b] = cov[i, j]
     message.twist.covariance = twist_covariance.reshape(-1).tolist()
 
     return message

@@ -1,23 +1,29 @@
 """Трекинг соперника по детекциям его центра.
 
 Лидар видит Kobuki телом вращения, поэтому детектор отдаёт только центр.
-Курс восстанавливается из движения: у дифф-привода скорость всегда
-направлена вдоль корпуса. Каждый трек -- EKF с моделью дифф-привода,
-состояние [x, y, theta, v, omega].
+Каждый трек ведёт позицию и скорость линейным фильтром Калмана с моделью
+постоянной скорости: состояние [x, y, vx, vy], ускорение -- белый шум. У
+стоящего робота такой фильтр усредняет центр по многим сканам, у едущего --
+следует за ним без запаздывания, пока он не ускоряется резко.
 
-Треков несколько: обрывок коробки, похожий на дугу, тоже может породить
-трек. Коробки неподвижны, поэтому из подтверждённых треков соперником
-считается тот, что хоть раз заметно сдвинулся, а до первого движения -- тот,
-у кого больше надёжных детекций.
+Курс берётся из вектора скорости: у дифф-привода скорость направлена вдоль
+корпуса. Пока робот стоит или крутится на месте, курс держится последний, а
+его дисперсия растёт. Снаружи трек отдаёт [x, y, theta, v, omega] и
+ковариацию в том же порядке.
+
+Треков несколько: обрывок посторонней дуги тоже может породить трек.
+Мебель не ездит, поэтому из подтверждённых треков соперником считается тот,
+что заметно сдвинулся, а до первого движения -- тот, у кого больше надёжных
+детекций.
 """
 
 import math
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
 
 
+# порядок величин в Track.state и Track.cov
 X, Y, THETA, V, OMEGA = range(5)
 
 
@@ -30,18 +36,18 @@ def wrap(angle: float) -> float:
 class TrackerConfig:
     """Параметры трекера"""
 
-    # шум модели: продольное и угловое ускорение
+    # Шум модели -- ускорение, м/с^2. Меньше -- сильнее сглаживание у
+    # стоящего робота, но дольше догонять резкий старт и торможение.
     accel_std: float = 0.5
-    yaw_accel_std: float = 3.0
-    # увод позиции, который модель не объясняет (проскальзывание, толчки),
-    # м/sqrt(с)
-    position_std: float = 0.02
-    # Постоянная затухания omega, с. Пока робот стоит, omega не наблюдаема,
-    # и без затухания курс продолжал бы вращаться с последней скоростью.
-    omega_decay: float = 1.0
-    # Пока курс не известен, скорость не оценивается, а позиция ведётся как
-    # случайное блуждание с этим темпом, м/sqrt(с).
-    wander_std: float = 0.3
+    # увод позиции, который модель не объясняет (толчки), м/sqrt(с)
+    position_std: float = 0.01
+    # неопределённость скорости нового трека, м/с
+    initial_speed_std: float = 0.5
+    # Курс берётся из скорости, когда она больше heading_speed и больше двух
+    # своих СКО: иначе направление скорости -- это направление шума.
+    heading_speed: float = 0.05
+    # постоянная времени сглаживания omega, с
+    omega_time: float = 0.5
     # порог квадрата расстояния Махаланобиса: chi2 с 2 степенями, 99%
     gate: float = 9.21
     # столько детекций нужно треку, чтобы считаться подтверждённым
@@ -50,16 +56,7 @@ class TrackerConfig:
     tentative_coast: float = 0.35
     max_coast: float = 1.5
     max_tracks: int = 8
-    # Курс берётся по перемещению центра, когда за окно seed_window центр
-    # ушёл дальше seed_distance, а фильтр видит меньше половины этой
-    # скорости: на старте и после разворота на месте.
-    seed_distance: float = 0.12
-    seed_window: float = 1.0
-    seed_heading_std: float = 0.35
-    # Робот считается едущим вперёд: заметная отрицательная скорость значит,
-    # что курс развёрнут на pi.
-    v_flip: float = 0.05
-    # трек, сдвинувшийся от места рождения дальше этого, -- точно не коробка
+    # трек, сдвинувшийся от места рождения дальше этого, -- точно не мебель
     move_threshold: float = 0.3
     # Но сдвиг засчитывается только треку, набравшему столько надёжных
     # детекций: три детекции круглого предмета с разбросом 0.3 м иначе
@@ -68,19 +65,21 @@ class TrackerConfig:
 
 
 class Track:
-    """Один трек: EKF и счётчики для подтверждения и выбора"""
+    """Один трек: фильтр Калмана и счётчики для подтверждения и выбора"""
 
     def __init__(self, time: float, detection, config: TrackerConfig):
         self.config = config
 
-        # Пока курс не известен, theta, v и omega не связаны с позицией:
-        # нулевые перекрёстные ковариации оставляют их на месте при
-        # обновлении, а predict их не трогает.
-        self.state = np.array([*detection.center, 0.0, 0.0, 0.0])
-        self.cov = np.diag(
-            [detection.sigma ** 2, detection.sigma ** 2, math.pi ** 2, 0.0, 0.0]
+        # фильтр: [x, y, vx, vy]
+        self.mean = np.array([*detection.center, 0.0, 0.0])
+        self.covariance = np.diag(
+            [detection.sigma ** 2] * 2 + [config.initial_speed_std ** 2] * 2
         )
+
+        self.heading = 0.0
         self.heading_known = False
+        self.heading_time = time
+        self.omega = 0.0
 
         self.time = time
         self.last_update = time
@@ -91,8 +90,6 @@ class Track:
         # «движение» из одного шума.
         self.origin = None
         self.travel = 0.0
-        self.history = deque()
-        self._remember(time, detection)
         self._measure_travel(detection)
 
     @property
@@ -106,6 +103,45 @@ class Track:
             and self.travel >= self.config.move_threshold
         )
 
+    @property
+    def speed(self) -> float:
+        return float(np.linalg.norm(self.mean[2:]))
+
+    @property
+    def state(self) -> np.ndarray:
+        """[x, y, theta, v, omega]"""
+        return np.array(
+            [self.mean[0], self.mean[1], self.heading, self.speed, self.omega]
+        )
+
+    @property
+    def cov(self) -> np.ndarray:
+        """Ковариация state, 5x5
+
+        Дисперсия курса -- поперечная к скорости дисперсия скорости, делённая
+        на квадрат скорости: у медленного робота направление движения почти
+        не определено. Больше pi^2 она не бывает.
+        """
+        cov = np.zeros((5, 5))
+        cov[:2, :2] = self.covariance[:2, :2]
+
+        velocity_cov = self.covariance[2:, 2:]
+        along = np.array([math.cos(self.heading), math.sin(self.heading)])
+        across = np.array([-along[1], along[0]])
+        speed = self.speed
+
+        if self.heading_known:
+            cov[THETA, THETA] = min(
+                float(across @ velocity_cov @ across) / max(speed ** 2, 1e-9),
+                math.pi ** 2,
+            )
+        else:
+            cov[THETA, THETA] = math.pi ** 2
+
+        cov[V, V] = float(along @ velocity_cov @ along)
+        cov[OMEGA, OMEGA] = 0.25 if self.heading_known else 1.0
+        return cov
+
     def predict(self, time: float):
         """Продвинуть трек к моменту time
 
@@ -114,69 +150,31 @@ class Track:
         dt = time - self.time
         if dt <= 0.0:
             return
-
         self.time = time
-        config = self.config
 
-        if not self.heading_known:
-            drift = config.wander_std ** 2 * dt
-            self.cov[X, X] += drift
-            self.cov[Y, Y] += drift
-            return
+        transition = np.eye(4)
+        transition[0, 2] = transition[1, 3] = dt
 
-        x, y, theta, v, omega = self.state
-        cos, sin = math.cos(theta), math.sin(theta)
-        decay = math.exp(-dt / config.omega_decay)
+        # ускорение как белый шум: дискретная модель постоянной скорости
+        a = self.config.accel_std ** 2
+        p = self.config.position_std ** 2 * dt
+        noise = np.zeros((4, 4))
+        for i in (0, 1):
+            noise[i, i] = a * dt ** 4 / 4.0 + p
+            noise[i, i + 2] = noise[i + 2, i] = a * dt ** 3 / 2.0
+            noise[i + 2, i + 2] = a * dt ** 2
 
-        self.state = np.array(
-            [
-                x + v * cos * dt,
-                y + v * sin * dt,
-                wrap(theta + omega * dt),
-                v,
-                omega * decay,
-            ]
-        )
+        self.mean = transition @ self.mean
+        self.covariance = transition @ self.covariance @ transition.T + noise
 
-        jacobian = np.eye(5)
-        jacobian[X, THETA] = -v * sin * dt
-        jacobian[X, V] = cos * dt
-        jacobian[Y, THETA] = v * cos * dt
-        jacobian[Y, V] = sin * dt
-        jacobian[THETA, OMEGA] = dt
-        jacobian[OMEGA, OMEGA] = decay
-
-        # ускорения как белый шум: продольное проходит в v и позицию вдоль
-        # курса, угловое -- в omega и theta
-        noise_input = np.array(
-            [
-                [0.5 * cos * dt ** 2, 0.0],
-                [0.5 * sin * dt ** 2, 0.0],
-                [0.0, 0.5 * dt ** 2],
-                [dt, 0.0],
-                [0.0, dt],
-            ]
-        )
-        noise = noise_input @ np.diag(
-            [config.accel_std ** 2, config.yaw_accel_std ** 2]
-        ) @ noise_input.T
-        noise[X, X] += config.position_std ** 2 * dt
-        noise[Y, Y] += config.position_std ** 2 * dt
-
-        self.cov = jacobian @ self.cov @ jacobian.T + noise
-
-        # Пока робот стоит, дисперсия курса растёт без предела. Больше pi^2
-        # она ничего не значит, а линеаризация с ней при первом же движении
-        # дёргала бы курс скачками.
-        if self.cov[THETA, THETA] > math.pi ** 2:
-            scale = math.pi / math.sqrt(self.cov[THETA, THETA])
-            self.cov[THETA, :] *= scale
-            self.cov[:, THETA] *= scale
+        if not self._moving():
+            # курс не обновляется, и его скорость поворота сходит на нет
+            self.omega *= math.exp(-dt / self.config.omega_time)
 
     def distance(self, detection) -> float:
         """Квадрат расстояния Махаланобиса от прогноза до детекции"""
-        innovation = detection.center - self.state[:2]
-        covariance = self.cov[:2, :2] + np.eye(2) * detection.sigma ** 2
+        innovation = detection.center - self.mean[:2]
+        covariance = self.covariance[:2, :2] + np.eye(2) * detection.sigma ** 2
         return float(innovation @ np.linalg.solve(covariance, innovation))
 
     def update(self, time: float, detection):
@@ -186,28 +184,52 @@ class Track:
         :detection segmentation.Detection
         """
         noise = np.eye(2) * detection.sigma ** 2
-        innovation = detection.center - self.state[:2]
-        covariance = self.cov[:2, :2] + noise
-        gain = self.cov[:, :2] @ np.linalg.inv(covariance)
+        innovation = detection.center - self.mean[:2]
+        covariance = self.covariance[:2, :2] + noise
+        gain = self.covariance[:, :2] @ np.linalg.inv(covariance)
 
-        self.state = self.state + gain @ innovation
-        self.state[THETA] = wrap(self.state[THETA])
-
+        self.mean = self.mean + gain @ innovation
         # форма Джозефа: ковариация остаётся симметричной и положительной
-        correction = np.eye(5)
+        correction = np.eye(4)
         correction[:, :2] -= gain
-        self.cov = correction @ self.cov @ correction.T + gain @ noise @ gain.T
+        self.covariance = (
+            correction @ self.covariance @ correction.T + gain @ noise @ gain.T
+        )
 
-        if self.heading_known and self.state[V] < -self.config.v_flip:
-            self._flip()
-
-        self._remember(time, detection)
-        self._seed_heading()
+        self._update_heading(time)
 
         self.hits += 1
         self.strong_hits += int(detection.strong)
         self.last_update = time
         self._measure_travel(detection)
+
+    def _moving(self) -> bool:
+        """Скорость достоверно отлична от нуля"""
+        speed = self.speed
+        if speed < self.config.heading_speed:
+            return False
+        along = self.mean[2:] / speed
+        speed_std = math.sqrt(max(float(along @ self.covariance[2:, 2:] @ along), 0.0))
+        return speed > 2.0 * speed_std
+
+    def _update_heading(self, time: float):
+        """Курс по направлению скорости, omega -- по его изменению
+
+        Робот считается едущим вперёд: задним ходом курс развернётся на pi.
+        """
+        if not self._moving():
+            return
+
+        heading = math.atan2(self.mean[3], self.mean[2])
+        dt = time - self.heading_time
+        if self.heading_known and dt > 0.0:
+            rate = wrap(heading - self.heading) / dt
+            blend = dt / (self.config.omega_time + dt)
+            self.omega += blend * (rate - self.omega)
+
+        self.heading = heading
+        self.heading_known = True
+        self.heading_time = time
 
     def _measure_travel(self, detection):
         """Обновить наибольший сдвиг от первой надёжной детекции"""
@@ -220,57 +242,6 @@ class Track:
             return
 
         self.travel = max(self.travel, float(np.linalg.norm(center - self.origin)))
-
-    def _flip(self):
-        """Развернуть курс на pi со сменой знака скорости
-
-        Движение при этом не меняется: (theta + pi, -v) описывает ту же
-        траекторию, что и (theta, v).
-        """
-        self.state[THETA] = wrap(self.state[THETA] + math.pi)
-        self.state[V] = -self.state[V]
-        self.cov[V, :] *= -1.0
-        self.cov[:, V] *= -1.0
-
-    def _remember(self, time: float, detection):
-        """Запомнить надёжную детекцию для оценки курса по перемещению"""
-        if detection.strong:
-            self.history.append((time, np.array(detection.center, dtype=float)))
-
-        while self.history and time - self.history[0][0] > self.config.seed_window:
-            self.history.popleft()
-
-    def _seed_heading(self):
-        """Взять курс по перемещению центра, если фильтр его не видит
-
-        В EKF курс поправляется только через скорость: при v около нуля
-        якобиан позиции по theta нулевой, и тронувшийся вбок робот фильтр
-        курсом не догонит. Поэтому на старте и после остановки курс задаётся
-        прямо по перемещению за последнее окно.
-        """
-        if len(self.history) < 2:
-            return
-
-        (t0, p0), (t1, p1) = self.history[0], self.history[-1]
-        shift = p1 - p0
-        distance = float(np.linalg.norm(shift))
-        span = t1 - t0
-        if distance < self.config.seed_distance or span <= 0.0:
-            return
-
-        speed = distance / span
-        if self.heading_known and abs(self.state[V]) >= 0.5 * speed:
-            return
-
-        self.state[THETA] = math.atan2(shift[1], shift[0])
-        self.state[V] = speed
-        self.state[OMEGA] = 0.0
-        self.cov[THETA:, :] = 0.0
-        self.cov[:, THETA:] = 0.0
-        self.cov[THETA, THETA] = self.config.seed_heading_std ** 2
-        self.cov[V, V] = (0.5 * speed) ** 2
-        self.cov[OMEGA, OMEGA] = 1.0
-        self.heading_known = True
 
 
 class Tracker:
@@ -342,7 +313,7 @@ class Tracker:
 
         Выбранный трек держится, пока жив, -- чтобы оценка не прыгала между
         треками. Сменить его может только сдвинувшийся трек, если сам
-        выбранный ни разу не двигался: коробки не ездят.
+        выбранный ни разу не двигался: мебель не ездит.
         """
         confirmed = [track for track in self.tracks if track.confirmed]
         if not confirmed:
