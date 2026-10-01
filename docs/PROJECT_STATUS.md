@@ -2,6 +2,45 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — continuous pursuit20 завершена; страж требует улучшения
+
+Предыдущий turn — progress: геометрический просвет/slow capture trace разобраны,
+артефакты и378bc71 сохранены, PID3288247 оставался live. Текущий turn завершил
+наблюдение той же серии224501Z: exec87168 terminal0,20completed/0failed.
+Полная таблица/агрегаты: [DUEL_EVALUATION_20261002_PURSUIT.md](DUEL_EVALUATION_20261002_PURSUIT.md).
+Source813b515/image44ef9955; SHA maps одинаковы20/20, оба робота в одном
+referee window,60 pair gate audits pass,20 isolated_runtime_cleaned=true.
+19 goals/1 capture(seed17,14.8s),0 contacts/timeouts/pose jumps.
+Speedmean/min E .366/.323 G .404/.302; below.3=0/20each.
+GlobalRMSmean .068/.040; angularaccelRMS .804/1.012; RTF.545… .623.
+По скоростям текущий порог выполнен, частота поимок5% показывает слабую роль;
+не подгонять seeds или откатывать корректную семантику ради процента побед.
+
+Дополнительная readonly costmap проверка seeds13/14 завершилась terminal0
+(exec2670):54 snapshots,1036 cost254 cells map-free, но0 дальше.1m от SDFстен.
+Ghost-peer гипотеза не подтверждена. Cost253 — inflation inscribed, не lethal.
+Первый standalone observer имел другой DDS config и не видел publishers,
+остановлен только этот observer; второй работал с теми же network/ipc/DDS
+как оцениваемый стек. Нагрузку измерения для seeds13/14 отмечать при RTF
+сравнениях. observer.py/frames/summary сохранены в директории серии.
+Очищенные точки/masking/safety не ослаблялись.
+
+ETA lowerbound: PURSUE в seed1 route15cells требует >=2.10m против прямой
+1.56m, разница>=1.08s при ownmax.5; actual tracked error .074m.
+Seed5 extreme1.99s включал observed error .315m и vel-.81 при measuredpeer
+speed.502, поэтому этот случай не считать чистым доказательством ETA модели.
+RequestedCAPTURE pose wallclearance<.33 только18/342cycles, target snapping
+в normal maze0cycles; эти частные случаи не объясняют все19 неудач.
+
+Следующий отдельный цикл: moving_capture_goal использует distance/ownmax
+(до центра) и резко обнуляет lead при distance<=.45. Например transverse
+velocity.5/ownmax.5: при.451 offset.451m, при.449 offset0. Это математическая
+несогласованность ближнего перехвата. Проверить remaining distance до.45,
+непрерывно затухающую leadTime и прежний radial/head-on blend. Скорости,
+Nav2 параметры, globalA*, CPP detector и collision checks не менять.
+Сначала регрессии/Compose/build, затем matched3seeds0–2, затем20 есликандидат
+удачен; при слабой роли продолжать дальнейшие итерации. Current goal active.
+
 ## 02.10.2026 — полная20:6 готовы; геометрический просвет и разбор отхода
 
 Предыдущий turn — progress: добавлен offline straight-motion report638156c,
