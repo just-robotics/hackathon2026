@@ -287,6 +287,16 @@ private:
       publish_stop("BAD_FRAME"); return;
     }
     try {
+      // Travel may use either end of the robot; capture must face the prey.
+      // Update the stock critic before computing, and only on mode changes.
+      const bool capture_heading = role_ == "guardian" && intent_->behavior == 7;
+      if (get_parameter("MPPI.GoalAngleCritic.enabled").as_bool() != capture_heading) {
+        const auto changed = set_parameters_atomically({
+          rclcpp::Parameter("MPPI.GoalAngleCritic.enabled", capture_heading)});
+        if (!changed.successful) {
+          publish_stop("NO_LOCAL_PATH", "capture_heading_parameter_failure"); return;
+        }
+      }
       geometry_msgs::msg::PoseStamped pose;
       pose.header = own_->header; pose.pose = own_->pose.pose;
       auto cmd = controller_.computeVelocityCommands(pose, own_->twist.twist, &goal_checker_);
@@ -320,7 +330,8 @@ private:
       std::ostringstream json;
       json << "{\"backend\":\"nav2_cpp\",\"result\":\"ok\",\"recovery\":"
         << (recovery ? "true" : "false") << ",\"first_speed_mps\":" << cmd.twist.linear.x
-        << ",\"first_omega_radps\":" << cmd.twist.angular.z << "}";
+        << ",\"first_omega_radps\":" << cmd.twist.angular.z
+        << ",\"capture_heading_required\":" << (capture_heading ? "true" : "false") << "}";
       std_msgs::msg::String diag; diag.data = json.str(); diag_pub_->publish(diag);
     } catch (const std::exception & error) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "MPPI: %s", error.what());

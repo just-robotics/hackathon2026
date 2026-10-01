@@ -186,9 +186,10 @@ def validate_runtime_metadata(runtime, env):
         if env["HSL_LOCAL_BACKEND"] == "nav2_cpp":
             checks["native_mppi"] = {
                 "role": role, "random_seed": seed,
-                "MPPI.PathAngleCritic.forward_preference": role == "guardian",
-                "MPPI.PreferForwardCritic.enabled": True,
-                "MPPI.GoalAngleCritic.enabled": role == "guardian"}
+                "MPPI.PathAngleCritic.forward_preference": False,
+                "MPPI.PreferForwardCritic.enabled": False,
+                "MPPI.GoalAngleCritic.enabled": False,
+                "MPPI.vx_max": 0.5, "MPPI.vx_min": -0.5}
         for node, values in checks.items():
             for name, value in values.items():
                 actual = parameter_value(params[prefix + node], name)

@@ -172,6 +172,7 @@ def main():
             "mppi_selected_progress_m": diagnostics.get("selected_progress_m"),
             "mppi_result": diagnostics.get("result"),
             "mppi_recovery": diagnostics.get("recovery"),
+            "mppi_capture_heading_required": diagnostics.get("capture_heading_required"),
             "mppi_rejected_x_m": diagnostics.get("rejected_x_m"),
             "mppi_rejected_y_m": diagnostics.get("rejected_y_m"),
             "mppi_rejected_cost": diagnostics.get("rejected_cost"),

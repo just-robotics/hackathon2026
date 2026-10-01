@@ -30,17 +30,11 @@ def nodes(context):
         result.append(Node(package="hsl_nav2_control", executable="native_mppi",
                            namespace=values["robot_namespace"], parameters=[config, {
                                "role": values["role"],
-                               # Capture requires the guardian to face its prey;
-                               # explorer evasion can follow a route in reverse.
-                               "MPPI.PathAngleCritic.forward_preference":
-                                   values["role"] == "guardian",
-                               # Prefer sustained forward travel without banning
-                               # a reverse escape when its other costs are lower.
-                               "MPPI.PreferForwardCritic.enabled": True,
-                               # Explorer goals specify position/contact only;
-                               # a reverse departure has no required terminal yaw.
-                               "MPPI.GoalAngleCritic.enabled":
-                                   values["role"] == "guardian",
+                               # Both travel directions are equal. Native MPPI
+                               # enables endpoint yaw only for guardian capture.
+                               "MPPI.PathAngleCritic.forward_preference": False,
+                               "MPPI.PreferForwardCritic.enabled": False,
+                               "MPPI.GoalAngleCritic.enabled": False,
                                # A moving capture goal needs stronger positional
                                # tracking near the endpoint; keep explorer tuning.
                                "MPPI.GoalCritic.cost_weight":

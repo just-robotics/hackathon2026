@@ -1,5 +1,14 @@
 # Инструкции для агентов
 
+Актуальный эксперимент двунаправленного MPPI: одинаковый штатный диапазон
+`[-0.5, 0.5]` для обеих ролей, `PreferForwardCritic.enabled=false`,
+`PathAngleCritic.forward_preference=false`. `GoalAngleCritic.enabled=false`
+при старте; C++-обёртка динамически включает его только у стража в CAPTURE.
+Диагностика успешного управления содержит `capture_heading_required`;
+trace записывает `mppi_capture_heading_required`. Подтвердить переключение,
+поимку передом, плавность и отсутствие контактов реальными дуэлями.
+Не переносить старые доказательства диапазона−0.35 на новый эксперимент.
+
 ## О проекте
 
 hackathon2026 — стек для робототехнического хакатона: Autoware / ROS 2 Humble и симуляция мобильного робота Kobuki в Gazebo Classic 11. Сборка и запуск выполняются в Docker через локальную CLI-команду helm. Цель, регламентные ограничения и инвентаризация модулей описаны в [PROJECT_GOAL.md](PROJECT_GOAL.md), первоисточник — [регламент HSL26](<Регламент HSL26 - v06092026.pdf>). Текущее состояние работ и проверок ведётся в [PROJECT_STATUS.md](PROJECT_STATUS.md). Границы адаптации Nav2 — в [NAV2_MPPI_ADAPTATION.md](NAV2_MPPI_ADAPTATION.md).

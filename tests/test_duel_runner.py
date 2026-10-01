@@ -45,15 +45,20 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
         params[prefix + "hsl_mpc_gate"] = {"require_match_active": True}
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,
-            "MPPI": {"PathAngleCritic": {"forward_preference": role == "guardian"},
-                     "PreferForwardCritic": {"enabled": True},
-                     "GoalAngleCritic": {"enabled": role == "guardian"}}}
+            "MPPI": {"PathAngleCritic": {"forward_preference": False},
+                     "PreferForwardCritic": {"enabled": False},
+                     "GoalAngleCritic": {"enabled": False},
+                     "vx_max": 0.5, "vx_min": -0.5}}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
-    params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = False
+    params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = True
     with pytest.raises(RuntimeError, match="PreferForwardCritic.enabled"):
         validate_runtime_metadata(runtime, env)
-    params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = True
+    params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = False
+    params["/native_mppi"]["MPPI"]["vx_min"] = -0.35
+    with pytest.raises(RuntimeError, match="vx_min"):
+        validate_runtime_metadata(runtime, env)
+    params["/native_mppi"]["MPPI"]["vx_min"] = -0.5
     referee["run_id"] = "manual"
     with pytest.raises(RuntimeError, match="referee run_id"):
         validate_runtime_metadata(runtime, env)
