@@ -1,0 +1,9 @@
+<library path="jr_rviz_plugins">
+  <class name="jr_rviz_plugins/DuelStatus"
+         type="jr_rviz_plugins::DuelStatusPanel"
+         base_class_type="rviz_common::Panel">
+    <description>
+      Статус соревнования: исход, расстояния до зоны и между роботами.
+    </description>
+  </class>
+</library>

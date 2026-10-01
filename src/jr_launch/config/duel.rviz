@@ -1,0 +1,135 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Карта1
+        - /Роботы1
+      Splitter Ratio: 0.5
+    Tree Height: 500
+  # Панель из jr_rviz_plugins: исход, расстояния до зоны и между роботами.
+  - Class: jr_rviz_plugins/DuelStatus
+    Name: DuelStatus
+    Topic: /duel/status
+
+Visualization Manager:
+  Class: ""
+  Global Options:
+    # Общий корень обоих роботов: карта и зона публикуются в нём же.
+    Fixed Frame: world
+    Background Color: 48; 48; 48
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Сетка
+      Enabled: true
+      Color: 160; 160; 164
+      Cell Size: 1
+      Plane Cell Count: 10
+
+    - Class: rviz_default_plugins/Map
+      Name: Карта
+      Enabled: true
+      Topic:
+        Value: /map
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: map
+      Alpha: 0.7
+
+    # Потенциальное поле атакующего. Схема costmap читается нагляднее серой:
+    # синее -- низкий потенциал, куда робот стремится, красное -- стены и
+    # соперник. По умолчанию выключено, так как нода считает сетку только
+    # при наличии подписчиков.
+    - Class: rviz_default_plugins/Map
+      Name: Поле атакующего
+      Enabled: false
+      Topic:
+        Value: /attacker/planning/potential_field
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.6
+
+    - Class: rviz_default_plugins/Map
+      Name: Поле защитника
+      Enabled: false
+      Topic:
+        Value: /defender/planning/potential_field
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.6
+
+    - Class: rviz_default_plugins/RobotModel
+      Name: Роботы
+      Enabled: true
+      Description Topic:
+        Value: /attacker/robot_description
+      Alpha: 1
+
+    - Class: rviz_default_plugins/RobotModel
+      Name: Защитник
+      Enabled: true
+      Description Topic:
+        Value: /defender/robot_description
+      Alpha: 1
+
+    - Class: rviz_default_plugins/Path
+      Name: Путь атакующего
+      Enabled: true
+      Topic:
+        Value: /attacker/planning/trajectory
+        Reliability Policy: Reliable
+      Color: 211; 47; 47
+      Line Style: Lines
+
+    - Class: rviz_default_plugins/Path
+      Name: Путь защитника
+      Enabled: true
+      Topic:
+        Value: /defender/planning/trajectory
+        Reliability Policy: Reliable
+      Color: 25; 118; 210
+      Line Style: Lines
+
+    # Контур синей зоны от судьи.
+    - Class: rviz_default_plugins/Marker
+      Name: Синяя зона
+      Enabled: true
+      Topic:
+        Value: /duel/zone
+        Reliability Policy: Reliable
+
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: false
+      Show Names: true
+      Marker Scale: 0.4
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+
+  Views:
+    Current:
+      # Вид сверху: площадка totami 8x8 целиком, север вверх.
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Сверху
+      Target Frame: world
+      Scale: 70
+      X: 0
+      Y: 0
+      Angle: 0
+    Saved: ~
+
+Window Geometry:
+  Displays:
+    collapsed: false
+  DuelStatus:
+    collapsed: false
+  Height: 900
+  Width: 1400
