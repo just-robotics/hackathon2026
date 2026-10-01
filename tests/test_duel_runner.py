@@ -43,7 +43,10 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
             "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]), "require_match_active": True}
         params[prefix + "decision_manager"] = {"role": role}
         params[prefix + "hsl_mpc_gate"] = {"require_match_active": True}
-        params[prefix + "native_mppi"] = {"role": role, "random_seed": seed}
+        params[prefix + "native_mppi"] = {
+            "role": role, "random_seed": seed,
+            "MPPI.PathAngleCritic.forward_preference": role == "guardian",
+            "MPPI.PreferForwardCritic.enabled": role == "guardian"}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
     referee["run_id"] = "manual"

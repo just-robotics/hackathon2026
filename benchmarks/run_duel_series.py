@@ -165,7 +165,10 @@ def validate_runtime_metadata(runtime, env):
                   "decision_manager": {"role": role},
                   "hsl_mpc_gate": {"require_match_active": True}}
         if env["HSL_LOCAL_BACKEND"] == "nav2_cpp":
-            checks["native_mppi"] = {"role": role, "random_seed": seed}
+            checks["native_mppi"] = {
+                "role": role, "random_seed": seed,
+                "MPPI.PathAngleCritic.forward_preference": role == "guardian",
+                "MPPI.PreferForwardCritic.enabled": role == "guardian"}
         for node, values in checks.items():
             for name, value in values.items():
                 actual = params[prefix + node].get(name)

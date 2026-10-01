@@ -138,3 +138,8 @@ Referee публикует общее `/match/active` (Bool, transient local,10�
 при разрешении только первому роботу, затем выполняет обычный start_match.
 Пассивный audit требует общий active=false, ровно одну permission в partial
 фазе,10 нулевых команд и одного издателя у каждого. Он не публикует команды.
+
+Опыт critic направления: native explorer имеет forward_preference=false и
+PreferForwardCritic.enabled=false, guardian обаtrue. Это штатные параметры
+Nav2; диапазоны скорости/полный swept-check сохранены. Сравнивать с общей
+границей стартаf6ede84, а не выдавать единичный результат за стабилизацию.

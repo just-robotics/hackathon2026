@@ -34,6 +34,11 @@ def nodes(context):
                                # explorer evasion can follow a route in reverse.
                                "MPPI.PathAngleCritic.forward_preference":
                                    values["role"] == "guardian",
+                               # A reverse escape must not pay an unrelated
+                               # forward-only preference while angle scoring
+                               # explicitly permits backwards travel.
+                               "MPPI.PreferForwardCritic.enabled":
+                                   values["role"] == "guardian",
                                "random_seed": int(values["random_seed"])}], output="screen"))
     for process in list(result):
         result.append(RegisterEventHandler(OnProcessExit(
