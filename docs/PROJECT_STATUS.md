@@ -2,6 +2,43 @@
 
 Обновлено: 2026-10-01. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 01.10.2026 — проверка очищенного единственного MPPI
+
+Удаление Python legacy закоммичено0c8ad5a; финальный образ
+`sha256:dfc69f8a5db3865ac5f132bd37afd23765506a9e5b40f732dccb1e46729e7348`.
+Команда повторения: python3 benchmarks/run_duel_series.py
+--isolated-project hsl-eval --ros-domain-id 73 --gazebo-port 11418 --runs 3
+--start-seed 12 --active-s 90 --trace --audit-start.
+`results/isolated/hsl-eval/series-20261001T171210Z/`: все3 завершены,
+source/runtime/common-start/after-finish audits прошли, один final publisher,
+параметры native_mppi и native_costmap обоих роботов совпадают с baseline.
+
+| Seed | Исход | sim s | Explorer м/с | Guardian м/с | Контакты E/G |
+| --- | --- | ---: | ---: | ---: | --- |
+| 12 | guardian_capture | 8.2 | 0.256 | 0.318 | 0/0 |
+| 13 | guardian_capture | 19.9 | 0.355 | 0.387 | 0/0 |
+| 14 | explorer_goal | 20.3 | 0.376 | 0.373 | 0/0 |
+
+Средние E/G0.329/0.359, минимумы0.256/0.318; ниже0.2 —0/3 обеих,
+ниже0.3 —1/3 explorer и0/3 guardian. Global lateral RMS E0.057/0.078/0.061м,
+G0.024/0.046/0.046м; средние0.065/0.039. Angular accel RMS E1.095/0.969/0.990,
+G0.815/1.152/1.160рад/с²; stop-go средние2.3/0.3. RTF0.611/0.589/0.581.
+До очистки —2 цели/1 поимка, скорости0.359/0.386, RMS0.072/0.047,
+angular accel0.951/0.972. Изменённые исходы и длительности не доказывают
+улучшение/ухудшение алгоритма на такой малой серии; ROS/Gazebo асинхронны.
+Очистка подтверждена сборкой,131 тестом, installed-launch audit и фактическими
+целями/поимками без контактов. Штатный C++/A*/decision не менялись; dead Python
+ветки действительно отсутствуют. Не возвращать их для объяснения вариативности.
+
+После серии удалён только hsl-eval duel; ручной мир ранее закрыт по явному
+ответу пользователя. Обычный запуск готов: helm start_match из YAML.
+Остаются заготовки LIO-SAM/Livox/real sensing/perception и интерфейсы данных;
+benchmark/probe/trace/report/arena monitor сохранены как инструменты проверки.
+Следующий шаг цели — серия ≥20 с текущим YAML, fixed explorer first,
+предварительно seeds0–19,360sim s, затем физический тест неизвестного на карте
+препятствия и разбор слабых заездов. Порог0.3 у каждого и итоговая устойчивость
+ещё не достигнуты; цель остаётся активной.
+
 ## 01.10.2026 — baseline после удаления MPC и очистка Python legacy
 
 Пользователь разрешил закрыть ручной мир; `helm clean duel` завершился,
