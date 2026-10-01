@@ -2,6 +2,41 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — завершена новая20-серия, следующий опыт low fixture
+
+Предыдущий turn — progress: проверена граница арены/построены графики,
+продолжался тот же process3047475. Серия series-20261001T210408Z теперь
+terminal0 (exec1280 завершён),20 completed/0 failed, seeds0–19 заранее,
+360sim лимит до первого события, fixed explorer first, источник2b48e1b,
+образc5129af0a4e078d5f5e8b7e4b6df7ea3ff83739178de2333d41dac32619d1e9a.
+Полная таблица и условия — [DUEL_EVALUATION_20261002.md](DUEL_EVALUATION_20261002.md).
+
+14 explorer_goal/6 guardian_capture/0timeouts, контакты0/0. Средняя
+индивидуальных средних скоростей E/G0.3596/0.401, минимум0.297/0.343м/с.
+Ниже0.2 —0/20 обеих ролей, ниже0.3 —1/20 E(seed8),0/20 G.
+Global lateral RMS mean0.0712/0.0401м; angular acceleration RMS mean
+0.8501/1.0209рад/с²; planner availability mean0.9866/0.9767,
+moving fraction mean0.9590/0.9731. RTF0.536…0.620.
+
+Все60 парных gate-аудитов before/partial/after прошли, final publisher
+единственный hsl_motion_gate каждого namespace; все20 private runtime
+очищены. Docker ps после terminal показывает только init services обоих
+проектов. Verified source SHA одинаков во всех20 runtime, image ID один.
+Агрегат evaluation-summary.json находится в каталоге серии.
+Эти результаты не закрывают всю цель: слабее страж,0.3 в каждом матче
+ещё не достигнуто, низкие unknown объекты/другие старты/GUI не подтверждены.
+
+Следующий отдельный опыт без изменения навигации:
+`python3 benchmarks/run_duel_series.py --isolated-project hsl-eval
+--ros-domain-id 73 --gazebo-port 11418 --runs 1 --start-seed 0
+--active-s 90 --trace --audit-start --unknown-obstacle
+--obstacle-height 0.15 --record-detector-scans`.
+После него анализировать fixture seen/detector tracks/actual clearance/
+route/contacts/outcome и сохранённые clouds. Затем отдельное согласование
+own pursuer_speed через motion.max_speed (сейчас Compose не передаёт его
+decision manager). Не менять знания о скорости соперника и не подгонять
+результат к50/50. Сохранён новый checkpoint полной ordinary20-серии.
+
 ## 02.10.2026 — границы арены и промежуточные графики
 
 Предыдущий goal-turn — progress/verified wait: проверены шлюзы и forward-only
