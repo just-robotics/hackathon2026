@@ -1,13 +1,12 @@
 # Инструкции для агентов
 
-Актуальный эксперимент двунаправленного MPPI: одинаковый штатный диапазон
-`[-0.5, 0.5]` для обеих ролей, `PreferForwardCritic.enabled=false`,
-`PathAngleCritic.forward_preference=false`. `GoalAngleCritic.enabled=false`
-при старте; C++-обёртка динамически включает его только у стража в CAPTURE.
-Диагностика успешного управления содержит `capture_heading_required`;
-trace записывает `mppi_capture_heading_required`. Подтвердить переключение,
-поимку передом, плавность и отсутствие контактов реальными дуэлями.
-Не переносить старые доказательства диапазона−0.35 на новый эксперимент.
+Актуальные направления движения: `motion.allow_reverse` действует только
+на исследователя (`[-max_speed, max_speed]` при true), независимо от namespace.
+Страж всегда имеет `[0, max_speed]` и `PathAngleCritic.forward_preference=true`.
+У исследователя forward_preference=!allow_reverse. PreferForward выключен.
+GoalAngle включается C++-обёрткой только у стража в CAPTURE.
+Предыдущая 20-серия относится к двунаправленным обеим ролям; её результаты
+не подтверждают новые параметры. Проверять реальные команды обоих роботов.
 
 ## О проекте
 
@@ -111,8 +110,9 @@ cmd_vel publisher и пропускает только checked MPPI statuses п�
 Больше нет hsl_cc_mpc/hsl_lat_mpc, mpc_path/mpc_cmd_vel/long_cmd или параметров
 control_mode/mpc_path_source. Backend switch удалён; всегда native.
 
-По умолчанию Native ±0,5м/с; параметры motion в YAML переопределяют пределы.
-PreferForward=false; PathAngle.forward_preference=!allow_reverse.
+По умолчанию исследователь ±0,5м/с при разрешённом reverse, страж0…0,5м/с.
+Параметры motion переопределяют пределы; allow_reverse касается только explorer.
+PreferForward=false; PathAngle.forward_preference=true у guardian.
 GoalAngle=false при старте и динамически true только у guardian/CAPTURE.
 Глобальный planner сохраняет переднюю capture yaw. Trace содержит
 mppi_capture_heading_required и measured_omega_radps. Подтверждать команды,
@@ -144,3 +144,22 @@ python3 benchmarks/run_duel_series.py --isolated-project hsl-eval --ros-domain-i
 RTF: учитывайте её при сравнении. Не используйте тот же domain/порт для
 других экспериментов одновременно. После серии удаляйте только её проект:
 `COMPOSE_PROJECT_NAME=hsl-eval ROS_DOMAIN_ID=73 GAZEBO_MASTER_URI=http://127.0.0.1:11418 helm clean duel`.
+
+Изолированный runner после каждого заезда очищает только подтверждённый
+свой runtime, чтобы оставшийся Gazebo не снижал RTF ручного запуска.
+Не проводить измерения RTF с параллельно работающим другим миром.
+
+## Детектор соперника
+
+`hsl_sim_adapter/visibility.py` вычитает известную статическую карту из
+собственного LiDAR, кластеризует оставшиеся XY-точки и сдвигает наблюдаемую
+поверхность на предполагаемый радиус Kobuki0.178м. Это геометрическая
+эвристика, не нейросеть и не распознавание формы/класса. Предыдущая позиция
+используется для связи кластеров, скорость — разность наблюдений с EMA0.5.
+Ground truth соперника используется только referee/метриками.
+Физическая проверка неизвестным ящиком0.6×0.6×0.8м выявила ложные треки
+обеих ролей. Неизвестный статический предмет сейчас может быть ошибочно
+выбран соперником и исключён из guardian costmap как цель поимки. Это
+открытый дефект: перепланирование вокруг коробки само по себе не доказывает
+правильность детектора. TF облака берётся последним, не на stamp скана;
+вклад этого решения в ошибку ещё не измерен.

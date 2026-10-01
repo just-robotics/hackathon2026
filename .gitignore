@@ -9,3 +9,4 @@ results/*.json
 results/**/*.json
 results/series-*/
 results/isolated/
+results/manual-*/

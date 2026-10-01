@@ -198,14 +198,15 @@ def validate_runtime_metadata(runtime, env):
                       **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
                           "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
                   "hsl_motion_gate": {"require_match_active": True}}
+        allow_reverse = role == "explorer" and env.get("HSL_ALLOW_REVERSE", "true") == "true"
         checks["native_mppi"] = {
             "role": role, "random_seed": seed,
-            "MPPI.PathAngleCritic.forward_preference": env.get("HSL_ALLOW_REVERSE", "true") != "true",
+            "MPPI.PathAngleCritic.forward_preference": not allow_reverse,
             "MPPI.PreferForwardCritic.enabled": False,
             "MPPI.GoalAngleCritic.enabled": False,
             "MPPI.wz_max": float(env.get("HSL_MAX_ANGULAR_SPEED", "1.5")),
             "MPPI.vx_max": float(env.get("HSL_MAX_SPEED", "0.5")),
-            "MPPI.vx_min": -float(env.get("HSL_MAX_SPEED", "0.5")) if env.get("HSL_ALLOW_REVERSE", "true") == "true" else 0.0}
+            "MPPI.vx_min": -float(env.get("HSL_MAX_SPEED", "0.5")) if allow_reverse else 0.0}
         for node, values in checks.items():
             for name, value in values.items():
                 actual = parameter_value(params[prefix + node], name)
@@ -308,6 +309,41 @@ def finish_traces(traces):
             output.close()
 
 
+def start_obstacle_trial(series_dir, index, run_id, config, env):
+    command(["docker", "cp", str(ROOT / "benchmarks" / "unknown_obstacle_trial.py"),
+             "docker-hsl-adapter-1:/tmp/hsl_unknown_obstacle_trial.py"], env, timeout=15)
+    remote = f"/tmp/hsl_obstacle_{index:02d}.json"
+    log = (series_dir / f"{index:02d}-obstacle-node.log").open("w")
+    origin = config["simulation"]["map_origin_world"]
+    bounds = " ".join(str(value) for value in config["simulation"]["arena_bounds"])
+    script = ("source /autoware/install/setup.bash && python3 /tmp/hsl_unknown_obstacle_trial.py "
+              f"--run-id {run_id} --output {remote} --origin-x {origin[0]} "
+              f"--origin-y {origin[1]} --arena-bounds {bounds} --wall-seconds 1200")
+    process = subprocess.Popen(
+        ["docker", "exec", container_name("docker-hsl-adapter-1", env), "bash", "-lc", script],
+        cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+    time.sleep(2)
+    return process, log, remote
+
+
+def finish_obstacle_trial(trial, series_dir, index, env):
+    process, log, remote = trial
+    try:
+        process.wait(timeout=20)
+        destination = series_dir / f"{index:02d}-obstacle.json"
+        command(["docker", "cp", f"docker-hsl-adapter-1:{remote}", str(destination)],
+                env, timeout=15)
+        report = json.loads(destination.read_text())
+        if process.returncode or not report.get("fixture_spawned"):
+            raise RuntimeError("unmapped obstacle trial did not spawn the required fixture")
+        return {key: value for key, value in report.items()
+                if key not in ("samples", "original_route", "offline_alternative")}
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        log.close()
+
+
 def start_probes(series_dir, index, status, env):
     command(["docker", "cp", str(ROOT / "benchmarks" / "planner_probe.py"),
              "docker-hsl-adapter-1:/tmp/hsl_planner_probe.py"], env, timeout=15)
@@ -401,6 +437,8 @@ def main():
                         help="show RViz when DISPLAY is available; Gazebo remains headless")
     parser.add_argument("--audit-start", action="store_true",
                         help="verify both gates before and after granting only the first permission")
+    parser.add_argument("--unknown-obstacle", action="store_true",
+                        help="spawn an unmapped box on the first robot's actual route; requires isolation")
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
@@ -409,6 +447,8 @@ def main():
     parser.add_argument("--ros-domain-id", type=int, default=73)
     parser.add_argument("--gazebo-port", type=int, default=11418)
     args = parser.parse_args()
+    if args.unknown_obstacle and not args.isolated_project:
+        parser.error("unknown-obstacle requires an isolated evaluation project")
     config = load_config(args.config)
     global RESULTS
     if args.isolated_project:
@@ -459,6 +499,7 @@ def main():
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []
         probes = []
+        obstacle_trial = None
         runtime = None
         try:
             for attempt in range(3):
@@ -492,6 +533,8 @@ def main():
                          "std_srvs/srv/SetBool '{data: true}'"], env, timeout=30)
                 command(audit[:-1] + [audit[-1] + " --partial-start"], env, timeout=25,
                         log=series_dir / f"{index:02d}-gate-partial-start.json")
+            if args.unknown_obstacle:
+                obstacle_trial = start_obstacle_trial(series_dir, index, run_id, config, env)
             allow_motion(env, series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
                                   time.monotonic() + args.wall_timeout_s, runtime=runtime, env=env)
@@ -505,6 +548,13 @@ def main():
                         report.get("window_end_sim_s") != outcome.get("finished_at_sim_s")):
                     raise RuntimeError("robot metrics do not share the referee interval")
             record.update(outcome=outcome, robots=[first, second])
+            if args.audit_start:
+                command(audit, env, timeout=25,
+                        log=series_dir / f"{index:02d}-gate-after-finish.json")
+            if obstacle_trial:
+                trial = obstacle_trial
+                obstacle_trial = None
+                record["unmapped_obstacle"] = finish_obstacle_trial(trial, series_dir, index, env)
             if traces:
                 finish_traces(traces)
                 traces = []
@@ -527,10 +577,27 @@ def main():
                 runs, indent=2, sort_keys=True) + "\n")
             break
         finally:
+            if obstacle_trial:
+                process, output, _ = obstacle_trial
+                if process.poll() is None:
+                    process.terminate()
+                output.close()
             if traces:
                 finish_traces(traces)
             if probes:
                 finish_probes(probes)
+            # Completed private worlds still run physics and sensors. Release
+            # only the exact runtime we measured; never remove a replacement.
+            if args.isolated_project and runtime is not None:
+                try:
+                    if runtime_state(runtime, env) in ("running", "stopped"):
+                        command(["helm", "clean", "duel"], env, timeout=120,
+                                log=series_dir / f"{index:02d}-cleanup-after-run.log")
+                        record["isolated_runtime_cleaned"] = True
+                    else:
+                        record["cleanup_skipped"] = "runtime ownership unconfirmed"
+                except (RuntimeError, subprocess.TimeoutExpired) as error:
+                    record["cleanup_error"] = str(error)
         runs.append(record)
         (series_dir / "index.json").write_text(json.dumps(
             runs, indent=2, sort_keys=True) + "\n")

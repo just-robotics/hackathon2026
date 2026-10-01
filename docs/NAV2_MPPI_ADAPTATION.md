@@ -6,8 +6,10 @@ Python mppi.py, переключатель backend и отладочный follo
 Навигационные исходники C++/critics/swept-check при этой очистке не менялись.
 
 MPPI выдаёт прямую команду; hsl_motion_gate — единственный издатель final
-cmd_vel. По умолчанию диапазон±0.5м/с, без PreferForward; PathAngle учитывает
-оба направления. Пределы/reverse берутся из config/match.yaml. GoalAngle
+cmd_vel. У explorer диапазон±0.5м/с при allow_reverse=true,
+у guardian всегда0…0.5м/с. PathAngle.forward_preference=true у guardian,
+у explorer=!allow_reverse; PreferForward выключен. Пределы берутся из
+config/match.yaml, reverse применяется только к исследователю. GoalAngle
 включается динамически только guardian/CAPTURE. Весь перемещаемый footprint
 проверяется перед выдачей команды. Нет скрытого fallback.
 

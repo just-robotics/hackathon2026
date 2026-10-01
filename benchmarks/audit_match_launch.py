@@ -31,9 +31,10 @@ for reverse in (True, False):
         native = next(n for n in observed if n['executable'] == 'native_mppi')['parameters'][1]
         assert planner['max_speed'] == 0.7 and planner['role'] == role
         assert native['MPPI.vx_max'] == 0.7
-        assert native['MPPI.vx_min'] == (-0.7 if reverse else 0.0)
+        effective_reverse = reverse and role == 'explorer'
+        assert native['MPPI.vx_min'] == (-0.7 if effective_reverse else 0.0)
         assert native['MPPI.wz_max'] == 1.2
-        assert native['MPPI.PathAngleCritic.forward_preference'] == (not reverse)
+        assert native['MPPI.PathAngleCritic.forward_preference'] == (not effective_reverse)
         assert native['MPPI.GoalAngleCritic.enabled'] is False
         assert native['MPPI.GoalCritic.cost_weight'] == (15.0 if role == 'guardian' else 5.0)
         results.append(dict(role=role, allow_reverse=reverse, native_parameters=native))

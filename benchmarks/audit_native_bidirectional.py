@@ -4,6 +4,7 @@
 This checks commands and capture-mode switching, not physical duel performance.
 Run in the built image with ROS_DOMAIN_ID=73; no Gazebo or final cmd_vel publisher.
 """
+import argparse
 import json
 import math
 import os
@@ -15,6 +16,9 @@ import time
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--role", choices=("explorer", "guardian"), default="explorer")
+    role = parser.parse_args().role
     if os.environ.get("ROS_DOMAIN_ID") != "73":
         raise SystemExit("This synthetic audit requires isolated ROS_DOMAIN_ID=73")
     import rclpy
@@ -105,8 +109,10 @@ def main():
     process = subprocess.Popen([
         "ros2", "run", "hsl_nav2_control", "native_mppi", "--ros-args",
         "-r", "__ns:=" + ns, "--params-file", config,
-        "-p", "use_sim_time:=false", "-p", "role:=guardian",
-        "-p", "random_seed:=19", "-p", "MPPI.GoalCritic.cost_weight:=15.0"],
+        "-p", "use_sim_time:=false", "-p", "role:=" + role,
+        "-p", "MPPI.vx_min:=" + ("-0.5" if role == "explorer" else "0.0"),
+        "-p", "MPPI.PathAngleCritic.forward_preference:=" + ("false" if role == "explorer" else "true"),
+        "-p", "random_seed:=19", "-p", "MPPI.GoalCritic.cost_weight:=" + ("15.0" if role == "guardian" else "5.0")],
         stdout=log, stderr=subprocess.STDOUT)
     results = []
     try:
@@ -117,11 +123,14 @@ def main():
             rclpy.spin_once(node, timeout_sec=0.1)
         if not ready["value"]:
             raise TimeoutError("Native MPPI not ready on synthetic free map")
-        for name, behavior, x, y, yaw in [
+        stages = [
                 ("reverse", 6, -1.0, 0.0, 0.0),
                 ("forward", 6, 1.0, 0.0, 0.0),
                 ("capture_face_left", 7, 0.0, 0.08, math.pi / 2),
-                ("resume_reverse", 6, -1.0, 0.0, 0.0)]:
+                ("resume_reverse", 6, -1.0, 0.0, 0.0)]
+        for name, behavior, x, y, yaw in stages:
+            if role == "explorer" and behavior == 7:
+                continue
             state.update(behavior=behavior, x=x, y=y, yaw=yaw)
             # Exclude the transport/mode transition; retain the steady commands.
             warmup = time.monotonic() + 1.0
@@ -134,15 +143,17 @@ def main():
             ok = [d for d in diagnostics if d.get("result") == "ok"]
             median_v = statistics.median(v for v, _ in commands) if commands else 0.0
             median_w = statistics.median(w for _, w in commands) if commands else 0.0
-            capture = behavior == 7
+            capture = role == "guardian" and behavior == 7
             heading_ok = bool(ok) and all(d.get("capture_heading_required") == capture for d in ok)
             direction_ok = (median_w > 0.05 if capture else
-                            median_v < -0.05 if x < 0 else median_v > 0.05)
+                            (median_v < -0.05 if role == "explorer" else
+                             all(v >= -1e-6 for v, _ in commands) and any(abs(w) > 0.05 for _, w in commands))
+                            if x < 0 else median_v > 0.05)
             results.append(dict(stage=name, median_v_mps=median_v, median_w_radps=median_w,
                                 command_count=len(commands), ok_count=len(ok),
                                 heading_mode_ok=heading_ok,
                                 passed=heading_ok and direction_ok and len(commands) >= 10))
-        print(json.dumps({"synthetic_free_space_only": True, "domain_id": 73,
+        print(json.dumps({"synthetic_free_space_only": True, "domain_id": 73, "role": role,
                           "stages": results, "passed": all(r["passed"] for r in results)}, indent=2))
         return 0 if all(r["passed"] for r in results) else 1
     finally:

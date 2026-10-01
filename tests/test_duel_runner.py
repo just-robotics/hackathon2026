@@ -49,10 +49,10 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
         params[prefix + "hsl_motion_gate"] = {"require_match_active": True}
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,
-            "MPPI": {"PathAngleCritic": {"forward_preference": False},
+            "MPPI": {"PathAngleCritic": {"forward_preference": role == "guardian"},
                      "PreferForwardCritic": {"enabled": False},
                      "GoalAngleCritic": {"enabled": False},
-                     "wz_max": 1.5, "vx_max": 0.5, "vx_min": -0.5}}
+                     "wz_max": 1.5, "vx_max": 0.5, "vx_min": -0.5 if role == "explorer" else 0.0}}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
     params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = True
@@ -63,6 +63,10 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
     with pytest.raises(RuntimeError, match="vx_min"):
         validate_runtime_metadata(runtime, env)
     params["/native_mppi"]["MPPI"]["vx_min"] = -0.5
+    params["/opponent/native_mppi"]["MPPI"]["vx_min"] = -0.5
+    with pytest.raises(RuntimeError, match="vx_min"):
+        validate_runtime_metadata(runtime, env)
+    params["/opponent/native_mppi"]["MPPI"]["vx_min"] = 0.0
     referee["run_id"] = "manual"
     with pytest.raises(RuntimeError, match="referee run_id"):
         validate_runtime_metadata(runtime, env)

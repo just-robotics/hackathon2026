@@ -14,7 +14,7 @@ def nodes(context):
     values = {name: LaunchConfiguration(name).perform(context) for name in (
         "robot_namespace", "role", "random_seed", "arena_bounds", "allow_reverse", "max_speed", "max_angular_speed")}
     params = {"role": values["role"]}
-    allow_reverse = values["allow_reverse"].lower() == "true"
+    allow_reverse = values["role"] == "explorer" and values["allow_reverse"].lower() == "true"
     speed = float(values["max_speed"])
     angular = float(values["max_angular_speed"])
     params.update(max_speed=speed, use_sim_time=True, require_match_active=True, random_seed=int(values["random_seed"]),
@@ -27,8 +27,8 @@ def nodes(context):
     result.append(Node(package="hsl_nav2_control", executable="native_mppi",
                        namespace=values["robot_namespace"], parameters=[config, {
                            "role": values["role"],
-                           # Both travel directions are equal. Native MPPI
-                           # enables endpoint yaw only for guardian capture.
+                           # Only the explorer may reverse; guardian capture
+                           # always approaches with forward translation.
                            "MPPI.vx_max": speed, "MPPI.vx_min": -speed if allow_reverse else 0.0,
                            "MPPI.wz_max": angular,
                            "MPPI.PathAngleCritic.forward_preference": not allow_reverse,

@@ -158,9 +158,6 @@ def main():
                                if mppi and t - mppi[2] <= 0.5 else None),
             "mppi_omega_radps": (round(mppi[0].angular.z, 4)
                                  if mppi and t - mppi[2] <= 0.5 else None),
-            "mppi_valid_samples": diagnostics.get("valid_samples"),
-            "mppi_clearance_m": diagnostics.get("clearance_m"),
-            "mppi_selected_progress_m": diagnostics.get("selected_progress_m"),
             "mppi_result": diagnostics.get("result"),
             "mppi_recovery": diagnostics.get("recovery"),
             "mppi_capture_heading_required": diagnostics.get("capture_heading_required"),
