@@ -46,3 +46,29 @@ TEST(Detector, TallCompactObjectIsNotAStationaryRobot) {
   robot.push_back({1.322,1.0,0.55});
   EXPECT_TRUE(detect(robot,free_grid(),{0.5,1.0}));
 }
+
+TEST(Detector, DiameterChecksPhysicalSpanRatherThanBoundingBoxDiagonal) {
+  std::vector<Position> ring;
+  std::vector<Point> hits;
+  for (int i=0;i<36;++i) {
+    const double angle=i*2*std::acos(-1.0)/36;
+    ring.push_back({1.5+0.178*std::cos(angle),1.0+0.178*std::sin(angle)});
+    hits.push_back({ring.back().x,ring.back().y,0.3});
+  }
+  // Bounding-box diagonal is ~0.503 m, though physical diameter is 0.356 m.
+  EXPECT_TRUE(compatible_body_diameter(ring,0.476));
+  EXPECT_TRUE(detect(hits,free_grid(),{0.5,1.0}));
+  std::vector<Point> low_box;
+  for (int i=0;i<=12;++i) {low_box.push_back({1.3,0.7+i*0.05,0.12});}
+  EXPECT_FALSE(detect(low_box,free_grid(),{0.5,1.0}));
+  // A small visible fragment remains ambiguous, even if stationary.
+  low_box.resize(4);
+  EXPECT_TRUE(detect(low_box,free_grid(),{0.5,1.0}));
+}
+
+TEST(Detector, DiameterHandlesCollinearDuplicateAndRotatedPoints) {
+  EXPECT_TRUE(compatible_body_diameter({},0.476));
+  EXPECT_TRUE(compatible_body_diameter({{1,1},{1,1},{1,1}},0.476));
+  EXPECT_FALSE(compatible_body_diameter({{1,1},{1.3,1},{1.6,1}},0.476));
+  EXPECT_FALSE(compatible_body_diameter({{1,1},{1.2122,1.2122},{1.4243,1.4243}},0.476));
+}

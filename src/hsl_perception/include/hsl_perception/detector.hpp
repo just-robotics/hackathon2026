@@ -56,6 +56,29 @@ inline double median(std::vector<double> values) {
   const size_t middle=values.size()/2;
   return values.size()%2 ? values[middle] : (values[middle-1]+values[middle])/2;
 }
+// Pairwise diameter is rotation invariant; a bounding-box diagonal is not.
+inline bool compatible_body_diameter(std::vector<Position> points, double diameter) {
+  if (points.size()<2) {return true;}
+  std::sort(points.begin(),points.end(),[](Position a,Position b) {return a.x!=b.x ? a.x<b.x : a.y<b.y;});
+  const auto cross=[](Position a,Position b,Position c) {return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);};
+  std::vector<Position> hull;
+  for (const auto p:points) {
+    while (hull.size()>=2 && cross(hull[hull.size()-2],hull.back(),p)<=0) {hull.pop_back();}
+    hull.push_back(p);
+  }
+  const size_t lower=hull.size();
+  for (auto i=points.rbegin()+1;i!=points.rend();++i) {
+    while (hull.size()>lower && cross(hull[hull.size()-2],hull.back(),*i)<=0) {hull.pop_back();}
+    hull.push_back(*i);
+  }
+  for (size_t i=0;i<hull.size();++i) {
+    for (size_t j=i+1;j<hull.size();++j) {
+      if (distance(hull[i],hull[j])>diameter) {return false;}
+    }
+  }
+  return true;
+}
+
 // Compactness and a known body envelope reject incompatible objects.
 // This remains a geometric candidate detector, not a semantic classifier.
 inline std::optional<Detection> detect(const std::vector<Point> & scan,
@@ -120,7 +143,16 @@ inline std::optional<Detection> detect(const std::vector<Point> & scan,
       centres_y.push_back(p.y+(p.y-own.y)*scale);
     }
     const double extent=std::hypot(xmax-xmin,ymax-ymin);
-    if (extent>0.70) {continue;}
+    // Known body diameter 0.356 m plus two 3-sigma range-noise margins
+    // (simulated LiDAR sigma 0.02 m). This is a necessary size constraint,
+    // not proof of robot identity for a partially visible small object.
+    constexpr double max_diameter=2*body_radius+2*3*0.02;
+    if (xmax-xmin>max_diameter || ymax-ymin>max_diameter) {continue;}
+    if (extent>max_diameter) {
+      std::vector<Position> xy;
+      for (const auto index:cluster) {xy.push_back({points[index].x,points[index].y});}
+      if (!compatible_body_diameter(std::move(xy),max_diameter)) {continue;}
+    }
     const Position centre{median(centres_x),median(centres_y)};
     if (grid.clear_line(own,centre)) {detections.push_back({centre,cluster.size(),extent});}
   }

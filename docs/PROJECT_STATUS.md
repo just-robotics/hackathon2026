@@ -2,6 +2,40 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — кандидат проверки физического XY-диаметра
+
+Предыдущий turn — progress: low fixture подтвердил false association и
+Gmean0.143. Сохранён checkpoint/before-diameter-detector-20261002 на6810ba4.
+Все private worlds остановлены; начат новый отдельный цикл детектора.
+
+Гипотеза: bbox extent0.70 не связан с диаметром предоставленного корпуса.
+Новая необходимая проверка: XY pairwise diameter≤0.476 =2×0.178+2×3×0.02,
+где0.178 body radius Xacro,0.02 simulated range sigma. Это model/noise
+assumption, не сведения о карте/политике/скорости соперника. Быстрый bbox
+axis check, затем при необходимости convex hull и проверка пар вершин;
+размер bbox diagonal не подменяет physical diameter. Старый extent0.70
+guard удалён как избыточный. Высотный фильтр/association/центр без изменений.
+Небольшой видимый фрагмент коробки всё ещё неоднозначен, stationary robot
+не отвергается по отсутствию движения. Шумовой запас не доказан на hardware.
+
+На193 low-box clouds реальный CPP replay до/после: fixture_near76→13,
+peer_near58→76, no_detection56→99, other3→5. Больше peer_near возникает
+в том числе из-за удаления конкурирующих коробок; это не exhaustive recall.
+На прежних60 high-box clouds:0fixture/10peer/50none сохранены.
+Контрфактический threshold0.436 дал10fixture/76peer,0.476 —13/76;
+выбран0.476 по3σ model margin, не минимизации ошибок на данном seed.
+Артефакты replay-diameter-* рядом с исходными recordings; временная
+экспериментальная копия core в/tmp/hsl-diameter-trial не является runtime.
+
+7 C++ gtest в прежнем ROS image с mounted актуальным исходником прошли,
+включая full ring(bbox diagonal≈0.503 при diameter0.356), collinear/
+duplicated/rotated points, low wide box и допустимый неоднозначный small
+fragment.135 Python/navigation/runner/config/capture/helm тестов прошли.
+README/AGENTS описывают кандидата и ограничения. Физические показатели
+скорости/контактов/RTF/ложных треков после изменения ещё не получены.
+Следующий шаг: helm build duel, затем seeds0/1 с low fixture0.15,
+record-detector-scans/trace/audit-start. Не считать replay завершением цели.
+
 ## 02.10.2026 — низкое неизвестное препятствие выявило ложный трек
 
 Предыдущий turn — progress: ordinary20 завершён/проверен/checkpoint сохранён,
