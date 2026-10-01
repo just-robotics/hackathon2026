@@ -21,7 +21,7 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, moving_ca
                                reusable_route, safe_segment,
                                smooth_intercept_target)
 from hsl_sim_adapter.cloud import transform
-from hsl_sim_adapter.visibility import StaticGrid, detect_opponent
+from hsl_sim_adapter.visibility import StaticGrid
 from hsl_sim_adapter.metrics import RunMetrics, capture_possible, duel_outcome, timing_summary
 
 
@@ -530,36 +530,6 @@ class PlanningTests(unittest.TestCase):
     def test_quaternion_transform(self):
         self.assertEqual(transform((1, 2, 3), (4, 5, 6), (0, 0, 0, 1)),
                          (5, 7, 9))
-
-    def test_opponent_position_is_estimated_from_nonstatic_lidar_cluster(self):
-        data = [0] * (40 * 30)
-        grid = StaticGrid(0.1, 40, 30, 0, 0, data)
-        own = (0.5, 1.0)
-        hits = [(1.322, 0.95, 0.3), (1.32, 1.0, 0.3),
-                (1.322, 1.05, 0.3)]
-        self.assertIsNone(detect_opponent([], grid, own))
-        detection = detect_opponent(hits, grid, own)
-        self.assertIsNotNone(detection)
-        self.assertEqual(detection.hits, 3)
-        self.assertAlmostEqual(detection.x, 1.5, delta=0.015)
-        self.assertAlmostEqual(detection.y, 1.0, delta=0.02)
-
-    def test_lidar_opponent_cluster_behind_static_wall_is_rejected(self):
-        data = [0] * (40 * 30)
-        for row in range(30):
-            data[row * 40 + 10] = 100
-        grid = StaticGrid(0.1, 40, 30, 0, 0, data)
-        hits = [(1.322, 0.95, 0.3), (1.32, 1.0, 0.3),
-                (1.322, 1.05, 0.3)]
-        self.assertIsNone(detect_opponent(hits, grid, (0.5, 1.0)))
-
-    def test_lidar_static_wall_returns_are_not_opponent_detections(self):
-        data = [0] * (40 * 30)
-        data[10 * 40 + 10] = 100
-        grid = StaticGrid(0.1, 40, 30, 0, 0, data)
-        wall_hits = [(1.04, 1.04, 0.3)] * 3
-        self.assertIsNone(detect_opponent(wall_hits, grid, (0.5, 1.0)))
-
 
     def test_run_metrics_from_truth_and_separated_contacts(self):
         run = RunMetrics(0.7)

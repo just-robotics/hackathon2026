@@ -46,6 +46,7 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
         params[prefix + "decision_manager"] = {"role": role,
             "own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
             "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])}
+        params[prefix + "opponent_detector"] = {"use_sim_time": True}
         params[prefix + "hsl_motion_gate"] = {"require_match_active": True}
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,

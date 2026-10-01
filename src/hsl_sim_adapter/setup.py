@@ -1,10 +1,12 @@
 from setuptools import setup
+from glob import glob
 
 setup(
     name="hsl_sim_adapter", version="0.1.0", packages=["hsl_sim_adapter"],
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/hsl_sim_adapter"]),
         ("share/hsl_sim_adapter", ["package.xml"]),
+        ("share/hsl_sim_adapter/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"], zip_safe=True,
     maintainer="Just Robotics", maintainer_email="dev@just-robotics.ru",

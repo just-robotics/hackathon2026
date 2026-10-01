@@ -197,7 +197,8 @@ def validate_runtime_metadata(runtime, env):
                   "decision_manager": {"role": role,
                       **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
                           "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
-                  "hsl_motion_gate": {"require_match_active": True}}
+                  "hsl_motion_gate": {"require_match_active": True},
+                  "opponent_detector": {"use_sim_time": True}}
         allow_reverse = role == "explorer" and env.get("HSL_ALLOW_REVERSE", "true") == "true"
         checks["native_mppi"] = {
             "role": role, "random_seed": seed,
@@ -226,7 +227,7 @@ def runtime_snapshot(env, config):
                               for name, cid, image in (line.split() for line in images.splitlines())}}
     paths = []
     for package in ("hsl_planning", "hsl_decision", "hsl_sim_adapter", "hsl_debug_control",
-                    "hsl_interfaces", "hsl_nav2_control", "sim_kobuki", "jr_map"):
+                    "hsl_interfaces", "hsl_nav2_control", "hsl_perception", "sim_kobuki", "jr_map"):
         paths.extend(path for path in (ROOT / "src" / package).rglob("*")
                      if path.is_file() and path.suffix in
                      (".py", ".yaml", ".cpp", ".hpp", ".msg", ".world", ".xacro"))
@@ -242,7 +243,7 @@ def runtime_snapshot(env, config):
             raise RuntimeError(f"navigation sources in {container} differ from the worktree; rebuild duel")
     runtime["verified_source_sha256"] = expected
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
-             ("trajectory_planner", "decision_manager", "hsl_motion_gate")]
+             ("trajectory_planner", "decision_manager", "hsl_motion_gate", "opponent_detector")]
     nodes.extend(("/duel_referee", "/gazebo"))
     nodes.extend(prefix + name for prefix in ("/", "/opponent/")
                  for name in ("native_mppi", "native_mppi/native_costmap"))

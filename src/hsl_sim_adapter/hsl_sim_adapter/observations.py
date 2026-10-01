@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 from copy import deepcopy
-from math import atan2, cos, hypot, sin
+from math import hypot
 
 import rclpy
 from nav_msgs.msg import OccupancyGrid, Odometry
@@ -10,11 +10,10 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformListener
 
 from .cloud import make_cloud, read_xyz, transform
-from .visibility import StaticGrid, detect_opponent
+from .visibility import StaticGrid
 
 
 class SimObservations(Node):
@@ -32,10 +31,6 @@ class SimObservations(Node):
         self.own_odom = None
         self.own_truth = None
         self.grid = None
-        self.visible = False
-        self.last_seen = float("-inf")
-        self.last_visible_position = None
-        self.visible_velocity = (0.0, 0.0)
         self.voxels = OrderedDict()
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -48,8 +43,6 @@ class SimObservations(Node):
         map_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(OccupancyGrid, "/map", self.on_known_map, map_qos)
         self.own_pub = self.create_publisher(Odometry, "navigation/self", 10)
-        self.opponent_pub = self.create_publisher(Odometry, "navigation/opponent", 10)
-        self.visible_pub = self.create_publisher(Bool, "navigation/opponent_visible", 10)
         self.scan_pub = self.create_publisher(PointCloud2, "navigation/scan",
                                               qos_profile_sensor_data)
         self.map_pub = self.create_publisher(PointCloud2, "navigation/map_points",
@@ -83,9 +76,6 @@ class SimObservations(Node):
         own = self.as_map_odom(self.own_truth, self.own_odom, "base_footprint")
         if own:
             self.own_pub.publish(own)
-        now = self.get_clock().now().nanoseconds * 1e-9
-        age = now - self.last_seen
-        self.visible_pub.publish(Bool(data=self.visible and 0 <= age <= 0.3))
 
     def on_lidar(self, msg):
         if self.own_truth is None:
@@ -107,42 +97,6 @@ class SimObservations(Node):
         header = deepcopy(msg.header)
         header.frame_id = "map"
         self.scan_pub.publish(make_cloud(header, points))
-        now = self.get_clock().now().nanoseconds * 1e-9
-        previous = (self.last_visible_position[:2]
-                    if self.last_visible_position is not None and
-                    0 <= now - self.last_visible_position[2] <= 1.0 else None)
-        detection = detect_opponent(points, self.grid, (sx, sy), previous)
-        self.visible = detection is not None
-        if detection is not None:
-            position = (detection.x, detection.y)
-            if self.last_visible_position is not None:
-                px, py, previous_time = self.last_visible_position
-                dt = now - previous_time
-                if 0.05 <= dt <= 1.0:
-                    measured = ((position[0] - px) / dt,
-                                (position[1] - py) / dt)
-                    self.visible_velocity = tuple(
-                        0.5 * old + 0.5 * new
-                        for old, new in zip(self.visible_velocity, measured))
-                elif dt > 1.0:
-                    self.visible_velocity = (0.0, 0.0)
-            else:
-                self.visible_velocity = (0.0, 0.0)
-            self.last_visible_position = (position[0], position[1], now)
-            vx, vy = self.visible_velocity
-            yaw = atan2(vy, vx) if hypot(vx, vy) > 0.03 else 0.0
-            enemy = Odometry()
-            enemy.header = deepcopy(header)
-            enemy.child_frame_id = "opponent/base_footprint"
-            enemy.pose.pose.position.x = position[0]
-            enemy.pose.pose.position.y = position[1]
-            enemy.pose.pose.orientation.z = sin(yaw / 2)
-            enemy.pose.pose.orientation.w = cos(yaw / 2)
-            enemy.twist.twist.linear.x = cos(yaw) * vx + sin(yaw) * vy
-            enemy.twist.twist.linear.y = -sin(yaw) * vx + cos(yaw) * vy
-            enemy.twist.twist.angular.z = 0.0
-            self.opponent_pub.publish(enemy)
-            self.last_seen = now
         for point in points:
             if (self.grid and 0.08 <= point[2] <= 0.60
                     and self.grid.matches_static(point[0], point[1])):
