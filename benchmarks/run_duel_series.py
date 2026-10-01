@@ -101,13 +101,74 @@ def wait_ready(env, deadline):
     raise TimeoutError("autonomous navigation streams did not become ready")
 
 
-def wait_report(path, run_id, deadline, stopped=False):
+def classify_runtime(expected, observed):
+    """Container identity changes are terminal; an observation timeout is not."""
+    if observed is None:
+        return "unknown"
+    if set(observed) != set(expected) or any(
+            observed[name]["id"] != value["container_id"]
+            for name, value in expected.items()):
+        return "replaced"
+    return "running" if all(value["running"] for value in observed.values()) else "stopped"
+
+
+def runtime_state(runtime, env):
+    expected = runtime["containers"]
+    fmt = '{"name":"{{.Name}}","id":"{{.Id}}","running":{{.State.Running}}}'
+    try:
+        result = subprocess.run(["docker", "inspect", "--format", fmt, *expected],
+                                cwd=ROOT, env=env, text=True, capture_output=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return "unknown"
+    if result.returncode:
+        return "replaced" if "No such object" in result.stderr else "unknown"
+    observed = {value["name"].lstrip("/"): value
+                for value in (json.loads(line) for line in result.stdout.splitlines())}
+    return classify_runtime(expected, observed)
+
+
+def wait_report(path, run_id, deadline, stopped=False, runtime=None, env=None):
+    next_health_check = 0.0
     while time.monotonic() < deadline:
         report = read_report(path, run_id, stopped)
         if report is not None:
             return report
+        if runtime is not None and time.monotonic() >= next_health_check:
+            state = runtime_state(runtime, env)
+            if state in ("stopped", "replaced"):
+                raise RuntimeError(f"evaluation containers {state}; no outcome accepted for {run_id}")
+            next_health_check = time.monotonic() + 5.0
         time.sleep(2)
     raise TimeoutError(f"result {path} for {run_id} did not appear")
+
+
+def validate_runtime_metadata(runtime, env):
+    params = runtime["effective_parameters"]
+    expected = {
+        "run_id": env["DUEL_RUN_ID"], "seed": int(env["DUEL_SEED"]),
+        "code_revision": env["DUEL_REVISION"],
+        "max_active_s": float(env["DUEL_MAX_ACTIVE_S"]),
+        "first_role": env["HSL_ROLE"], "second_role": env["HSL_OPPONENT_ROLE"],
+        "spawn_x": float(env["SPAWN_X"]), "spawn_y": float(env["DUEL_SPAWN_Y"]),
+        "second_start": json.loads(env["DUEL_SECOND_START"]),
+    }
+    for name, value in expected.items():
+        actual = params["/duel_referee"].get(name)
+        if actual != value:
+            raise RuntimeError(f"referee {name}={actual!r}, expected {value!r}; runtime does not belong to this evaluation")
+    for prefix, role, seed in (("/", env["HSL_ROLE"], int(env["DUEL_SEED"])),
+                              ("/opponent/", env["HSL_OPPONENT_ROLE"], int(env["DUEL_OPPONENT_SEED"]))):
+        checks = {"trajectory_planner": {"role": role, "random_seed": seed,
+                  "local_backend": env["HSL_LOCAL_BACKEND"],
+                  "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"])},
+                  "decision_manager": {"role": role}}
+        if env["HSL_LOCAL_BACKEND"] == "nav2_cpp":
+            checks["native_mppi"] = {"role": role, "random_seed": seed}
+        for node, values in checks.items():
+            for name, value in values.items():
+                actual = params[prefix + node].get(name)
+                if actual != value:
+                    raise RuntimeError(f"{prefix + node} {name}={actual!r}, expected {value!r}; runtime does not belong to this evaluation")
 
 
 def runtime_snapshot(env, scenario):
@@ -165,6 +226,7 @@ print(json.dumps(result))
                       "source /autoware/install/setup.bash && python3 - <<'PY'\n" + script + "PY"],
                      env, timeout=180)
     runtime["effective_parameters"] = json.loads(output)
+    validate_runtime_metadata(runtime, env)
     if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
         runtime["nav2_package_versions"] = command(["docker", "exec",
             "docker-hsl-planning-1", "dpkg-query", "-W",
@@ -329,6 +391,7 @@ def main():
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []
         probes = []
+        runtime = None
         try:
             for attempt in range(3):
                 suffix = f"{index:02d}" if attempt == 0 else f"{index:02d}-retry{attempt}"
@@ -353,7 +416,7 @@ def main():
             command(["helm", "start_match"], env, timeout=45,
                     log=series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
-                                  time.monotonic() + args.wall_timeout_s)
+                                  time.monotonic() + args.wall_timeout_s, runtime=runtime, env=env)
             first = wait_report(RESULTS / "latest.json", run_id,
                                 time.monotonic() + 45, stopped=True)
             second = wait_report(RESULTS / "opponent/latest.json", run_id,
@@ -374,8 +437,11 @@ def main():
             record["error"] = str(error)
             print(f"  ERROR: {error}", flush=True)
             try:
-                command(["helm", "stop_match"], env, timeout=30,
-                        log=series_dir / f"{index:02d}-stop-after-error.log")
+                if runtime is not None and runtime_state(runtime, env) in ("running", "stopped"):
+                    command(["helm", "stop_match"], env, timeout=30,
+                            log=series_dir / f"{index:02d}-stop-after-error.log")
+                else:
+                    record["cleanup_skipped"] = "runtime ownership unconfirmed; leave manual match untouched"
             except (RuntimeError, subprocess.TimeoutExpired):
                 pass
             runs.append(record)
