@@ -210,6 +210,8 @@ class TrajectoryPlanner(Node):
         self.status_pub = self.create_publisher(
             String, "navigation/global_status" if self.local_backend == "nav2_cpp"
             else "navigation/planner_status", 10)
+        self.planning_diag_pub = self.create_publisher(String, "navigation/planning_diagnostics", 10)
+        self.planning_diagnostics = {}
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
         self.create_timer(0.2, self.tick)
 
@@ -291,6 +293,7 @@ class TrajectoryPlanner(Node):
         self.dirty = True
 
     def publish_empty(self, reason):
+        self.planning_diagnostics["global_status"] = reason
         self.global_path = []
         self.local_path = []
         self.mppi_controls = None
@@ -359,6 +362,7 @@ class TrajectoryPlanner(Node):
     def tick(self):
         started = perf_counter()
         self.direct_controls = None
+        self.planning_diagnostics = {"sim_t_s": self.now(), "role": self.role}
         try:
             self._tick()
         finally:
@@ -368,6 +372,13 @@ class TrajectoryPlanner(Node):
                 command.angular.z = float(self.direct_controls[0][1])
             if self.direct_cmd_pub is not None:
                 self.direct_cmd_pub.publish(command)
+            self.planning_diagnostics.update({
+                "route_cells": len(self.global_path),
+                "route_end": ([self.global_path[-1].x, self.global_path[-1].y]
+                              if self.global_path else None),
+                "recovery_goal": ([self.recovery_goal.x, self.recovery_goal.y]
+                                  if self.recovery_goal else None)})
+            self.planning_diag_pub.publish(String(data=json.dumps(self.planning_diagnostics)))
             self.cycle_pub.publish(Float32(data=(perf_counter() - started) * 1000))
 
     def _tick(self):
@@ -391,6 +402,15 @@ class TrajectoryPlanner(Node):
             return
         own = self.own[0]
         intent = self.intent
+        self.planning_diagnostics.update({
+            "behavior": int(intent.behavior), "own": [own.x, own.y],
+            "own_stamp_s": self.own[1], "intent_stamp_s": seconds(intent.header.stamp),
+            "raw_target": ([intent.target.position.x, intent.target.position.y]
+                           if intent.has_target else None),
+            "cached_target": ([self.global_target.x, self.global_target.y]
+                              if self.global_target else None),
+            "cached_route_end": ([self.global_path[-1].x, self.global_path[-1].y]
+                                 if self.global_path else None)})
         pending_native_recovery = False
         heading_error = path_heading_error(own, self.global_path)
         if (self.progress_pose is None or self.progress_since is None or
@@ -446,6 +466,11 @@ class TrajectoryPlanner(Node):
                                  enemy.y + enemy_velocity[1], enemy.yaw)
         else:
             enemy_future = None
+        self.planning_diagnostics.update({
+            "enemy": [enemy.x, enemy.y] if enemy else None,
+            "enemy_stamp_s": self.opponent[1] if enemy else None,
+            "enemy_velocity": list(enemy_velocity),
+            "enemy_prediction": [enemy_future.x, enemy_future.y] if enemy_future else None})
         if self.dirty:
             static_points, scan_points = navigation_obstacles(
                 self.grid_points, self.map_points, self.scan_points, enemy)
@@ -469,8 +494,22 @@ class TrajectoryPlanner(Node):
             target = Pose2(intent.target.position.x, intent.target.position.y,
                            atan2(2 * q.w * q.z, 1 - 2 * q.z * q.z))
             if intent.behavior == 6 and enemy:
+                raw_intercept = target
                 target = reachable_intercept(self.world, own, enemy, target)
+                self.planning_diagnostics["validated_intercept"] = (
+                    [target.x, target.y] if target else None)
+                if target is not None and hypot(target.x - raw_intercept.x,
+                                                 target.y - raw_intercept.y) > 0.001:
+                    self.planning_diagnostics["intercept_rejection_geometry"] = {
+                        "endpoint_blocked": self.world.blocked(raw_intercept.x, raw_intercept.y),
+                        "endpoint_inside": self.world.inside_map(
+                            raw_intercept.x, raw_intercept.y, self.world.robot_radius + 0.07),
+                        "segment_safe_default": safe_segment(self.world, enemy, raw_intercept),
+                        "segment_safe_without_recovery_margin": safe_segment(
+                            self.world, enemy, raw_intercept, safety_margin=0.0)}
                 target = smooth_intercept_target(self.pursuit_target, target)
+                self.planning_diagnostics["smoothed_intercept"] = (
+                    [target.x, target.y] if target else None)
                 self.pursuit_target = target
             else:
                 self.pursuit_target = None
@@ -521,6 +560,8 @@ class TrajectoryPlanner(Node):
             else:
                 self.evade_waypoint = None
         requested_target = target
+        self.planning_diagnostics["requested_target"] = (
+            [target.x, target.y] if target else None)
         target = reachable_target(self.world, own, target,
                                   explore=intent.behavior == 3,
                                   tie_seed=self.random_seed + self.recovery_attempt,
@@ -540,10 +581,13 @@ class TrajectoryPlanner(Node):
         if target is None:
             self.publish_empty("NO_TARGET_OR_FRONTIER")
             return
+        self.planning_diagnostics["reachable_target"] = [target.x, target.y]
         route = objective_route or (reusable_route(self.world, own, self.global_path,
                                 self.global_target, target, enemy_future,
                                 intent.opponent_clearance)
                  if self.route_behavior == intent.behavior else [])
+        self.planning_diagnostics["route_source"] = (
+            "objective" if objective_route else "reuse" if route else "search")
         if not route:
             route = astar(self.world, own, target, enemy_future,
                           intent.opponent_clearance, intent.opponent_cost_weight,
@@ -602,6 +646,7 @@ class TrajectoryPlanner(Node):
                         heading = atan2(last.y - before.y, last.x - before.x)
                     reference[-1] = Pose2(last.x, last.y, heading)
                 status = "OK"
+            self.planning_diagnostics["global_status"] = status
             self.global_pub.publish(make_path(self, self.global_path))
             self.native_reference_pub.publish(make_path(self, reference))
             self.status_pub.publish(String(data=status))

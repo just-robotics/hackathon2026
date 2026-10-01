@@ -165,3 +165,9 @@ Runner `--rviz` оставляет Gazebo headless и включает штат�
 RViz второго RobotModel требует `TF Prefix: opponent`: link names URDF
 не имеют префикса, его добавляет robot_state_publisher. Подписи First/Second
 обозначают физические namespace; роли между матчами могут меняться.
+
+`navigation/planning_diagnostics` (`String` JSON) обоих planner содержит
+входные stamps и стадии выбора цели/маршрута одного цикла; trace хранит
+объект в `planning`. Сравнивай cycle sim_t_s со временем отсчёта; это
+диагностика, не вход управления. Проверка segment без recovery margin
+не меняет фактический safe_segment: она только различает причины отказа.

@@ -136,6 +136,9 @@ def main():
             velocity = opponent_message.twist.twist.linear
             enemy_velocity = [round(cos(course) * velocity.x - sin(course) * velocity.y, 4),
                               round(sin(course) * velocity.x + cos(course) * velocity.y, 4)]
+        planning_record = latest.get("planning_diagnostics")
+        planning = (json.loads(planning_record[0].data)
+                    if planning_record and t - planning_record[2] <= 0.5 else None)
         global_positions = ([item.pose.position for item in global_path[0].poses]
                             if global_path and t - global_path[2] <= 1.0 else [])
         time_series.append({
@@ -176,6 +179,7 @@ def main():
                                t - status[2] <= 1.0 else None),
             "behavior": (int(intent[0].behavior) if intent and
                          t - intent[2] <= 1.0 else None),
+            "planning": planning,
             "intent_sim_s": intent[2] if intent_message else None,
             "global_path_sim_s": global_path[2] if global_positions else None,
             "opponent_sim_s": stamp(opponent_message) if opponent_message else None,
@@ -319,6 +323,7 @@ def main():
         ("mpc", Twist, "navigation/mpc_cmd_vel"),
         ("mppi", Twist, "navigation/mppi_cmd_vel"),
         ("mppi_diagnostics", String, "navigation/mppi_diagnostics"),
+        ("planning_diagnostics", String, "navigation/planning_diagnostics"),
         ("v_ref", Float64, "v_ref"),
         ("v_curve", Float64, "v_curve"),
     ):

@@ -320,6 +320,11 @@ python3 benchmarks/run_duel_series.py --runs 20 --active-s 360 --build --scenari
 `/opponent/navigation/mppi_diagnostics` (`String` с JSON): число допустимых
 образцов, просвет, продвижение и первую выбранную команду. При `--trace`
 эти данные совмещаются с позой и скоростью в активном временном ряду.
+`navigation/planning_diagnostics` и аналог второго робота (`String` с JSON)
+сохраняют стадии выбора цели и источник глобального маршрута за один цикл:
+входные stamps, raw/validated/smoothed/reachable target, cached target/end,
+route source и причины геометрического отклонения intercept. `--trace`
+записывает их в поле `planning`; данные только диагностические.
 Статус `RECOVERY_MPPI` обозначает проверенную дугу выхода из застревания:
 шлюз использует её команду MPPI, а метрики учитывают время выхода отдельно
 от обычного `OK`. `RECOVERY_FALLBACK` выбирает резервный MPC.
