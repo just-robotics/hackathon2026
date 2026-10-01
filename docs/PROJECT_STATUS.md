@@ -2,6 +2,48 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — низкое неизвестное препятствие выявило ложный трек
+
+Предыдущий turn — progress: ordinary20 завершён/проверен/checkpoint сохранён,
+начат отдельный low fixture. Опыт series-20261001T215230Z теперь terminal0
+(exec38112 завершён),1 completed/0 failed, fixed explorer first seed0,
+90sim лимит, тот же навигационный образc5129af0a4e0 и исходники2b48e1b;
+referee code_revision=cc8b537 — поздний docs commit с прежним navigation SHA.
+Точная команда записана в предыдущем разделе; fixture0.6×0.6×0.15м.
+
+explorer_goal51.2sim s, скорости E/G0.326/0.143м/с, контакты0/0,
+RTF0.583. Ящик установлен в[0,1.425] по реальному published route,
+виден в LiDAR, safe_replanned_route_seen=true, static_map_unchanged=true.
+Минимальный sampled запас кругового корпуса до коробки E/G0.828/0.335м.
+Этого недостаточно для принятия: страж ниже порога0.2 и ложная цель.
+G planner statuses: NO_LOCAL_PATH0.354, OK0.584, RECOVERY_MPPI0.057,
+WAIT_OR_STOP0.006; behavior PURSUE0.930, SEARCH0.068. Все gates прошли,
+runtime автоматически очищен; docker ps показывает только init services.
+
+Сохранены193 clouds обоих наблюдателей, replay_grid и offline peer labels
+в00-obstacle.json. Реальный CPP replay:
+`python3 benchmarks/replay_detector_clouds.py
+results/isolated/hsl-eval/series-20261001T215230Z/00-obstacle.json
+--output results/isolated/hsl-eval/series-20261001T215230Z/replay-low-box.json`.
+Результат76 fixture_near/58 peer_near/56 no_detection/3 other.
+Labels proximity<0.4м не являются exhaustive semantic recall; truth не
+подаётся detector. fixture-track-check.json: свежие ≤1s live samples
+около коробки E161/G662. Сам факт detour не доказывает правильность детектора.
+
+У selected box clusters extent min/median/max0.187/0.557/0.697м;
+peer-near clusters0.109/0.346/0.491м. Предел0.4 отверг бы19/58 peer hits,
+предел0.5 сохранил бы58/58, но пропустил12/76 box hits. Нельзя просто
+подобрать bbox extent порог и объявить проблему решённой.
+Xacro: body cylinderR0.178, plate cylindersR0.170; XY bbox diagonal
+круга может достигать sqrt(2)*diameter≈0.503м. Для следующего classifier
+оценить реальный горизонтальный diameter/совместимость с корпусом,
+а не путать bbox diagonal с диаметром и не требовать движения робота.
+Частично наблюдаемый маленький фрагмент коробки остаётся неоднозначным;
+проверять replay на высоком/низком fixture и true stationary samples,
+затем физический повтор на тех же seeds. Own-speed interception mismatch
+ещё не исправлен; false obstacle association теперь первоочередной дефект.
+Задача остаётся активной, не объявлять low trial успехом по explorer_goal.
+
 ## 02.10.2026 — завершена новая20-серия, следующий опыт low fixture
 
 Предыдущий turn — progress: проверена граница арены/построены графики,
