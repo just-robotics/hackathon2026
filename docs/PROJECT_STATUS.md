@@ -2,6 +2,41 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — diameter filter подтверждён двумя low-fixture матчами
+
+Предыдущий turn — progress: внесён model diameter check,7 CPP/135 Python
+тестов прошли, сборка5d414dfd завершена, запущен повтор. Текущая серия
+series-20261001T220410Z завершена terminal0(exec39712),2 completed/0failed,
+seeds0/1 заранее, fixed explorer first,90sim лимит, fixture0.6×0.6×0.15м,
+source5a65d45/image5d414dfd304790e7e4cf184b61458c08db5ca3cc305996b3618f645b02802d69.
+Команда приведена в предыдущем разделе. Navigation/config не менялись.
+
+| seed | исход | sim s | скорость E/G м/с | контакты E/G | RTF | fresh box-near samples E/G |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | explorer_goal | 40.8 | 0.386/0.382 | 0/0 | 0.599 | 18/36 |
+| 1 | explorer_goal | 40.9 | 0.391/0.382 | 0/0 | 0.585 | 31/52 |
+
+До изменения low-box seed0:51.2s,0.326/0.143м/с, box-near E161/G662.
+Теперь у seed0 GNO_LOCAL_PATH0 вместо0.354; seed1 GNO_LOCAL_PATH0.029,
+NO_GLOBAL_PATH0.007. Frame samples вокруг fixture<0.4м при fresh stamp≤1s,
+это дискретные счётчики, не временные доли/exhaustive semantic labels.
+Нельзя объявлять отсутствие ложных обнаружений:36/52Gsamples остаются.
+
+Box виден в LiDAR, изменённый safe route найден, original static map
+unchanged в обоих. Минимальный sampled корпусный запас до box E/G:
+seed0 0.379/0.364м, seed1 0.378/0.362м. Все gate audits before/partial/after
+прошли, оба owned runtime очищены. fixture-track-check.json сохраняет
+парный разбор в каталоге серии. Обе роли≥0.3 и contacts0 подтверждены
+на этой паре trials; guardian capture в этой паре не было.
+
+Сохраняем diameter filter как улучшение наблюдаемого застревания, но
+не считаем классификацию решённой: small fragments остаются похожими
+на stationary robot. Следующая проверка —3 обычных дуэли seeds0–2 с тем
+же кандидатом без box, trace/gates,360sim лимит. Она нужна для проверки
+потери настоящего соперника после фильтра, не заменяет новую итоговую20.
+После неё отдельный цикл own-speed interception mismatch и оставшихся
+false tracks. Цель не завершена.
+
 ## 02.10.2026 — кандидат проверки физического XY-диаметра
 
 Предыдущий turn — progress: low fixture подтвердил false association и
