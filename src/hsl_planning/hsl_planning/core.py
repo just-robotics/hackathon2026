@@ -422,7 +422,11 @@ def moving_capture_goal(world, own, opponent, velocity, pursuer_speed=0.3):
         # Blend continuously: direct for head-on approach, full lead for
         # transverse/receding motion. Do not assume a maximum rival speed.
         fraction = min(1.0, max(0.0, 1.0 + radial_cosine))
-        lead_time = min(1.0, distance / max(pursuer_speed, 1e-6)) * fraction
+        # The pursuit ends at capture range, not at coincident robot centres.
+        # Fade the forecast continuously as that remaining distance vanishes;
+        # otherwise crossing .45 m abruptly changes a one-second lead to zero.
+        remaining = distance - 0.45
+        lead_time = min(1.0, remaining / max(pursuer_speed, 1e-6)) * fraction
         predicted = Pose2(opponent.x + velocity[0] * lead_time,
                           opponent.y + velocity[1] * lead_time, opponent.yaw)
         if (lead_time > 1e-6 and

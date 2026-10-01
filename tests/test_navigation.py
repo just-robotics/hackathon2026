@@ -237,7 +237,22 @@ class PlanningTests(unittest.TestCase):
             self.assertEqual(predicted, enemy)
             self.assertEqual(target, direct)
         _, fast = moving_capture_goal(world, own, enemy, (1.0, 0), 0.5)
-        self.assertAlmostEqual(fast.x - enemy.x, 1.0)
+        # Faster observed prey is not clipped to the guardian's own capability.
+        self.assertAlmostEqual(fast.x - enemy.x, (enemy.x - 0.45) / 0.5)
+
+    def test_capture_lead_uses_remaining_distance_and_fades_at_capture_range(self):
+        world = VoxelWorld(0.05, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        own = Pose2(0, 0)
+        for distance in (0.451, 0.6, 0.8, 1.2):
+            enemy = Pose2(distance, 0)
+            _, predicted = moving_capture_goal(world, own, enemy, (0, 0.5), 0.5)
+            self.assertAlmostEqual(predicted.y,
+                                   0.5 * min(1.0, (distance - 0.45) / 0.5))
+        _, just_outside = moving_capture_goal(world, own, Pose2(0.451, 0), (0, 0.5), 0.5)
+        _, just_inside = moving_capture_goal(world, own, Pose2(0.449, 0), (0, 0.5), 0.5)
+        self.assertLess(hypot(just_outside.x - just_inside.x,
+                              just_outside.y - just_inside.y), 0.003)
 
     def test_close_capture_forecast_respects_wall_and_existing_capture_orientation(self):
         world = VoxelWorld(0.1, 0.23)

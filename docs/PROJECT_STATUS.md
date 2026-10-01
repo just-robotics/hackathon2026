@@ -2,6 +2,25 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — кандидат непрерывного ближнего упреждения
+
+Baseline full20 сохранён26f9017/tag checkpoint/continuous-pursuit-baseline20-20261002.
+Изменён только moving_capture_goal leadTime: min(1,(distance-.45)/ownmax)
+вместо min(1,distance/ownmax), прежний radial fraction сохраняется.
+При поперечном движении.5/ownmax.5 и distance.451 forecast offset теперь.001m,
+а не.451m; на.449 он0. Непрерывно сохраняется смысл подхода до capture range.
+Никаких предположений о максимуме скорости соперника не добавлено;
+его observed velocity участвует без clamp. Head-on direct, wall validation,
+face observed prey внутри.45, body footprint/gates/MPPI параметры прежние.
+
+Регрессии remaining distance на.451/.6/.8/1.2, horizon saturation,
+continuity вокруг.45 добавлены; old fast-prey assertion теперь проверяет
+observed speed по новому времени. Existing head-on/wall/orientation проходят.
+148 Python/helm tests и Compose config прошли. Физический результат нового
+кандидата пока неизвестен; собрать образ и повторить seeds0–2 с trace/audit.
+Снижение lead может как ускорить текущую поимку, так и потерять компенсацию
+controller lag; принять решение по дуэлям, не только по математическойгранице.
+
 ## 02.10.2026 — continuous pursuit20 завершена; страж требует улучшения
 
 Предыдущий turn — progress: геометрический просвет/slow capture trace разобраны,
