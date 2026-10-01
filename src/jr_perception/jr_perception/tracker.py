@@ -62,6 +62,11 @@ class TrackerConfig:
     # детекций: три детекции круглого предмета с разбросом 0.3 м иначе
     # «ехали» и уводили выбор от стоящего робота (бэг rot_1m).
     move_min_hits: int = 10
+    # Когда робот уже опознан по движению и потерян, неподвижный трек
+    # выдаётся, только если родился не дальше этого от места потери, м:
+    # робот встал, и его на миг закрыло. Иначе после потери выдавался угол
+    # коробки, которого не было в фоне (mov_01 с фоном по mov_02).
+    reacquire_radius: float = 0.35
 
 
 class Track:
@@ -83,6 +88,8 @@ class Track:
 
         self.time = time
         self.last_update = time
+        self.birth = np.array(detection.center, dtype=float)
+        self.last_position = self.birth.copy()
         self.hits = 1
         self.strong_hits = int(detection.strong)
         # Сдвиг считается только по надёжным детекциям: центр по центроиду
@@ -201,6 +208,7 @@ class Track:
         self.hits += 1
         self.strong_hits += int(detection.strong)
         self.last_update = time
+        self.last_position = self.mean[:2].copy()
         self._measure_travel(detection)
 
     def _moving(self) -> bool:
@@ -252,6 +260,9 @@ class Tracker:
         self.tracks = []
         self.selected = None
         self.time = None
+        # где последний раз видели робота, опознанного по движению; None --
+        # ещё не опознан
+        self.robot_position = None
 
     def step(self, time: float, detections: list):
         """Продвинуть треки к моменту скана и учесть его детекции
@@ -262,9 +273,10 @@ class Tracker:
         :return трек соперника или None
         """
         if self.time is not None and time < self.time:
-            # время пошло назад: симулятор перезапущен
+            # время пошло назад: симулятор перезапущен или бэг пошёл по кругу
             self.tracks = []
             self.selected = None
+            self.robot_position = None
         self.time = time
 
         for track in self.tracks:
@@ -314,19 +326,38 @@ class Tracker:
         Выбранный трек держится, пока жив, -- чтобы оценка не прыгала между
         треками. Сменить его может только сдвинувшийся трек, если сам
         выбранный ни разу не двигался: мебель не ездит.
-        """
-        confirmed = [track for track in self.tracks if track.confirmed]
-        if not confirmed:
-            self.selected = None
-            return None
 
+        Когда робот уже опознан по движению и потерян, неподвижный трек
+        годится только рядом с местом потери. Новый трек в другом месте
+        выдаётся, лишь когда сам поедет.
+        """
+        self.selected = self._choose()
+        if self.selected is not None and (
+            self.selected.moved or self.robot_position is not None
+        ):
+            self.robot_position = self.selected.last_position.copy()
+        return self.selected
+
+    def _choose(self):
+        confirmed = [track for track in self.tracks if track.confirmed]
         moving = [track for track in confirmed if track.moved]
         current = self.selected if self.selected in confirmed else None
         if current is not None and (current.moved or not moving):
             return current
 
-        self.selected = max(
-            moving or confirmed,
+        candidates = moving
+        if not candidates:
+            candidates = [
+                track
+                for track in confirmed
+                if self.robot_position is None
+                or np.linalg.norm(track.birth - self.robot_position)
+                <= self.config.reacquire_radius
+            ]
+        if not candidates:
+            return None
+
+        return max(
+            candidates,
             key=lambda track: (track.strong_hits / track.hits, track.hits),
         )
-        return self.selected

@@ -59,3 +59,4 @@
       max_tracks: 8
       move_threshold: 0.3
       move_min_hits: 10
+      reacquire_radius: 0.35
