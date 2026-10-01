@@ -380,6 +380,8 @@ def main():
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--trace", action="store_true",
                         help="record active cmd/path diagnostics for each robot")
+    parser.add_argument("--rviz", action="store_true",
+                        help="show RViz when DISPLAY is available; Gazebo remains headless")
     parser.add_argument("--audit-start", action="store_true",
                         help="verify both gates before and after granting only the first permission")
     parser.add_argument("--probe-status", default="",
@@ -406,7 +408,7 @@ def main():
         env["HSL_LOCAL_BACKEND"] = resolve_backend(
             env.get("HSL_CONTROL_MODE", "mppi"), env.get("HSL_LOCAL_BACKEND", "auto"))
         env.update({"GAZEBO_HEADLESS": "true", "HSL_ROLE": first_role,
-                    "HSL_RVIZ_ENABLED": "false",
+                    "HSL_RVIZ_ENABLED": "auto" if args.rviz else "false",
                     "HSL_OPPONENT_ROLE": second_role,
                     "DUEL_RUN_ID": run_id, "DUEL_SEED": str(seed),
                     "DUEL_OPPONENT_SEED": str(seed + 1000003),
@@ -414,7 +416,8 @@ def main():
                     "DUEL_MAX_ACTIVE_S": str(args.active_s)})
         env.update(scenario_environment(args.scenario))
         record = {"run_id": run_id, "seed": seed,
-                  "roles": [first_role, second_role], "scenario": args.scenario}
+                  "roles": [first_role, second_role], "scenario": args.scenario,
+                  "rviz_requested": args.rviz}
         print(f"[{index + 1}/{args.runs}] {run_id} "
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []

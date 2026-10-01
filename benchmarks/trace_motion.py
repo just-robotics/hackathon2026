@@ -127,6 +127,8 @@ def main():
                             t - stamp(opponent[0]) <= 1.0 else None)
         opponent_position = (opponent_message.pose.pose.position
                              if opponent_message else None)
+        global_positions = ([item.pose.position for item in global_path[0].poses]
+                            if global_path and t - global_path[2] <= 1.0 else [])
         time_series.append({
             "t_s": round(t - latest["series_t0"], 3),
             "sim_t_s": t,
@@ -138,6 +140,11 @@ def main():
             "lateral_global_m": offset(global_path),
             "lateral_control_m": offset(control_path),
             "global_heading_error_rad": heading_error(global_path, 0.6),
+            "global_head_xy_m": [[round(point.x, 4), round(point.y, 4)]
+                                 for point in global_positions[:6]],
+            "global_end_xy_m": ([round(global_positions[-1].x, 4),
+                                  round(global_positions[-1].y, 4)]
+                                 if global_positions else None),
             "local_heading_error_rad": heading_error(control_path, 0.3),
             "cmd_speed_mps": (round(command[0].linear.x, 4)
                               if command and t - command[2] <= 0.5 else None),
@@ -160,6 +167,9 @@ def main():
                                t - status[2] <= 1.0 else None),
             "behavior": (int(intent[0].behavior) if intent and
                          t - intent[2] <= 1.0 else None),
+            "opponent_xy_m": ([round(opponent_position.x, 4),
+                               round(opponent_position.y, 4)]
+                              if opponent_position else None),
             "opponent_distance_m": (round(hypot(opponent_position.x - p.x,
                                                  opponent_position.y - p.y), 4)
                                      if opponent_position else None),
