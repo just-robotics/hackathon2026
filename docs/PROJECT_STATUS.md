@@ -22,6 +22,7 @@ Static-clearance-progress.json содержит signed point-to-oriented-rectang
 clearance минус radius.178 (body approximation) и.23 (native safety envelope).
 Chords между own trace poses с gap<=.3s подразделены шагом<=.02m; frame/window
 совпадают с referee. Для первых4 min envelope E/G .152/.137m; body .204/.189m.
+После обновления на6 матчей min envelope E/G .151/.118m.
 Для slow short3seed2 min envelope .149/.179m, контактов0. Dynamic obstacles
 и точный moving footprint в этом расчёте не измеряются, .25-height slice
 соответствует стенам данного мира. Не заявлять доказанную непрерывную
