@@ -566,34 +566,6 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0,
     return True
 
 
-def local_guidance(world, own, route, opponent=None, clearance=0.0,
-                   max_lookahead=1.6, min_step=0.12, safety_margin=0.12):
-    """Build a straight, collision-checked corridor instead of a new arc each tick."""
-    if not route:
-        return []
-    candidates = [point for point in route
-                  if hypot(point.x - own.x, point.y - own.y) >= min_step]
-    visible = None
-    for point in candidates:
-        distance = hypot(point.x - own.x, point.y - own.y)
-        if distance > max_lookahead and visible is not None:
-            break
-        if distance > max_lookahead + 0.3:
-            break
-        if safe_segment(world, own, point, opponent, clearance, safety_margin):
-            visible = point
-        elif visible is not None:
-            break
-    if visible is None:
-        return []
-    distance = hypot(visible.x - own.x, visible.y - own.y)
-    yaw = atan2(visible.y - own.y, visible.x - own.x)
-    steps = max(2, ceil(distance / 0.1))
-    return [own] + [Pose2(own.x + (visible.x - own.x) * i / steps,
-                          own.y + (visible.y - own.y) * i / steps, yaw)
-                    for i in range(1, steps + 1)]
-
-
 def recovery_step(world, own, opponent=None, clearance=0.0,
                   safety_margin=0.12):
     """Find a safe escape direction when the nominal corridor cannot be entered."""

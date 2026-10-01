@@ -373,15 +373,9 @@ def main():
         sim_now = node.get_clock().now().nanoseconds * 1e-9
         pose = latest.get("pose")
         samples["total"] += 1
-        current_status = latest.get("status")
-        if current_status and current_status[0].data in (
-                "RECOVERY_FALLBACK", "RECOVERY_ESCAPE"):
-            samples["fallback_total"] += 1
-            if abs(message.linear.x) > 0.02 or abs(message.angular.z) > 0.15:
-                samples["fallback_cmd_nonzero"] += 1
         sums["cmd_linear"] += message.linear.x
         sums["cmd_angular_abs"] += abs(message.angular.z)
-        if message.linear.x > 0.3:
+        if abs(message.linear.x) > 0.3:
             samples["cmd_over_0_3"] += 1
         if abs(message.linear.x) > 0.02:
             samples["moving"] += 1
@@ -403,7 +397,7 @@ def main():
                 error = abs((atan2(last.y - first.y, last.x - first.x) -
                              own_yaw + pi) % (2 * pi) - pi)
                 path_errors.append(error)
-                if message.linear.x <= 0.02 and controller and controller[0].linear.x > 0.02:
+                if abs(message.linear.x) <= 0.02 and controller and abs(controller[0].linear.x) > 0.02:
                     clipped_errors.append(error)
         if not intent or sim_now - intent[2] > 1.0 or intent[0].behavior in (0, 1):
             reason = "intent_wait_stop_stale"
@@ -433,7 +427,7 @@ def main():
                         samples["rotate_error_under_0_5"] += 1
                     else:
                         samples["rotate_error_over_0_5"] += 1
-            elif not controller or sim_now - controller[2] > 0.5 or controller[0].linear.x <= 0.02:
+            elif not controller or sim_now - controller[2] > 0.5 or abs(controller[0].linear.x) <= 0.02:
                 reason = "mppi_zero_or_stale"
             else:
                 reason = "gate_clipped"
@@ -522,11 +516,8 @@ def main():
               "curved_path_fraction": round(
                   samples["curved_path_updates"] /
                   max(1, samples["path_updates"]), 3),
-              "fallback": {
-                  "samples": samples["fallback_total"],
-                  "final_nonzero_fraction": round(samples["fallback_cmd_nonzero"] /
-                                                  max(1, samples["fallback_total"]), 3),
-              }}
+              }
+
     if args.timeseries:
         report["time_series"] = time_series
         report["control_path_source"] = "local"

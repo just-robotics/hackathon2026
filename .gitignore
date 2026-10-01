@@ -8,3 +8,4 @@ scripts
 results/*.json
 results/**/*.json
 results/series-*/
+results/isolated/

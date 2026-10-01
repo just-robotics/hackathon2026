@@ -15,7 +15,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
-from hsl_planning.core import (Pose2, VoxelWorld, astar, local_guidance,
+from hsl_planning.core import (Pose2, VoxelWorld, astar,
                                reachable_target, recovery_step, safe_segment,
                                evade_target, navigation_obstacles)
 from hsl_planning.node import odom_pose, read_xyz, seconds
@@ -162,8 +162,6 @@ def main():
                           "opponent_distance_m": hypot(point.x - enemy.x,
                                                        point.y - enemy.y)
                           if enemy else None})
-    local = local_guidance(world, own, route, enemy,
-                           intent.opponent_clearance) if route else []
     print(json.dumps({"world_bounds": bounds, "resolution": resolution,
                       "robot_radius": radius, "snapshot_sim_s": sample_time, "own": [own.x, own.y, own.yaw],
                       "opponent": [enemy.x, enemy.y] if enemy else None,
@@ -204,8 +202,6 @@ def main():
                           world, own, enemy, intent.opponent_clearance),
                       "neighbors": neighbors,
                       "route_head": [[p.x, p.y] for p in route[:7]],
-                      "local_points": len(local),
-                      "local_end": [local[-1].x, local[-1].y] if local else None,
                       "local_occupancy": near,
                       "occupied_cells": len(world.occupied), "free_cells": len(world.free),
                       "world_snapshot": {"free_cells": sorted(world.free),

@@ -12,7 +12,6 @@ setup(
     license="Apache-2.0",
     entry_points={"console_scripts": [
         "sim_observations = hsl_sim_adapter.observations:main",
-        "scripted_opponent = hsl_sim_adapter.scripted_opponent:main",
         "match_metrics = hsl_sim_adapter.match_metrics:main",
         "duel_referee = hsl_sim_adapter.duel_referee:main",
     ]},

@@ -7,7 +7,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -17,8 +16,6 @@ from match_config import DEFAULT_CONFIG, load_config, configuration_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src" / "hsl_planning"))
-from hsl_planning.backend import resolve_backend
 RESULTS = ROOT / "results"
 
 
@@ -95,23 +92,30 @@ def wait_ready(env, deadline):
     topics = (("docker-hsl-decision-1", "/navigation/self"),
               ("docker-hsl-opponent-decision-1", "/opponent/navigation/self"))
     started = time.monotonic()
+    seen_gazebo = False
     while time.monotonic() < deadline:
         if time.monotonic() - started > 15:
             gazebo = subprocess.run(["docker", "exec", container_name("docker-gazebo-duel-1", env),
                                      "pgrep", "-x", "gzserver"], cwd=ROOT,
                                     env=env, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL, check=False)
-            if gazebo.returncode:
-                raise TimeoutError("gzserver exited before both pose streams were ready")
+            if gazebo.returncode == 0:
+                seen_gazebo = True
+            elif seen_gazebo:
+                raise TimeoutError("gzserver exited after starting, before both pose streams were ready")
+            else:
+                state = command(["docker", "inspect", "--format", "{{.State.Running}}",
+                                 "docker-gazebo-duel-1"], env, timeout=5).strip()
+                if state != "true":
+                    raise TimeoutError("Gazebo launch container exited before readiness")
         if all(ready_topic(container, topic, env) for container, topic in topics):
-            if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
-                native_ready = all(ready_topic(container, prefix + "navigation/native_ready",
-                                               env, "data", "true")
-                                   for container, prefix in (("docker-hsl-planning-1", "/"),
-                                      ("docker-hsl-opponent-planning-1", "/opponent/")))
-                if not native_ready:
-                    time.sleep(2)
-                    continue
+            native_ready = all(ready_topic(container, prefix + "navigation/native_ready",
+                                           env, "data", "true")
+                               for container, prefix in (("docker-hsl-planning-1", "/"),
+                                  ("docker-hsl-opponent-planning-1", "/opponent/")))
+            if not native_ready:
+                time.sleep(2)
+                continue
             time.sleep(2)
             return
         time.sleep(2)
@@ -188,22 +192,20 @@ def validate_runtime_metadata(runtime, env):
     for prefix, role, seed in (("/", env["HSL_ROLE"], int(env["DUEL_SEED"])),
                               ("/opponent/", env["HSL_OPPONENT_ROLE"], int(env["DUEL_OPPONENT_SEED"]))):
         checks = {"trajectory_planner": {"role": role, "random_seed": seed,
-                  "local_backend": env["HSL_LOCAL_BACKEND"],
                   "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]),
                   "require_match_active": True},
                   "decision_manager": {"role": role,
                       **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
                           "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
                   "hsl_motion_gate": {"require_match_active": True}}
-        if env["HSL_LOCAL_BACKEND"] == "nav2_cpp":
-            checks["native_mppi"] = {
-                "role": role, "random_seed": seed,
-                "MPPI.PathAngleCritic.forward_preference": env.get("HSL_ALLOW_REVERSE", "true") != "true",
-                "MPPI.PreferForwardCritic.enabled": False,
-                "MPPI.GoalAngleCritic.enabled": False,
-                "MPPI.wz_max": float(env.get("HSL_MAX_ANGULAR_SPEED", "1.5")),
-                "MPPI.vx_max": float(env.get("HSL_MAX_SPEED", "0.5")),
-                "MPPI.vx_min": -float(env.get("HSL_MAX_SPEED", "0.5")) if env.get("HSL_ALLOW_REVERSE", "true") == "true" else 0.0}
+        checks["native_mppi"] = {
+            "role": role, "random_seed": seed,
+            "MPPI.PathAngleCritic.forward_preference": env.get("HSL_ALLOW_REVERSE", "true") != "true",
+            "MPPI.PreferForwardCritic.enabled": False,
+            "MPPI.GoalAngleCritic.enabled": False,
+            "MPPI.wz_max": float(env.get("HSL_MAX_ANGULAR_SPEED", "1.5")),
+            "MPPI.vx_max": float(env.get("HSL_MAX_SPEED", "0.5")),
+            "MPPI.vx_min": -float(env.get("HSL_MAX_SPEED", "0.5")) if env.get("HSL_ALLOW_REVERSE", "true") == "true" else 0.0}
         for node, values in checks.items():
             for name, value in values.items():
                 actual = parameter_value(params[prefix + node], name)
@@ -241,9 +243,8 @@ def runtime_snapshot(env, config):
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
              ("trajectory_planner", "decision_manager", "hsl_motion_gate")]
     nodes.extend(("/duel_referee", "/gazebo"))
-    if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
-        nodes.extend(prefix + name for prefix in ("/", "/opponent/")
-                     for name in ("native_mppi", "native_mppi/native_costmap"))
+    nodes.extend(prefix + name for prefix in ("/", "/opponent/")
+                 for name in ("native_mppi", "native_mppi/native_costmap"))
     # Read only parameter services, before movement or trace collection begins.
     script = """import json, subprocess, yaml
 nodes = %r
@@ -264,11 +265,10 @@ print(json.dumps(result))
                      env, timeout=180)
     runtime["effective_parameters"] = json.loads(output)
     validate_runtime_metadata(runtime, env)
-    if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
-        runtime["nav2_package_versions"] = command(["docker", "exec",
-            "docker-hsl-planning-1", "dpkg-query", "-W",
-            "ros-humble-nav2-mppi-controller", "ros-humble-nav2-controller",
-            "ros-humble-nav2-costmap-2d"], env, timeout=15)
+    runtime["nav2_package_versions"] = command(["docker", "exec",
+        "docker-hsl-planning-1", "dpkg-query", "-W",
+        "ros-humble-nav2-mppi-controller", "ros-humble-nav2-controller",
+        "ros-humble-nav2-costmap-2d"], env, timeout=15)
     return runtime
 
 
@@ -443,8 +443,6 @@ def main():
             env.update(COMPOSE_PROJECT_NAME=args.isolated_project, ROS_DOMAIN_ID=str(args.ros_domain_id),
                        GAZEBO_MASTER_URI=f"http://127.0.0.1:{args.gazebo_port}", HSL_RESULTS_DIR=str(RESULTS))
         env.update(configuration_environment(config))
-        env["HSL_LOCAL_BACKEND"] = resolve_backend(
-            env.get("HSL_LOCAL_BACKEND", "auto"))
         env.update({"GAZEBO_HEADLESS": "true", "HSL_ROLE": first_role,
                     "HSL_RVIZ_ENABLED": "auto" if args.rviz else "false",
                     "HSL_OPPONENT_ROLE": second_role,

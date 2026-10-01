@@ -11,10 +11,9 @@ setup(
     ],
     install_requires=["setuptools"], zip_safe=True,
     maintainer="Just Robotics", maintainer_email="dev@just-robotics.ru",
-    description="Replaceable safety-gated path follower for Gazebo tests",
+    description="Safety gate and RViz for native MPPI",
     license="Apache-2.0",
     entry_points={"console_scripts": [
-        "debug_follower = hsl_debug_control.node:main",
         "motion_gate = hsl_debug_control.motion_gate:main",
     ]},
 )

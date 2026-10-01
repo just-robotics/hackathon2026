@@ -24,7 +24,7 @@ for reverse in (True, False):
         observed.clear()
         context = LaunchContext()
         context.launch_configurations.update(robot_namespace='audit', role=role, random_seed='29',
-            arena_bounds='[-3,-3,3,3]', local_backend='auto', allow_reverse=str(reverse).lower(),
+            arena_bounds='[-3,-3,3,3]', allow_reverse=str(reverse).lower(),
             max_speed='0.7', max_angular_speed='1.2')
         launch.nodes(context)
         planner = next(n for n in observed if n['executable'] == 'trajectory_planner')['parameters'][0]
@@ -38,5 +38,7 @@ for reverse in (True, False):
         assert native['MPPI.GoalCritic.cost_weight'] == (15.0 if role == 'guardian' else 5.0)
         results.append(dict(role=role, allow_reverse=reverse, native_parameters=native))
 assert 'swarm_controller' not in get_packages_with_prefixes()
+assert not Path('/autoware/src/hsl_planning/hsl_planning/mppi.py').exists()
+assert not Path('/autoware/src/hsl_debug_control/hsl_debug_control/node.py').exists()
 assert (Path(get_package_share_directory('hsl_debug_control'))/'launch/motion.launch.py').exists()
 print(json.dumps(dict(installed_launch_only=True, cases=results, passed=True), indent=2))

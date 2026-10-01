@@ -3,24 +3,22 @@
 import json
 import struct
 import random
-import numpy as np
-from math import atan2, cos, hypot, isfinite, pi, sin
+from math import atan2, cos, hypot, sin
 from time import perf_counter
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Bool, Float32, String
 
-from .mppi import mppi_local_guidance
 from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_target, reachable_frontier_route,
                    reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
-                   local_guidance, path_heading_error, reachable_target,
-                   recovery_step, checked_recovery_target, turn_alignment_is_progress, safe_segment,
+                   path_heading_error, reachable_target,
+                   checked_recovery_target, turn_alignment_is_progress, safe_segment,
                    reusable_route,
                    smooth_intercept_target)
 
@@ -84,21 +82,12 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("scan_timeout", 1.8)
         self.declare_parameter("intent_timeout", 1.0)
         self.declare_parameter("random_seed", 0)
-        self.declare_parameter("mppi_batch_size", 192)
-        self.declare_parameter("mppi_iterations", 2)
-        self.declare_parameter("mppi_horizon", 3.0)
-        self.declare_parameter("mppi_model_dt", 0.15)
-        self.declare_parameter("mppi_temperature", 0.3)
-        self.declare_parameter("local_backend", "python")
         self.declare_parameter("require_match_active", False)
         self.require_match_active = self.get_parameter("require_match_active").value
         self.match_state = None
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
-        self.local_backend = self.get_parameter("local_backend").value
-        if self.local_backend not in ("python", "nav2_cpp"):
-            raise ValueError("local_backend must be python or nav2_cpp")
         if self.role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         self.local_safety_margin = 0.14 if self.role == "explorer" else 0.12
@@ -106,22 +95,12 @@ class TrajectoryPlanner(Node):
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
         self.random_seed = int(self.get_parameter("random_seed").value)
-        self.mppi_config = {
-            "batch_size": int(self.get_parameter("mppi_batch_size").value),
-            "iterations": int(self.get_parameter("mppi_iterations").value),
-            "horizon": float(self.get_parameter("mppi_horizon").value),
-            "dt": float(self.get_parameter("mppi_model_dt").value),
-            "temperature": float(self.get_parameter("mppi_temperature").value),
-        }
-        self.mppi_config.update(dt=0.2, linear_accel=0.5, angular_accel=2.0)
         self.declare_parameter("max_speed", 0.5)
-        self.mppi_max_speed = float(self.get_parameter("max_speed").value)
+        self.max_speed = float(self.get_parameter("max_speed").value)
         self.rng = random.Random(self.random_seed)
-        self.mppi_rng = np.random.default_rng(self.random_seed)
         self.world = VoxelWorld(self.get_parameter("resolution").value,
                                 self.get_parameter("robot_radius").value)
         self.own = None
-        self.measured_speed = 0.0
         self.measured_omega = 0.0
         self.opponent = None
         self.evade_waypoint = None
@@ -149,11 +128,6 @@ class TrajectoryPlanner(Node):
         self.global_target = None
         self.pursuit_target = None
         self.route_behavior = None
-        self.local_path = []
-        self.local_target = None
-        self.local_behavior = None
-        self.mppi_controls = None
-        self.direct_controls = None
         self.search_waypoint = None
         self.search_visited = []
         self.progress_pose = None
@@ -165,8 +139,6 @@ class TrajectoryPlanner(Node):
         self.recovery_attempt = 0
         self.recovery_goal = None
         self.recovery_origin = None
-        self.mppi_diagnostics = {}
-        self.mppi_diagnostics_until = 0.0
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
         self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
@@ -180,21 +152,8 @@ class TrajectoryPlanner(Node):
         self.create_subscription(OccupancyGrid, "navigation/known_grid",
                                  self.on_known_grid, grid_qos)
         self.global_pub = self.create_publisher(Path, "navigation/global_path", 10)
-        self.local_pub = (self.create_publisher(Path, "navigation/local_path", 10)
-                          if self.local_backend == "python" else None)
-        self.native_reference_pub = None
-        if self.local_backend == "nav2_cpp":
-            self.native_reference_pub = self.create_publisher(
-                Path, "navigation/nav2_reference", 10)
-            self.create_subscription(Path, "navigation/local_path",
-                                     self.on_native_path, 10)
-        self.direct_cmd_pub = (self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
-                               if self.local_backend == "python" else None)
-        self.mppi_diag_pub = (self.create_publisher(String, "navigation/mppi_diagnostics", 10)
-                              if self.local_backend == "python" else None)
-        self.status_pub = self.create_publisher(
-            String, "navigation/global_status" if self.local_backend == "nav2_cpp"
-            else "navigation/planner_status", 10)
+        self.native_reference_pub = self.create_publisher(Path, "navigation/nav2_reference", 10)
+        self.status_pub = self.create_publisher(String, "navigation/global_status", 10)
         self.planning_diag_pub = self.create_publisher(String, "navigation/planning_diagnostics", 10)
         self.planning_diagnostics = {}
         self.cycle_pub = self.create_publisher(Float32, "navigation/planner_cycle_ms", 10)
@@ -209,26 +168,14 @@ class TrajectoryPlanner(Node):
     def on_own(self, msg):
         if msg.header.frame_id == self.frame:
             self.own = (odom_pose(msg), seconds(msg.header.stamp))
-            self.measured_speed = abs(float(msg.twist.twist.linear.x))
             self.measured_omega = float(msg.twist.twist.angular.z)
 
     def on_opponent(self, msg):
         if msg.header.frame_id == self.frame:
             self.opponent = (odom_pose(msg), seconds(msg.header.stamp), msg.twist.twist)
 
-    def on_native_path(self, msg):
-        if msg.header.frame_id == self.frame:
-            self.local_path = [Pose2(p.pose.position.x, p.pose.position.y,
-                                    atan2(2 * (p.pose.orientation.w * p.pose.orientation.z +
-                                               p.pose.orientation.x * p.pose.orientation.y),
-                                          1 - 2 * (p.pose.orientation.y ** 2 +
-                                                   p.pose.orientation.z ** 2)))
-                               for p in msg.poses]
-
     def on_intent(self, msg):
         if msg.header.frame_id == self.frame:
-            if self.local_behavior is not None and msg.behavior != self.local_behavior:
-                self.mppi_controls = None
             if self.intent is not None and msg.behavior != self.intent.behavior:
                 # A manoeuvre selected for another task is no longer authoritative.
                 self.recovery_goal = None
@@ -280,81 +227,16 @@ class TrajectoryPlanner(Node):
     def publish_empty(self, reason):
         self.planning_diagnostics["global_status"] = reason
         self.global_path = []
-        self.local_path = []
-        self.mppi_controls = None
-        self.direct_controls = None
         self.global_pub.publish(make_path(self, []))
-        if self.local_pub is not None:
-            self.local_pub.publish(make_path(self, []))
-        if self.native_reference_pub is not None:
-            self.native_reference_pub.publish(make_path(self, []))
+        self.native_reference_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
-
-    def recovery_path(self, own, enemy, enemy_velocity, intent):
-        """Try a short checked arc before a straight escape or in-place turn."""
-        goal = self.recovery_goal
-        if goal is None:
-            return []
-        config = dict(self.mppi_config, horizon=1.65, batch_size=128)
-        arc, controls, diagnostics = mppi_local_guidance(
-            self.world, own, [own, goal],
-            max_speed=min(float(intent.max_speed), self.mppi_max_speed)
-            if self.mppi_max_speed is not None else float(intent.max_speed),
-            measured_speed=self.measured_speed,
-            measured_omega=self.measured_omega,
-            opponent=enemy, opponent_velocity=enemy_velocity,
-            opponent_clearance=float(intent.opponent_clearance),
-            safety_margin=self.local_safety_margin,
-            rng=self.mppi_rng, **config)
-        self.publish_mppi_diagnostics(own, enemy, diagnostics, controls,
-                                      recovery=True)
-        if arc and (hypot(arc[-1].x - own.x, arc[-1].y - own.y) >= 0.08 or
-                    abs((arc[-1].yaw - own.yaw + pi) % (2 * pi) - pi) >= 0.3):
-            self.direct_controls = controls
-            return arc
-        line = local_guidance(self.world, own, [goal], enemy,
-                              intent.opponent_clearance, min_step=0.04,
-                              safety_margin=self.local_safety_margin)
-        if line:
-            dx, dy = goal.x - own.x, goal.y - own.y
-            if dx * cos(own.yaw) + dy * sin(own.yaw) < -0.04:
-                return [own, Pose2(own.x, own.y, atan2(dy, dx))]
-        return line
-
-    def publish_mppi_diagnostics(self, own, enemy, diagnostics, controls,
-                                 recovery=False):
-        clearance = self.world.obstacle_clearance(own.x, own.y)
-        self.mppi_diag_pub.publish(String(data=json.dumps({
-            "result": diagnostics.get("result"),
-            "recovery": recovery,
-            "recovery_goal": ([self.recovery_goal.x, self.recovery_goal.y]
-                              if recovery and self.recovery_goal else None),
-            "valid_samples": diagnostics.get("valid_samples"),
-            "batch_size": diagnostics.get("batch_size"),
-            "selected_progress_m": diagnostics.get("selected_progress"),
-            "furthest_progress_m": diagnostics.get("furthest_progress"),
-            "path_deviation_m": diagnostics.get("path_deviation"),
-            "selected_type": diagnostics.get("selected_type"),
-            "clearance_m": clearance if isfinite(clearance) else None,
-            "opponent_distance_m": (hypot(own.x - enemy.x, own.y - enemy.y)
-                                    if enemy is not None else None),
-            "first_speed_mps": controls[0][0] if controls else None,
-            "first_omega_radps": controls[0][1] if controls else None,
-        })))
 
     def tick(self):
         started = perf_counter()
-        self.direct_controls = None
         self.planning_diagnostics = {"sim_t_s": self.now(), "role": self.role}
         try:
             self._tick()
         finally:
-            command = Twist()
-            if self.direct_controls:
-                command.linear.x = float(self.direct_controls[0][0])
-                command.angular.z = float(self.direct_controls[0][1])
-            if self.direct_cmd_pub is not None:
-                self.direct_cmd_pub.publish(command)
             self.planning_diagnostics.update({
                 "route_cells": len(self.global_path),
                 "route_end": ([self.global_path[-1].x, self.global_path[-1].y]
@@ -372,7 +254,6 @@ class TrajectoryPlanner(Node):
             self.progress_pose = None
             self.progress_since = None
             self.nominal_retry = 0
-            self.mppi_controls = None
             self.publish_empty("WAIT_OR_STOP")
             return
         if not self.own or not self.intent or self.intent.behavior in (0, 1):
@@ -428,7 +309,6 @@ class TrajectoryPlanner(Node):
             self.global_path = []
             # First retry the nominal route/warm start. A useful turn in free
             # space must not immediately hand authority to an arbitrary escape.
-            self.mppi_controls = None
             self.recovery_goal = None
             pending_native_recovery = self.nominal_retry > 0
             self.nominal_retry += 1
@@ -472,7 +352,7 @@ class TrajectoryPlanner(Node):
         if intent.behavior == 7 and enemy:
             target, capture_enemy = moving_capture_goal(
                 self.world, own, enemy, enemy_velocity,
-                pursuer_speed=self.mppi_max_speed or 0.3)
+                pursuer_speed=self.max_speed or 0.3)
             self.planning_diagnostics["capture_enemy_prediction"] = [capture_enemy.x, capture_enemy.y]
             self.planning_diagnostics["capture_strategy"] = (
                 "direct" if capture_enemy == enemy else "lead")
@@ -619,104 +499,26 @@ class TrajectoryPlanner(Node):
             else:
                 self.publish_empty("NO_GLOBAL_PATH")
                 return
-        if self.local_backend == "nav2_cpp":
-            if self.recovery_goal is not None:
-                reference = [own, self.recovery_goal]
-                status = "RECOVERY_ROUTE"
-            else:
-                reference = list(self.global_path)
-                if reference:
-                    last = reference[-1]
-                    # Navigation goals have no required final orientation;
-                    # only capture needs the explicit facing constraint.
-                    heading = target.yaw
-                    if intent.behavior != 7 and len(reference) >= 2:
-                        before = reference[-2]
-                        heading = atan2(last.y - before.y, last.x - before.x)
-                    reference[-1] = Pose2(last.x, last.y, heading)
-                status = "OK"
-            self.planning_diagnostics["global_status"] = status
-            self.global_pub.publish(make_path(self, self.global_path))
-            self.native_reference_pub.publish(make_path(self, reference))
-            self.status_pub.publish(String(data=status))
-            return
         if self.recovery_goal is not None:
-            self.mppi_controls = None
-            self.local_path = []
-            local = self.recovery_path(own, enemy, enemy_velocity, intent)
-            self.local_path = local
-            if not local:
-                self.recovery_goal = None
-        elif hypot(own.x - target.x, own.y - target.y) <= intent.target_tolerance:
-            self.mppi_controls = None
-            self.local_path = []
-            local = [own, Pose2(own.x, own.y, target.yaw)]
-            if intent.behavior == 7:
-                self.local_path = local
-                self.local_pub.publish(make_path(self, local))
-                self.status_pub.publish(String(data="CAPTURE_ALIGNMENT"))
-                return
+            reference = [own, self.recovery_goal]
+            status = "RECOVERY_ROUTE"
         else:
-            same_target = (self.local_target is not None and
-                           hypot(target.x - self.local_target.x,
-                                 target.y - self.local_target.y) < 0.3)
-            previous_controls = (
-                self.mppi_controls if same_target and
-                self.local_behavior == intent.behavior else None)
-            local, self.mppi_controls, diagnostics = mppi_local_guidance(
-                self.world, own, self.global_path,
-                max_speed=min(float(intent.max_speed), self.mppi_max_speed)
-                if self.mppi_max_speed is not None else float(intent.max_speed),
-                measured_speed=self.measured_speed,
-                measured_omega=self.measured_omega,
-                opponent=enemy,
-                opponent_velocity=enemy_velocity,
-                opponent_clearance=float(intent.opponent_clearance),
-                safety_margin=self.local_safety_margin,
-                previous_controls=previous_controls,
-                rng=self.mppi_rng,
-                **self.mppi_config)
-            self.direct_controls = self.mppi_controls if local else None
-            self.publish_mppi_diagnostics(own, enemy, diagnostics,
-                                          self.mppi_controls)
-            reason = diagnostics.get("result", "unknown")
-            self.mppi_diagnostics[reason] = (
-                self.mppi_diagnostics.get(reason, 0) + 1)
-            if now >= self.mppi_diagnostics_until:
-                self.get_logger().info(
-                    f"Local MPPI decisions (10 sim s): {self.mppi_diagnostics}; "
-                    f"last={diagnostics}")
-                self.mppi_diagnostics.clear()
-                self.mppi_diagnostics_until = now + 10.0
-            self.local_path = local
-            self.local_target = target
-            self.local_behavior = intent.behavior
-        if not local:
-            self.local_path = []
-            self.global_path = []
-            self.recovery_goal = checked_recovery_target(
-                self.world, own, None, enemy, intent.opponent_clearance,
-                self.local_safety_margin)
-            if self.recovery_goal is not None:
-                self.recovery_origin = own
-                local = self.recovery_path(own, enemy, enemy_velocity, intent)
-                if not local:
-                    local = [own, Pose2(own.x, own.y, self.recovery_goal.yaw)]
-                self.local_path = local
-                self.local_pub.publish(make_path(self, local))
-                self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
-                return
-            self.local_pub.publish(make_path(self, []))
-            self.status_pub.publish(String(data="NO_LOCAL_PATH"))
-            return
+            reference = list(self.global_path)
+            if reference:
+                last = reference[-1]
+                # Navigation goals have no required final orientation;
+                # only capture needs the explicit facing constraint.
+                heading = target.yaw
+                if intent.behavior != 7 and len(reference) >= 2:
+                    before = reference[-2]
+                    heading = atan2(last.y - before.y, last.x - before.x)
+                reference[-1] = Pose2(last.x, last.y, heading)
+            status = "OK"
+        self.planning_diagnostics["global_status"] = status
         self.global_pub.publish(make_path(self, self.global_path))
-        self.local_pub.publish(make_path(self, local))
-        status = ("RECOVERY_MPPI" if self.recovery_goal is not None and
-                  self.direct_controls else
-                  "OK" if self.direct_controls
-                  else "RECOVERY_FALLBACK")
+        self.native_reference_pub.publish(make_path(self, reference))
         self.status_pub.publish(String(data=status))
-
+        return
 
 def main():
     rclpy.init()

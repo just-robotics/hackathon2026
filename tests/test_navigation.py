@@ -3,31 +3,24 @@ import unittest
 from math import atan2, cos, hypot, pi, sin
 from pathlib import Path
 
-import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1] / "src"
 for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_adapter"):
     sys.path.insert(0, str(ROOT / package))
 
-from hsl_debug_control.core import (follow, safe_follow,
+from hsl_debug_control.core import (
                                     safe_motion_command, select_control_command, match_is_active)
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
-from hsl_planning.backend import resolve_backend
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, moving_capture_goal, coverage_target, reachable_frontier_route,
-                               local_guidance, reachable_target, navigation_obstacles, evade_target, evade_objective_route,
+                               reachable_target, navigation_obstacles, evade_target, evade_objective_route,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
                                reusable_route, safe_segment,
                                smooth_intercept_target)
-from hsl_planning.mppi import (_initial_path_angle_errors, _project_batch,
-                               _pruned_route,
-                               _reference_prefix, _simulate,
-                               mppi_local_guidance)
 from hsl_sim_adapter.cloud import transform
-from hsl_sim_adapter.patrol import patrol_command
 from hsl_sim_adapter.visibility import StaticGrid, detect_opponent
 from hsl_sim_adapter.metrics import RunMetrics, capture_possible, duel_outcome, timing_summary
 
@@ -166,122 +159,13 @@ class DecisionTests(unittest.TestCase):
 
 
 class PlanningTests(unittest.TestCase):
-    def test_python_mppi_commands_respect_model_acceleration_limits(self):
-        world = VoxelWorld(0.1, 0.22)
-        world.update([], [], None, map_bounds=(-2, -2, 5, 2))
-        route = [Pose2(index * 0.15, 0) for index in range(21)]
-        path, controls, diagnostics = mppi_local_guidance(
-            world, Pose2(0, 0), route, max_speed=0.5,
-            linear_accel=0.5, angular_accel=2.0,
-            measured_speed=0.0, measured_omega=0.0,
-            rng=np.random.default_rng(12))
-        self.assertEqual(diagnostics["result"], "ok")
-        self.assertGreater(len(path), 3)
-        self.assertIsNotNone(controls)
-        previous_v, previous_w = 0.0, 0.0
-        for v, w in controls:
-            self.assertLessEqual(abs(v - previous_v), 0.5 * 0.15 + 1e-9)
-            self.assertLessEqual(abs(w - previous_w), 2.0 * 0.15 + 1e-9)
-            self.assertLessEqual(v, 0.5 + 1e-9)
-            previous_v, previous_w = v, w
 
-    def test_nav2_mppi_local_path_tracks_straight_route_smoothly(self):
-        world = VoxelWorld(0.1, 0.22)
-        world.update([], [], None, map_bounds=(-2, -2, 5, 2))
-        route = [Pose2(index * 0.15, 0.0) for index in range(21)]
 
-        path, controls, diagnostics = mppi_local_guidance(
-            world, Pose2(0.0, 0.0), route,
-            rng=np.random.default_rng(12), batch_size=256)
 
-        self.assertEqual(diagnostics["result"], "ok")
-        self.assertGreater(len(path), 3)
-        self.assertGreater(diagnostics["optimized_path_points"], len(path))
-        self.assertIsNotNone(controls)
-        self.assertGreater(path[-1].x, 0.8)
-        self.assertLessEqual(sum(hypot(b.x - a.x, b.y - a.y)
-                                 for a, b in zip(path, path[1:])), 1.21)
-        self.assertLess(max(abs(point.y) for point in path), 0.2)
-        self.assertLess(path_heading_error(Pose2(0, 0), path), 0.25)
-        self.assertTrue(all(safe_segment(world, first, second, safety_margin=0.18)
-                            for first, second in zip(path, path[1:])))
-        alternate, _, _ = mppi_local_guidance(
-            world, Pose2(0, 0), route,
-            rng=np.random.default_rng(2), batch_size=256,
-            safety_margin=0.18)
-        self.assertNotEqual(path, alternate)
 
-    def test_mppi_prunes_route_near_its_start_instead_of_later_loop(self):
-        route = [Pose2(0, 0), Pose2(1, 0), Pose2(1, 1),
-                 Pose2(0, 1), Pose2(0, 0.1), Pose2(-1, 0.1)]
-        pruned = _pruned_route(Pose2(0, 0.08), route)
-        self.assertIsNotNone(pruned)
-        self.assertGreater(pruned[2][0], 0.0)
 
-    def test_mppi_progress_cannot_jump_to_nearby_later_loop(self):
-        route = [Pose2(0, 0), Pose2(1, 0), Pose2(1, 1),
-                 Pose2(0, 1), Pose2(0, 0.1), Pose2(-1, 0.1)]
-        pruned = _pruned_route(Pose2(0, 0.08), route)
-        self.assertIsNotNone(pruned)
-        _, unconstrained, _ = _project_batch(
-            np.array([0.02]), np.array([0.08]), pruned)
-        _, constrained, _ = _project_batch(
-            np.array([0.02]), np.array([0.08]), pruned,
-            max_progress=np.array([0.35]))
-        self.assertGreater(unconstrained[0], 3.0)
-        self.assertLessEqual(constrained[0], 0.35)
 
-    def test_mppi_rollout_uses_first_control_after_measured_initial_step(self):
-        own = Pose2(0.0, 0.0, 0.0)
-        velocities = np.array([[0.4, 0.1, 0.1]])
-        omegas = np.array([[0.0, 0.0, 0.0]])
-        xs, _, _ = _simulate(own, 0.2, 0.0, velocities, omegas, 1.0)
-        self.assertTrue(np.allclose(xs[0], [0.0, 0.2, 0.6, 0.7]))
 
-    def test_mppi_prefix_keeps_forward_driven_u_turn(self):
-        points = [Pose2(0.0, 0.0, 0.0), Pose2(0.2, 0.0, 0.4),
-                  Pose2(0.3, 0.2, 1.7), Pose2(0.2, 0.4, 2.5),
-                  Pose2(0.0, 0.5, 3.0), Pose2(-0.15, 0.5, 3.1)]
-        prefix = _reference_prefix(points)
-        self.assertEqual(prefix, points)
-        self.assertLess(prefix[-1].x, points[0].x)
-
-    def test_mppi_initial_path_angle_critic_prefers_gentle_forward_arc(self):
-        own = Pose2(0.0, 0.0, 0.0)
-        xs = np.array([[0.0, 0.1, 0.2, 0.3],
-                       [0.0, 0.05, 0.08, 0.1],
-                       [0.0, 0.0, 0.0, 0.0]])
-        ys = np.array([[0.0, 0.0, 0.0, 0.0],
-                       [0.0, 0.04, 0.09, 0.15],
-                       [0.0, 0.0, 0.0, 0.0]])
-
-        errors = _initial_path_angle_errors(own, xs, ys)
-
-        self.assertAlmostEqual(errors[0], 0.0)
-        self.assertGreater(errors[1], 0.9)
-        self.assertAlmostEqual(errors[2], 0.0)
-
-    def test_nav2_mppi_local_path_follows_astar_detour_around_new_obstacle(self):
-        world = VoxelWorld(0.1, 0.22)
-        free = {world.cell(x * 0.1, y * 0.1)
-                for x in range(-20, 41) for y in range(-20, 21)}
-        world.update([(0.65, 0.0, 0.3)], [], Pose2(0, 0), free,
-                     map_bounds=(-2, -2, 4, 2))
-        route = astar(world, Pose2(0, 0), Pose2(2, 0))
-        self.assertTrue(route)
-        self.assertGreater(max(abs(point.y) for point in route), 0.2)
-
-        path, controls, diagnostics = mppi_local_guidance(
-            world, Pose2(0, 0), route,
-            rng=np.random.default_rng(1), batch_size=256,
-            safety_margin=0.18)
-
-        self.assertEqual(diagnostics["result"], "ok")
-        self.assertIsNotNone(controls)
-        self.assertGreater(path[-1].x, 0.2)
-        self.assertGreater(path[-1].y, 0.1)
-        self.assertTrue(all(safe_segment(world, first, second, safety_margin=0.18)
-                            for first, second in zip(path, path[1:])))
 
     def test_path_heading_error_reports_alignment_progress(self):
         path = [Pose2(0, 0), Pose2(0.1, 0), Pose2(0.2, 0), Pose2(0.5, 0)]
@@ -297,16 +181,6 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(turn_alignment_is_progress("explorer", 2))
         self.assertTrue(turn_alignment_is_progress("explorer", 4))
 
-    def test_local_guidance_is_straight_on_clear_corridor(self):
-        world = VoxelWorld(0.1, 0.2)
-        world.update([], [], None, map_bounds=(-1, -1, 4, 1))
-        own = Pose2(0, 0, 0)
-        route = [Pose2(i * 0.1, 0) for i in range(21)]
-        local = local_guidance(world, own, route)
-        self.assertGreater(len(local), 10)
-        self.assertTrue(all(abs(point.y) < 1e-9 for point in local))
-        self.assertTrue(all(later.x > earlier.x for earlier, later in
-                            zip(local, local[1:])))
 
     def test_guardian_does_not_chase_prediction_through_wall(self):
         world = VoxelWorld(0.1, 0.2)
@@ -388,16 +262,6 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(safe_segment(world, Pose2(0, 0), Pose2(0.5, 0),
                                       safety_margin=0.14))
 
-    def test_local_guidance_does_not_cut_wall_and_recovery_turns_inward(self):
-        world = VoxelWorld(0.1, 0.2)
-        wall = [(0.6, y * 0.1, 0.3) for y in range(-5, 6)]
-        world.update(wall, [], None, map_bounds=(-1, -1, 2, 1))
-        self.assertFalse(local_guidance(world, Pose2(0, 0),
-                                        [Pose2(1, 0)]))
-        near_boundary = Pose2(1.72, 0, 0)
-        step = recovery_step(world, near_boundary)
-        self.assertIsNotNone(step)
-        self.assertLess(cos(step[0]), 0)
 
     def test_native_escape_rechecks_new_obstacle_and_faces_travel(self):
         world = VoxelWorld(0.1, 0.2)
@@ -425,8 +289,7 @@ class PlanningTests(unittest.TestCase):
         world = VoxelWorld(0.1, 0.2)
         world.update([], [], None, map_bounds=(-0.45, -0.45, 0.45, 0.45))
         self.assertIsNotNone(recovery_step(world, Pose2(0, 0)))
-        self.assertTrue(local_guidance(world, Pose2(0, 0),
-                                       [Pose2(0.09, 0)], min_step=0.04))
+        self.assertTrue(safe_segment(world, Pose2(0, 0), Pose2(0.09, 0)))
 
     def test_recovery_uses_the_length_it_actually_checked(self):
         world = VoxelWorld(0.1, 0.2)
@@ -439,8 +302,7 @@ class PlanningTests(unittest.TestCase):
         heading, length = step
         self.assertLessEqual(length, 0.15)
         target = Pose2(length * cos(heading), length * sin(heading))
-        self.assertTrue(local_guidance(world, own, [target], min_step=0.04,
-                                       safety_margin=0.14))
+        self.assertTrue(safe_segment(world, own, target, safety_margin=0.14))
 
     def test_3d_projection_ignores_ground_but_blocks_robot_height(self):
         world = VoxelWorld(0.1, 0.2)
@@ -626,18 +488,7 @@ class PlanningTests(unittest.TestCase):
         self.assertNotIn(world.cell(1.0, 0), world.free)
         self.assertIn(world.cell(0.0, 0), world.free)
 
-    def test_debug_follower_stops_without_path(self):
-        self.assertEqual(follow((0, 0, 0), [], 0.5), (0, 0))
 
-    def test_debug_follower_stops_for_frozen_or_stale_data(self):
-        own = ((0, 0, 0), 10.0)
-        path = ([(0, 0, 0), (1, 0, 0)], 10.0)
-        self.assertEqual(safe_follow(10.0, own, path, (WAIT, 0.5, 10.0)), (0, 0))
-        self.assertEqual(safe_follow(11.0, own, path, (GOAL, 0.5, 11.0)), (0, 0))
-        self.assertGreater(safe_follow(10.0, own, path, (GOAL, 0.5, 10.0))[0], 0)
-        self.assertGreater(safe_follow(10.7, own, path, (GOAL, 0.5, 10.0),
-                                       pose_timeout=1.2, path_timeout=1.0,
-                                       intent_timeout=1.0)[0], 0)
 
     def test_common_match_permission_is_required_and_expires(self):
         self.assertFalse(match_is_active(10.0, None))
@@ -658,7 +509,7 @@ class PlanningTests(unittest.TestCase):
         mppi = (0.3, -0.2, 10.0)
         self.assertEqual(select_control_command("OK", mppi), mppi)
         self.assertEqual(select_control_command("RECOVERY_MPPI", mppi), mppi)
-        for status in ("RECOVERY_ESCAPE", "RECOVERY_FALLBACK", "NO_LOCAL_PATH"):
+        for status in ("RECOVERY_ROUTE", "UNKNOWN_STATUS", "NO_LOCAL_PATH"):
             self.assertIsNone(select_control_command(status, mppi))
         self.assertIsNone(select_control_command("OK", None))
 
@@ -709,14 +560,6 @@ class PlanningTests(unittest.TestCase):
         wall_hits = [(1.04, 1.04, 0.3)] * 3
         self.assertIsNone(detect_opponent(wall_hits, grid, (0.5, 1.0)))
 
-    def test_scripted_opponent_patrol_turns_then_drives(self):
-        linear, angular, reached = patrol_command(2.5, 2.5, 0, 1.0, 2.5)
-        self.assertEqual(linear, 0)
-        self.assertNotEqual(angular, 0)
-        linear, angular, reached = patrol_command(2.5, 2.5, 3.14159, 1.0, 2.5)
-        self.assertGreater(linear, 0)
-        self.assertFalse(reached)
-        self.assertTrue(patrol_command(1.05, 2.5, 3.14159, 1.0, 2.5)[2])
 
     def test_run_metrics_from_truth_and_separated_contacts(self):
         run = RunMetrics(0.7)
@@ -899,14 +742,7 @@ class KnownWallPreservationTests(unittest.TestCase):
                          ([wall, obstacle], [obstacle]))
 
 
-class BackendReserveTests(unittest.TestCase):
-    def test_backend_selection_rejects_removed_controllers(self):
-        self.assertEqual(resolve_backend(), "nav2_cpp")
-        with self.assertRaises(ValueError):
-            resolve_backend("mpc")
 
-    def test_explicit_python_checkpoint_remains_available(self):
-        self.assertEqual(resolve_backend("python"), "python")
 
 
 class EncounterRegressionTests(unittest.TestCase):

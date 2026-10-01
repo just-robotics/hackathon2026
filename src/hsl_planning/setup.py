@@ -14,7 +14,7 @@ setup(
     zip_safe=True,
     maintainer="Just Robotics",
     maintainer_email="dev@just-robotics.ru",
-    description="3D obstacle projection, role-aware A*, and local MPPI path planning",
+    description="3D obstacle projection, role-aware A*, and reference paths for native Nav2 MPPI",
     license="Apache-2.0",
     entry_points={"console_scripts": ["trajectory_planner = hsl_planning.node:main"]},
 )

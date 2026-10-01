@@ -7,7 +7,8 @@ PROJECT_GOAL, PROJECT_STATUS и текущее дерево, включая не
 ## Текущий контракт
 
 Два автономных стека: собственные наблюдения → decision manager → A* →
-штатный C++ Nav2 Humble MPPI → motion_gate. MPC удалён по запросу пользователя.
+штатный C++ Nav2 Humble MPPI → motion_gate. MPC, Python-адаптация mppi.py, debug follower и scripted opponent удалены
+по запросу пользователя; выбора backend больше нет.
 Основной запуск `helm start_match`, конфигурация `config/match.yaml` на хосте,
 без пересборки. Других start_matchN нет. Позиции и полигоны в map; смещение
 карты от мира не зависит от старта робота. На хакатоне сохраняется этот формат

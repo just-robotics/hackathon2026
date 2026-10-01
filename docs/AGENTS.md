@@ -41,10 +41,10 @@ hackathon2026 — стек для робототехнического хака�
 | src/jr_map/, src/jr_launch/ | Карта занятости из SDF, демонстрационные launch для карты и локализации |
 | src/hsl_interfaces/ | Сообщение PlanningIntent между decision manager и планировщиком |
 | src/hsl_decision/ | Конечный автомат и ROS-узел выбора поведения |
-| src/hsl_planning/ | Проекция 3D-препятствий, A*, цели и recovery; Python MPPI в резерве |
+| src/hsl_planning/ | Проекция 3D-препятствий, A*, цели и recovery; reference для Nav2 |
 | src/hsl_nav2_control/ | Основной официальный C++ MPPI Nav2, costmap, команды и проверка траектории |
-| src/hsl_sim_adapter/ | Временные источники данных Gazebo, отдельные наблюдатели метрик каждого робота и сценарный соперник для отладки |
-| src/hsl_debug_control/ | Защитный шлюз MPPI и сменный отладочный контроллер пути |
+| src/hsl_sim_adapter/ | Временные источники данных Gazebo, отдельные наблюдатели метрик каждого робота для обоих автономных роботов |
+| src/hsl_debug_control/ | Защитный шлюз MPPI и конфигурация RViz |
 | benchmarks/run_duel_series.py | Независимые дуэли с пересозданием мира, seed, перестановкой ролей, выбором сценария и парными отчётами |
 
 ## Как устроен запуск
@@ -59,7 +59,8 @@ hackathon2026 — стек для робототехнического хака�
 Один издатель финальной команды на робот, запрет до общего старта и после
 исхода, актуальность pose/scan/path/intent обязательны.
 Автозапуск RViz при DISPLAY, иначе headless. simulation — сенсорный стенд.
-Python MPPI доступен явно как запасная реализация, без MPC.
+Python-адаптация MPPI и debug follower удалены; единственный локальный
+контроллер — штатный C++ MPPI Nav2.
 Benchmark читает тот же YAML, сохраняет его и эффективные overrides;
 разрешает движение напрямую, не вызывает пересоздающий мир start_match.
 На реальном роботе миссионные секции конфигурации сохраняют ту же семантику
@@ -106,7 +107,7 @@ Compose; прежние реализации восстанавливаются 
 `motion.launch.py` запускает только `hsl_motion_gate`; он единственный final
 cmd_vel publisher и пропускает только checked MPPI statuses при свежих данных.
 Больше нет hsl_cc_mpc/hsl_lat_mpc, mpc_path/mpc_cmd_vel/long_cmd или параметров
-control_mode/mpc_path_source. Auto backend всегда native, Python MPPI — явный.
+control_mode/mpc_path_source. Backend switch удалён; всегда native.
 
 По умолчанию Native ±0,5м/с; параметры motion в YAML переопределяют пределы.
 PreferForward=false; PathAngle.forward_preference=!allow_reverse.

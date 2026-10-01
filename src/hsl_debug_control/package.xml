@@ -2,7 +2,7 @@
 <package format="3">
   <name>hsl_debug_control</name>
   <version>0.1.0</version>
-  <description>Replaceable safety-gated path follower for Gazebo tests.</description>
+  <description>Safety gate and RViz for native MPPI.</description>
   <maintainer email="dev@just-robotics.ru">Just Robotics</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>

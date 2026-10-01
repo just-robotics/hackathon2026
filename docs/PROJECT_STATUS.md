@@ -2,6 +2,58 @@
 
 Обновлено: 2026-10-01. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 01.10.2026 — baseline после удаления MPC и очистка Python legacy
+
+Пользователь разрешил закрыть ручной мир; `helm clean duel` завершился,
+обычные duel-контейнеры удалены, служебные init сохранены. Изолированная серия
+`results/isolated/hsl-eval/series-20261001T165242Z/` завершилась 3/3:
+config/match.yaml, fixed explorer first, seeds12–14,90sim s, stock native,
+imagee5f7d5f; навигационные исходники a07f83e (runtime SHA256 подтверждён),
+runner3d8d673+dirty.f2eb728b0e1e с исправленным ожиданием launch.
+Команда: python3 benchmarks/run_duel_series.py --isolated-project hsl-eval
+--ros-domain-id 73 --gazebo-port 11418 --runs 3 --start-seed 12 --active-s 90
+--trace --audit-start.
+
+| Seed | Исход | sim s | Explorer м/с | Guardian м/с | Контакты E/G |
+| --- | --- | ---: | ---: | ---: | --- |
+| 12 | explorer_goal | 18.7 | 0.374 | 0.399 | 0/0 |
+| 13 | guardian_capture | 13.2 | 0.325 | 0.383 | 0/0 |
+| 14 | explorer_goal | 19.8 | 0.377 | 0.377 | 0/0 |
+
+Средние E/G0.359/0.386, минимумы0.325/0.377; ниже0.2 и0.3 —0/3 обеих ролей.
+Global lateral RMS E0.079/0.075/0.061м, G0.036/0.052/0.053м; средние0.072/0.047м.
+Angular accel RMS E0.796/1.018/1.040, G0.890/0.799/1.226рад/с².
+Окна обоих отчётов referee совпадают; coverage0.9992–1.0. Source/runtime,
+нулевые команды до старта/при одном разрешении/после исхода и один publisher
+прошли. Две реальные цели и одна поимка получены без телепортов, но это только
+три коротких матча: финальные20/неизвестные препятствия ещё не подтверждены.
+Срез сохранён в checkpoint/native-bidirectional-yaml-20261001 (3d8d673).
+
+Первый технический запуск164948Z имеет0 завершённых матчей: прежний watchdog
+считал ещё не появившийся gzserver падением после15wall s, хотя ROS launch
+продолжал работать. После исправления ждём появление до readiness deadline,
+выход после появления или завершённый контейнер — реальные terminal events.
+Добавлен regression test живого launch до появления Gazebo,8 runner tests
+прошли. Нет оценочного результата от этого технического отказа.
+
+По новому запросу пользователя убирается неиспользуемая Python mppi.py и
+backend selector, его параметры/NumPy/direct velocity publisher/внутренняя
+диагностика/warm start/local recovery. Основной Python planner теперь только
+глобальный reference/A*/роль/recovery; локальные команды и визуализация всегда
+stock C++ Nav2 MPPI. Удалены debug follower и scripted opponent/patrol/profile,
+неиспользуемая local_guidance, соответствующие зависимости, тесты и описания.
+Probe сохраняет фактический опубликованный local_path вместо реконструированного
+старым guidance. Локализация LIO-SAM, реальные sensing/perception заготовки и
+интерфейсы данных сохранены. Навигационные решения native/A* не меняются.
+131 тест прошёл, compileall/diff check чистые. Финальная сборка успешна
+(`/tmp/native-only-clean-build-final.log`), hash planner внутри образа и на хосте
+совпал: df8b22b778051882610290d93dc48b40f2e1c661fbab27a1f3188ca21fb891be.
+Installed launch audit прошёл обе роли/reverse true/false и отсутствие удалённых
+файлов (`results/audit-native-only-launch-20261001.json`). Trace удалил obsolete
+fallback поля и проверяет модуль скорости при диагностике заднего хода.
+Очищенная версия пока не подтверждена повторной дуэлью. Следующий шаг:
+финальная сборка/source audit/installed-launch audit, затем те же seeds12–14.
+
 ## 01.10.2026 — изоляция оценки от ручного мира
 
 Предыдущий goal turn — progress: единый YAML/MPC cleanup изменил исходники,

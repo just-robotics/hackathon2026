@@ -27,12 +27,12 @@ def main():
         env["GAZEBO_HEADLESS"] = "true"
         env["HSL_RVIZ_ENABLED"] = "false"
     env.update(DUEL_RUN_ID=datetime.now(timezone.utc).strftime('manual-%Y%m%dT%H%M%S%fZ'),
-               DUEL_REVISION=revision(), HSL_LOCAL_BACKEND='nav2_cpp')
+               DUEL_REVISION=revision())
     run_dir = RESULTS / env['DUEL_RUN_ID']
     run_dir.mkdir(parents=True)
     (run_dir / 'match.yaml').write_text(__import__('yaml').safe_dump(config, sort_keys=False))
     (run_dir / 'environment.json').write_text(json.dumps({k: v for k, v in env.items()
-        if k in settings or k in ('DUEL_RUN_ID', 'DUEL_REVISION', 'HSL_LOCAL_BACKEND')}, indent=2))
+        if k in settings or k in ('DUEL_RUN_ID', 'DUEL_REVISION')}, indent=2))
     for action in ('clean', 'up'):
         subprocess.run(['helm', action, 'duel'], cwd=ROOT, env=env, check=True)
     wait_ready(env, time.monotonic()+180)
