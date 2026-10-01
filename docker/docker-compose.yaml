@@ -132,7 +132,7 @@ services:
         stdin_open: true
 
     # Изолированный сценарий двух роботов. Основной профиль simulation со
-    # штатным planning/control из main остаётся без изменений.
+    # сенсорным стендом; автономная оценка выполняется только в duel.
     gazebo-duel:
         command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${DUEL_SPAWN_Y:-0.4} spawn_z:=${SPAWN_Z:-0.23} spawn_yaw:=${DUEL_SPAWN_YAW:-0} map_origin_x:=${MAP_ORIGIN_X:--0.34} map_origin_y:=${MAP_ORIGIN_Y:-0.4} opponent_x:=${OPPONENT_X:-2.5} opponent_y:=${OPPONENT_Y:-2.5} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-3.14159} lidar_horizontal_samples:=${DUEL_LIDAR_HORIZONTAL_SAMPLES:-360} lidar_vertical_samples:=${DUEL_LIDAR_VERTICAL_SAMPLES:-16}"
         extends:
@@ -251,7 +251,7 @@ services:
             file: common.yaml
             service: app
         volumes:
-            - ../results:/autoware/match-results:rw
+            - ${HSL_RESULTS_DIR:-../results}:/autoware/match-results:rw
         profiles:
             - duel
 
@@ -261,7 +261,7 @@ services:
             file: common.yaml
             service: app
         volumes:
-            - ../results:/autoware/match-results:rw
+            - ${HSL_RESULTS_DIR:-../results}:/autoware/match-results:rw
         profiles:
             - duel
 
@@ -271,6 +271,6 @@ services:
             file: common.yaml
             service: app
         volumes:
-            - ../results:/autoware/match-results:rw
+            - ${HSL_RESULTS_DIR:-../results}:/autoware/match-results:rw
         profiles:
             - duel

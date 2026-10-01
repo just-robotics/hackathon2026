@@ -48,7 +48,16 @@ def revision():
     return f"{commit}+dirty.{digest.hexdigest()[:12]}"
 
 
+def container_name(name, env):
+    project = env.get("COMPOSE_PROJECT_NAME", "docker")
+    if name.startswith(("docker-hsl-", "docker-gazebo-")):
+        return project + name[len("docker"):]
+    return name
+
+
+
 def command(args, env, timeout=None, log=None):
+    args = [container_name(arg, env) for arg in args]
     result = subprocess.run(args, cwd=ROOT, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             timeout=timeout, check=False)
@@ -73,7 +82,7 @@ def ready_topic(container, topic, env, field="pose.pose.position", expected=None
     shell = ("source /autoware/install/setup.bash && timeout 7 "
              f"ros2 topic echo {topic} --no-daemon --once --field {field}")
     try:
-        result = subprocess.run(["docker", "exec", container, "bash", "-lc", shell],
+        result = subprocess.run(["docker", "exec", container_name(container, env), "bash", "-lc", shell],
                                 cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True,
                                 stderr=subprocess.DEVNULL, timeout=12, check=False)
         return result.returncode == 0 and (expected is None or
@@ -88,7 +97,7 @@ def wait_ready(env, deadline):
     started = time.monotonic()
     while time.monotonic() < deadline:
         if time.monotonic() - started > 15:
-            gazebo = subprocess.run(["docker", "exec", "docker-gazebo-duel-1",
+            gazebo = subprocess.run(["docker", "exec", container_name("docker-gazebo-duel-1", env),
                                      "pgrep", "-x", "gzserver"], cwd=ROOT,
                                     env=env, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL, check=False)
@@ -277,7 +286,7 @@ def start_traces(series_dir, index, env):
                   f"--spawn-x {spawn_x} --spawn-y {spawn_y} "
                   "--timeseries" + namespace)
         process = subprocess.Popen(
-            ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
+            ["docker", "exec", container_name("docker-hsl-adapter-1", env), "bash", "-lc", script],
             cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
         traces.append((process, output, destination))
     time.sleep(2)
@@ -310,7 +319,7 @@ def start_probes(series_dir, index, status, env):
                   f"/tmp/hsl_planner_probe.py --on-status {status} --wait-s 1200" +
                   namespace)
         process = subprocess.Popen(
-            ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
+            ["docker", "exec", container_name("docker-hsl-adapter-1", env), "bash", "-lc", script],
             cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
         probes.append((process, output, destination))
     return probes
@@ -395,8 +404,20 @@ def main():
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
+    parser.add_argument("--isolated-project", default="",
+                        help="separate Compose project, ROS domain, Gazebo port and result directory")
+    parser.add_argument("--ros-domain-id", type=int, default=73)
+    parser.add_argument("--gazebo-port", type=int, default=11418)
     args = parser.parse_args()
     config = load_config(args.config)
+    global RESULTS
+    if args.isolated_project:
+        if not re.fullmatch(r"[a-z][a-z0-9_-]+", args.isolated_project) or args.isolated_project == "docker":
+            parser.error("isolated-project must be a separate lower-case Compose project")
+        if not 1 <= args.ros_domain_id <= 100 or not 1024 <= args.gazebo_port <= 65535 or args.gazebo_port == 11345:
+            parser.error("isolation requires a nonzero ROS domain and a separate Gazebo port")
+        RESULTS = ROOT / "results" / "isolated" / args.isolated_project
+        RESULTS.mkdir(parents=True, exist_ok=True)
     args.start_seed = config["match"]["seed"] if args.start_seed is None else args.start_seed
     args.active_s = config["match"]["active_seconds"] if args.active_s is None else args.active_s
     args.first_role = config["robot"]["role"] if args.first_role == "config" else args.first_role
@@ -418,6 +439,9 @@ def main():
         first_role, second_role = roles_for_run(index, args.first_role)
         run_id = f"{series_id}-{index:02d}"
         env = os.environ.copy()
+        if args.isolated_project:
+            env.update(COMPOSE_PROJECT_NAME=args.isolated_project, ROS_DOMAIN_ID=str(args.ros_domain_id),
+                       GAZEBO_MASTER_URI=f"http://127.0.0.1:{args.gazebo_port}", HSL_RESULTS_DIR=str(RESULTS))
         env.update(configuration_environment(config))
         env["HSL_LOCAL_BACKEND"] = resolve_backend(
             env.get("HSL_LOCAL_BACKEND", "auto"))
@@ -431,7 +455,8 @@ def main():
         record = {"run_id": run_id, "seed": seed,
                   "roles": [first_role, second_role], "match_config": config,
                   "rviz_requested": args.rviz,
-                  "effective_environment": {key: env[key] for key in configuration_environment(config)}}
+                  "effective_environment": {key: env[key] for key in list(configuration_environment(config)) +
+                      [k for k in ("COMPOSE_PROJECT_NAME", "ROS_DOMAIN_ID", "GAZEBO_MASTER_URI", "HSL_RESULTS_DIR") if k in env]}}
         print(f"[{index + 1}/{args.runs}] {run_id} "
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []

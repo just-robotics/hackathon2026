@@ -127,3 +127,17 @@ reachable_intercept проверяет прогноз с margin0 при сохр
 Профиль simulation теперь только сенсорный/картографический стенд. Старые
 jr_control/jr_planning демонстрации удалены вместе с MPC. Автономные испытания —
 duel и start_match. Настройки и актуальная оценка описаны в README/STATUS.
+
+## Изолированная оценка рядом с ручным миром
+
+```bash
+python3 benchmarks/run_duel_series.py --isolated-project hsl-eval --ros-domain-id 73 --gazebo-port 11418 --runs 3 --start-seed 12 --active-s 90 --trace --audit-start
+```
+
+Отдельный проект Compose, ROS domain и Gazebo master исключают обмен
+командами/наблюдениями с обычным docker-проектом. Результаты находятся в
+`results/isolated/hsl-eval/`; ручные latest.json не перезаписываются.
+Навигация и YAML остаются прежними. Дополнительная нагрузка может снизить
+RTF: учитывайте её при сравнении. Не используйте тот же domain/порт для
+других экспериментов одновременно. После серии удаляйте только её проект:
+`COMPOSE_PROJECT_NAME=hsl-eval ROS_DOMAIN_ID=73 GAZEBO_MASTER_URI=http://127.0.0.1:11418 helm clean duel`.

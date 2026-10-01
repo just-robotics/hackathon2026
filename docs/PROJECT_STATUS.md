@@ -2,6 +2,22 @@
 
 Обновлено: 2026-10-01. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 01.10.2026 — изоляция оценки от ручного мира
+
+Предыдущий goal turn — progress: единый YAML/MPC cleanup изменил исходники,
+сборка и синтетические аудиты подтвердили wiring. Ручной мир остаётся на тех
+же ID; автоматическое продолжение не отвечает на pending permission question.
+Следующий доступный безопасный шаг: реальная дуэль в отдельном проекте.
+Runner получил --isolated-project/--ros-domain-id/--gazebo-port; Compose
+передаёт ROS_DOMAIN_ID/GAZEBO_MASTER_URI и отдельную HSL_RESULTS_DIR. Все docker
+exec/cp/trace/readiness/runtime identity проверки адресуют выбранный проект.
+Обычный запуск остаётся docker/domain0/master11345. 7 runner tests, compileall
+и Compose config прошли. Навигационные исходники и образ не изменены,
+пересборка не требуется. Планируемая baseline: текущий config/match.yaml,
+fixed explorer first, seeds12–14,90sim s, native MPPI, trace/audit-start,
+проект hsl-eval/domain73/port11418. Результаты ещё не получены; дополнительную
+нагрузку двух Gazebo учитывать через RTF. Ручной проект не перезапускать.
+
 ## 01.10.2026 — единый YAML матча и удаление MPC
 
 **Текущий интерфейс изменён по последнему запросу пользователя.** Один

@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 import json
 import pytest
-from run_duel_series import classify_runtime, validate_runtime_metadata, roles_for_run
+from run_duel_series import classify_runtime, validate_runtime_metadata, roles_for_run, container_name
 from match_config import load_config, configuration_environment
 
 
@@ -93,3 +93,13 @@ def test_fixed_assignment_reproduces_explorer_on_the_second_start():
     assert roles_for_run(0, "guardian") == roles_for_run(1) == ("guardian", "explorer")
     assert roles_for_run(19, "guardian") == ("guardian", "explorer")
     assert roles_for_run(0) == ("explorer", "guardian")
+
+
+def test_isolation_changes_only_evaluation_container_names():
+    env = {"COMPOSE_PROJECT_NAME": "hsl-eval"}
+    assert container_name("docker-hsl-control-1", env) == "hsl-eval-hsl-control-1"
+    assert container_name("docker-hsl-adapter-1:/tmp/trace.py", env) == "hsl-eval-hsl-adapter-1:/tmp/trace.py"
+    assert container_name("docker-gazebo-duel-1", env) == "hsl-eval-gazebo-duel-1"
+    assert container_name("docker", env) == "docker"
+    assert container_name("/autoware/src/file.py", env) == "/autoware/src/file.py"
+    assert container_name("docker-hsl-control-1", {}) == "docker-hsl-control-1"
