@@ -43,9 +43,10 @@ def nodes(context):
                                # a reverse departure has no required terminal yaw.
                                "MPPI.GoalAngleCritic.enabled":
                                    values["role"] == "guardian",
-                               # Track moving capture and escape endpoints with
-                               # the stock positional critic, preserving limits.
-                               "MPPI.GoalCritic.cost_weight": 15.0,
+                               # A moving capture goal needs stronger positional
+                               # tracking near the endpoint; keep explorer tuning.
+                               "MPPI.GoalCritic.cost_weight":
+                                   15.0 if values["role"] == "guardian" else 5.0,
                                "random_seed": int(values["random_seed"])}], output="screen"))
     for process in list(result):
         result.append(RegisterEventHandler(OnProcessExit(
