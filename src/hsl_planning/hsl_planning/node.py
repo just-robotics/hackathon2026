@@ -18,7 +18,7 @@ from std_msgs.msg import Bool, Float32, String
 
 from .mppi import mppi_local_guidance
 from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
-                   reachable_intercept, navigation_obstacles, evade_target,
+                   reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
                    local_guidance, path_heading_error, reachable_target,
                    recovery_step, checked_recovery_target, turn_alignment_is_progress, safe_segment,
                    reusable_route,
@@ -486,11 +486,28 @@ class TrajectoryPlanner(Node):
                 target = self.search_waypoint
             else:
                 target = self.world.frontier(own, tie_seed=self.random_seed)
+        objective_route = []
         if intent.behavior == 4 and enemy:
             separation = hypot(own.x - enemy.x, own.y - enemy.y)
             if separation < intent.opponent_clearance + 0.3:
+                objective_route = evade_objective_route(
+                    self.world, own, enemy,
+                    target if target is not None and
+                        self.world.cell(target.x, target.y) in self.world.free else None,
+                    enemy_future, intent.opponent_clearance, intent.opponent_cost_weight,
+                    tie_seed=self.random_seed + self.recovery_attempt,
+                    candidate=(reusable_route(
+                        self.world, own, self.global_path, self.global_target, target,
+                        enemy_future, intent.opponent_clearance)
+                        if self.route_behavior == intent.behavior else []))
+                if objective_route:
+                    if self.evade_waypoint is not None:
+                        # Drop recovery for the replaced departure, but retain
+                        # watchdog recovery while following the same objective.
+                        self.recovery_goal = None
+                    self.evade_waypoint = None
                 previous = self.evade_waypoint
-                if (previous is None or hypot(previous.x - own.x, previous.y - own.y) < 0.15 or
+                if not objective_route and (previous is None or hypot(previous.x - own.x, previous.y - own.y) < 0.15 or
                         not self.world.inside_map(previous.x, previous.y) or
                         not safe_segment(self.world, own, previous, enemy,
                                          intent.opponent_clearance, self.local_safety_margin) or
@@ -523,7 +540,7 @@ class TrajectoryPlanner(Node):
         if target is None:
             self.publish_empty("NO_TARGET_OR_FRONTIER")
             return
-        route = (reusable_route(self.world, own, self.global_path,
+        route = objective_route or (reusable_route(self.world, own, self.global_path,
                                 self.global_target, target, enemy_future,
                                 intent.opponent_clearance)
                  if self.route_behavior == intent.behavior else [])
@@ -543,6 +560,9 @@ class TrajectoryPlanner(Node):
             self.route_behavior = intent.behavior
         else:
             self.global_path = route
+            if objective_route:
+                self.global_target = target
+                self.route_behavior = intent.behavior
         if intent.behavior == 7 and target is not None and self.global_path:
             # Keep the continuous capture pose and its facing constraint. A*
             # raster centres can otherwise stop outside the capture radius.

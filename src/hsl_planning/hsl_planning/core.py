@@ -331,6 +331,35 @@ def reachable_frontier_route(world, own, destination, opponent=None, clearance=0
     return []
 
 
+def evade_objective_route(world, own, opponent, goal, prediction=None, clearance=1.0,
+                          weight=6.0, tie_seed=0, candidate=()):
+    """Keep a reachable objective while departing away from the observed threat."""
+    if goal is None:
+        return []
+    initial = hypot(own.x - opponent.x, own.y - opponent.y)
+    minimum = min(initial, clearance)
+
+    def safe_departure(route):
+        if not route:
+            return False
+        # The predicted exclusion zone must not allow a path through the
+        # currently observed robot. Check the whole route against both inputs.
+        if any(hypot(point.x - opponent.x, point.y - opponent.y) < minimum - 0.02
+               for point in route[1:]):
+            return False
+        departure = next((point for point in route
+                          if hypot(point.x - own.x, point.y - own.y) > 0.2), None)
+        return (departure is None or
+                (departure.x - own.x) * (own.x - opponent.x) +
+                (departure.y - own.y) * (own.y - opponent.y) >= 0)
+
+    if safe_departure(candidate):
+        return list(candidate)
+    route = astar(world, own, goal, prediction or opponent, clearance, weight,
+                  tie_seed=tie_seed)
+    return route if safe_departure(route) else []
+
+
 def evade_target(world, own, opponent, goal, clearance=1.0, safety_margin=0.12):
     """A reachable short departure that never initially heads into the threat."""
     away_x, away_y = own.x - opponent.x, own.y - opponent.y

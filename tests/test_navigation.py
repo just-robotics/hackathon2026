@@ -17,7 +17,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                distance_to_polygon, intercept_point)
 from hsl_planning.backend import resolve_backend
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
-                               local_guidance, reachable_target, navigation_obstacles, evade_target,
+                               local_guidance, reachable_target, navigation_obstacles, evade_target, evade_objective_route,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
                                reusable_route, safe_segment, smooth_control_route,
@@ -934,6 +934,28 @@ class EncounterRegressionTests(unittest.TestCase):
         self.assertIsNotNone(target)
         self.assertLessEqual(target.x, 1e-6)
         self.assertTrue(safe_segment(world, Pose2(0, 0), target))
+
+    def test_evasion_keeps_objective_when_guardian_is_behind(self):
+        world = VoxelWorld(0.1, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        route = evade_objective_route(world, Pose2(0, 0), Pose2(-0.7, 0),
+                                     Pose2(2, 0), Pose2(-0.4, 0))
+        self.assertTrue(route)
+        self.assertAlmostEqual(route[-1].x, 2)
+        self.assertGreater(route[1].x, 0)
+
+    def test_evasion_does_not_route_through_observed_threat_when_prediction_moves_away(self):
+        world = VoxelWorld(0.1, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        route = evade_objective_route(world, Pose2(0, 0), Pose2(0.7, 0),
+                                     Pose2(2, 0), Pose2(0.7, 2))
+        self.assertEqual(route, [])
+
+    def test_evasion_rejects_objective_inside_guardian_zone(self):
+        world = VoxelWorld(0.1, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        self.assertEqual(evade_objective_route(
+            world, Pose2(0, 0), Pose2(1.2, 0), Pose2(1.2, 0)), [])
 
     def test_guardian_in_capture_range_faces_prey_without_orbiting(self):
         world = VoxelWorld(0.15, 0.23)
