@@ -189,3 +189,7 @@ capture_enemy_prediction. Проверять реальное сокращени
 MPPI.GoalCritic.cost_weight15 для guardian и5 для explorer; YAML остаётся
 базой5 для одиночного native launch. Проверять эффективный вес по роли
 в runtime.json; не считать этот опыт улучшением до фактической дуэли.
+
+Trace теперь хранит measured_omega_radps из собственного Odometry. Для
+сравнения smoothness при разных длительностях/исходах выделяй одинаковые
+окна sim time и вычисляй ускорение по body omega; cmd omega — отдельный сигнал.

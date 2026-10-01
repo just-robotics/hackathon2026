@@ -571,3 +571,7 @@ HSL_LOCAL_BACKEND=nav2_cpp python3 benchmarks/run_duel_series.py --runs 3 --star
 `MPPI.GoalCritic.cost_weight=15` стражу, исследователь сохраняет5.
 Это штатный critic Nav2; фактические результаты опыта и его принятие
 фиксируются в [PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
+
+Временной ряд `--trace` содержит `measured_omega_radps` из Odometry;
+его можно сравнивать с командой `cmd_omega_radps` в одинаковом окне
+симуляционного времени при разных исходах матчей.

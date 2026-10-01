@@ -146,6 +146,7 @@ def main():
             "sim_t_s": t,
             "speed_mps": round(hypot(message.twist.twist.linear.x,
                                      message.twist.twist.linear.y), 4),
+            "measured_omega_radps": round(float(message.twist.twist.angular.z), 4),
             "own_x_m": round(p.x, 4),
             "own_y_m": round(p.y, 4),
             "own_yaw_rad": round(yaw, 4),
