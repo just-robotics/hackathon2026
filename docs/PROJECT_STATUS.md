@@ -31,6 +31,13 @@ moving fraction mean0.9590/0.9731. RTF0.536…0.620.
 --ros-domain-id 73 --gazebo-port 11418 --runs 1 --start-seed 0
 --active-s 90 --trace --audit-start --unknown-obstacle
 --obstacle-height 0.15 --record-detector-scans`.
+Опыт запущен: `series-20261001T215230Z`, PID3181490/exec38112,
+лог /tmp/detector-low-fixture.log. Процесс подтверждён живым pgrep после
+запуска. Это отдельная1-run серия, не повтор ordinary20; не перезапускать
+по тайм-ауту наблюдения. Итог20 checkpoint/detector-height-baseline20-20261002
+указывает на cc8b537. График progress-motion.png пересчитан для20/20,
+final-capture-comparison.json сохранён для полной серии.
+
 После него анализировать fixture seen/detector tracks/actual clearance/
 route/contacts/outcome и сохранённые clouds. Затем отдельное согласование
 own pursuer_speed через motion.max_speed (сейчас Compose не передаёт его
