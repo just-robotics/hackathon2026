@@ -166,7 +166,7 @@ services:
             - duel
 
     hsl-adapter:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py own_spawn_x:=${MAP_ORIGIN_X:--0.34} own_spawn_y:=${MAP_ORIGIN_Y:-0.4}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py opponent_max_height:=${HSL_OPPONENT_MAX_HEIGHT:-0.46} own_spawn_x:=${MAP_ORIGIN_X:--0.34} own_spawn_y:=${MAP_ORIGIN_Y:-0.4}"
         extends:
             file: common.yaml
             service: app
@@ -206,7 +206,7 @@ services:
             - duel
 
     hsl-opponent-adapter:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py robot_namespace:=opponent own_spawn_x:=${MAP_ORIGIN_X:--0.34} own_spawn_y:=${MAP_ORIGIN_Y:-0.4} own_odom_topic:=/opponent/odom own_truth_topic:=/opponent/localization/pose lidar_topic:=/opponent/livox/lidar"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py opponent_max_height:=${HSL_OPPONENT_MAX_HEIGHT:-0.46} robot_namespace:=opponent own_spawn_x:=${MAP_ORIGIN_X:--0.34} own_spawn_y:=${MAP_ORIGIN_Y:-0.4} own_odom_topic:=/opponent/odom own_truth_topic:=/opponent/localization/pose lidar_topic:=/opponent/livox/lidar"
         extends:
             file: common.yaml
             service: app

@@ -56,11 +56,11 @@ inline double median(std::vector<double> values) {
   const size_t middle=values.size()/2;
   return values.size()%2 ? values[middle] : (values[middle-1]+values[middle])/2;
 }
-// Initial C++ port retains the historical cluster/radial-offset estimator.
-// A compact cluster is NOT a semantic robot classification. Unknown boxes
-// still need a separately measured geometry/association improvement.
+// Compactness and a known body envelope reject incompatible objects.
+// This remains a geometric candidate detector, not a semantic classifier.
 inline std::optional<Detection> detect(const std::vector<Point> & scan,
-  const Grid & grid, Position own, std::optional<Position> previous=std::nullopt)
+  const Grid & grid, Position own, std::optional<Position> previous=std::nullopt,
+  double max_opponent_height=0.46)
 {
   if (!grid.valid()) {return std::nullopt;}
   constexpr double tolerance=0.23, body_radius=0.178;
@@ -100,6 +100,15 @@ inline std::optional<Detection> detect(const std::vector<Point> & scan,
       }
     }
     if (cluster.size()<3) {continue;}
+    // Preserve the full height band while clustering: truncating tall returns
+    // first would turn the bottom of a box into a plausible short robot.
+    std::vector<double> heights;
+    for (const auto index:cluster) {heights.push_back(points[index].z);}
+    std::sort(heights.begin(),heights.end());
+    const double quantile_index=0.9*(heights.size()-1);
+    const size_t lo=size_t(std::floor(quantile_index)), hi=size_t(std::ceil(quantile_index));
+    const double height90=heights[lo]+(heights[hi]-heights[lo])*(quantile_index-lo);
+    if (height90>max_opponent_height) {continue;}
     double xmin=points[seed].x,xmax=xmin,ymin=points[seed].y,ymax=ymin;
     std::vector<double> centres_x,centres_y;
     for (const auto index:cluster) {

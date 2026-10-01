@@ -13,6 +13,10 @@
 class OpponentDetector: public rclcpp::Node {
 public:
   OpponentDetector():Node("opponent_detector") {
+    max_opponent_height_=declare_parameter<double>("opponent_max_height",0.46);
+    if (!std::isfinite(max_opponent_height_) || max_opponent_height_<0.08 || max_opponent_height_>0.60) {
+      throw std::invalid_argument("opponent_max_height must be in [0.08,0.60] map-frame metres");
+    }
     opponent_pub_=create_publisher<nav_msgs::msg::Odometry>("navigation/opponent",10);
     visible_pub_=create_publisher<std_msgs::msg::Bool>("navigation/opponent_visible",10);
     timing_pub_=create_publisher<std_msgs::msg::Float32>("navigation/detector_cycle_ms",10);
@@ -67,7 +71,7 @@ private:
     const double t=now().seconds();
     const auto previous=(previous_ && t-last_seen_>=0 && t-last_seen_<=1.0) ? previous_ : std::nullopt;
     const auto & position=own_->pose.pose.position;
-    const auto result=hsl_perception::detect(points,grid_,{position.x,position.y},previous);
+    const auto result=hsl_perception::detect(points,grid_,{position.x,position.y},previous,max_opponent_height_);
     visible_=bool(result);
     if (result) {
       const auto p=result->centre;
@@ -93,6 +97,7 @@ private:
   hsl_perception::Grid grid_;
   nav_msgs::msg::Odometry::SharedPtr own_;
   std::optional<hsl_perception::Position> previous_;
+  double max_opponent_height_=0.46;
   double last_seen_=-1e20,vx_=0,vy_=0;
   bool visible_=false;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;

@@ -198,7 +198,8 @@ def validate_runtime_metadata(runtime, env):
                       **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
                           "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
                   "hsl_motion_gate": {"require_match_active": True},
-                  "opponent_detector": {"use_sim_time": True}}
+                  "opponent_detector": {"use_sim_time": True,
+                      "opponent_max_height": float(env.get("HSL_OPPONENT_MAX_HEIGHT", "0.46"))}}
         allow_reverse = role == "explorer" and env.get("HSL_ALLOW_REVERSE", "true") == "true"
         checks["native_mppi"] = {
             "role": role, "random_seed": seed,

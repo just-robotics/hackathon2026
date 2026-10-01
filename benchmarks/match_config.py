@@ -12,10 +12,11 @@ def load_config(path=DEFAULT_CONFIG):
     config = yaml.safe_load(Path(path).read_text())
     if not isinstance(config, dict):
         raise ValueError('match config must be a mapping')
-    required = {'robot', 'opponent', 'motion', 'match', 'simulation'}
+    config.setdefault('perception', {'opponent_max_height': 0.46})
+    required = {'perception', 'robot', 'opponent', 'motion', 'match', 'simulation'}
     if set(config) != required:
         raise ValueError(f'config sections must be {sorted(required)}')
-    keys = {'robot': {'role', 'start', 'start_area_half_size'},
+    keys = {'perception': {'opponent_max_height'}, 'robot': {'role', 'start', 'start_area_half_size'},
             'opponent': {'start', 'start_area_half_size'},
             'motion': {'allow_reverse', 'max_speed', 'max_angular_speed'},
             'match': {'seed', 'active_seconds'},
@@ -51,6 +52,10 @@ def load_config(path=DEFAULT_CONFIG):
         numbers([value], 1)
         if value <= 0:
             raise ValueError('speed and duration must be positive')
+    height = config['perception']['opponent_max_height']
+    numbers([height], 1)
+    if not 0.08 <= height <= 0.60:
+        raise ValueError('opponent_max_height must be within detector height band [0.08, 0.60]')
     if type(config['match']['seed']) is not int or config['match']['seed'] < 0:
         raise ValueError('seed must be a nonnegative integer')
     return config
@@ -71,6 +76,7 @@ def configuration_environment(config):
         'OPPONENT_X': second[0]+origin[0], 'OPPONENT_Y': second[1]+origin[1], 'OPPONENT_YAW': second[2],
         'DUEL_FIRST_START': polygon('robot'), 'DUEL_SECOND_START': polygon('opponent'),
         'DUEL_ARENA_BOUNDS': json.dumps(config['simulation']['arena_bounds'], separators=(',', ':')),
+        'HSL_OPPONENT_MAX_HEIGHT': config['perception']['opponent_max_height'],
         'HSL_ROLE': role, 'HSL_OPPONENT_ROLE': 'guardian' if role == 'explorer' else 'explorer',
         'HSL_ALLOW_REVERSE': config['motion']['allow_reverse'], 'HSL_MAX_SPEED': config['motion']['max_speed'],
         'HSL_MAX_ANGULAR_SPEED': config['motion']['max_angular_speed'],

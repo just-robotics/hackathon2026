@@ -29,6 +29,7 @@ def test_map_origin_is_independent_of_robot_start(tmp_path):
 @pytest.mark.parametrize('section,key,value', [
     ('robot','start',[float('nan'),0,0]), ('robot','role','invalid'),
     ('motion','allow_reverse','false'), ('motion','max_speed',0),
+    ('perception','opponent_max_height',0.7), ('perception','opponent_max_height',True),
     ('match','seed',True), ('simulation','world','maze;echo bad'),
     ('simulation','arena_bounds',[3,0,1,2]), ('robot','typo',1)])
 def test_invalid_configuration_is_rejected_before_start(tmp_path,section,key,value):
@@ -38,3 +39,14 @@ def test_invalid_configuration_is_rejected_before_start(tmp_path,section,key,val
     path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError):
         load_config(path)
+
+
+def test_body_height_profile_and_older_configuration(tmp_path):
+    cfg = load_config()
+    cfg['perception']['opponent_max_height'] = 0.49
+    path = tmp_path/'match.yaml'
+    path.write_text(yaml.safe_dump(cfg))
+    assert configuration_environment(load_config(path))['HSL_OPPONENT_MAX_HEIGHT'] == '0.49'
+    del cfg['perception']
+    path.write_text(yaml.safe_dump(cfg))
+    assert load_config(path)['perception']['opponent_max_height'] == 0.46

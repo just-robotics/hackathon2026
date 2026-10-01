@@ -9,7 +9,7 @@ from launch_ros.actions import Node
 
 def nodes(context):
     values = {name: LaunchConfiguration(name).perform(context) for name in
-              ('robot_namespace', 'own_spawn_x', 'own_spawn_y', 'own_odom_topic',
+              ('robot_namespace', 'opponent_max_height', 'own_spawn_x', 'own_spawn_y', 'own_odom_topic',
                'own_truth_topic', 'lidar_topic')}
     params = dict(use_sim_time=True, own_spawn_x=float(values['own_spawn_x']),
                   own_spawn_y=float(values['own_spawn_y']),
@@ -17,7 +17,7 @@ def nodes(context):
     processes = [Node(package='hsl_sim_adapter', executable='sim_observations',
                       namespace=values['robot_namespace'], parameters=[params], output='screen'),
                  Node(package='hsl_perception', executable='opponent_detector',
-                      namespace=values['robot_namespace'], parameters=[{'use_sim_time': True}], output='screen')]
+                      namespace=values['robot_namespace'], parameters=[{'use_sim_time': True, 'opponent_max_height': float(values['opponent_max_height'])}], output='screen')]
     handlers = [RegisterEventHandler(OnProcessExit(target_action=process,
                 on_exit=[EmitEvent(event=Shutdown(reason='Observation process exited'))]))
                 for process in processes]
@@ -25,7 +25,7 @@ def nodes(context):
 
 
 def generate_launch_description():
-    defaults = dict(robot_namespace='', own_spawn_x='-0.34', own_spawn_y='0.4',
+    defaults = dict(opponent_max_height='0.46', robot_namespace='', own_spawn_x='-0.34', own_spawn_y='0.4',
                     own_odom_topic='/odom', own_truth_topic='/localization/pose',
                     lidar_topic='/livox/lidar')
     return LaunchDescription([DeclareLaunchArgument(key, default_value=value)

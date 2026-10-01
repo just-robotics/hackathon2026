@@ -31,3 +31,18 @@ TEST(Detector, NearestPriorAssociationAndUnmappedLargeObject) {
   for (int i=0;i<10;++i) {large.push_back({1.0+i*0.1,1.0,0.3});}
   EXPECT_FALSE(detect(large,free_grid(),{0.5,1.0}));
 }
+
+TEST(Detector, TallCompactObjectIsNotAStationaryRobot) {
+  std::vector<Point> box;
+  for (int i=0;i<=8;++i) {
+    for (double z:{0.10,0.20,0.30,0.40,0.50,0.58}) {box.push_back({1.30,0.8+i*0.05,z});}
+  }
+  EXPECT_FALSE(detect(box,free_grid(),{0.5,1.0}));
+  // The model is explicit; a taller allowed body retains this candidate.
+  EXPECT_TRUE(detect(box,free_grid(),{0.5,1.0},std::nullopt,0.60));
+  // A single noisy height outlier among many robot returns is tolerated.
+  std::vector<Point> robot;
+  for (int i=0;i<10;++i) {robot.push_back({1.322,0.96+i*.008,0.3});}
+  robot.push_back({1.322,1.0,0.55});
+  EXPECT_TRUE(detect(robot,free_grid(),{0.5,1.0}));
+}

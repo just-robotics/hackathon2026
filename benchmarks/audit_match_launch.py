@@ -53,12 +53,12 @@ observations.Node = capture
 for namespace in ('', 'opponent'):
     observed.clear()
     context = LaunchContext()
-    context.launch_configurations.update(robot_namespace=namespace, own_spawn_x='-0.34',
+    context.launch_configurations.update(opponent_max_height='0.49', robot_namespace=namespace, own_spawn_x='-0.34',
         own_spawn_y='0.4', own_odom_topic='/odom', own_truth_topic='/localization/pose',
         lidar_topic='/livox/lidar')
     observations.nodes(context)
     detectors = [n for n in observed if n['executable'] == 'opponent_detector']
     assert len(detectors) == 1 and detectors[0]['namespace'] == namespace
     assert detectors[0]['package'] == 'hsl_perception'
-    assert detectors[0]['parameters'] == [{'use_sim_time': True}]
+    assert detectors[0]['parameters'] == [{'use_sim_time': True, 'opponent_max_height': 0.49}]
 print(json.dumps(dict(observation_launch_cpp_detector=True, passed=True)))
