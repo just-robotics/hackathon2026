@@ -4,10 +4,12 @@
 
 На каждый скан:
 1. облако переводится в систему мира по собственной позе на момент скана
-   (localization/pose, ground truth p3d) и статическому TF до лидара;
-2. вычитается пустой полигон: пол, стены из .world и всё за ними;
+   (localization/pose, ground truth p3d) и статическому TF до лидара. Если
+   pose_topic пуст, лидар неподвижен, и хватает статического TF;
+2. вычитается фон: пол, стены из .world и всё за ними и/или фон, записанный
+   лидаром (record_background.py);
 3. остаток разбивается на кластеры, и среди них ищутся похожие на Kobuki
-   (segmentation.detect_robot);
+   (segmentation.inspect_cluster);
 4. трекер связывает детекции во времени и по движению восстанавливает курс.
 
 Соперник публикуется в opponent/odom как nav_msgs/Odometry во фрейме world.
@@ -35,12 +37,13 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from jr_map.sdf_map_server import collect_boxes
+from jr_perception import background
 from jr_perception.segmentation import (
     RobotModel,
     arena_bounds,
     cluster_xy,
-    detect_robot,
     foreground_mask,
+    inspect_cluster,
     split_clusters,
 )
 from jr_perception.tracker import OMEGA, THETA, V, X, Y, Tracker, TrackerConfig
@@ -207,16 +210,20 @@ def make_markers(
     header: Header,
     clusters: list,
     detections: list,
+    reasons: list,
     tracks: list,
     selected,
-    radius: float,
+    model: RobotModel,
 ) -> MarkerArray:
     """Отладочные маркеры: кластеры по классам, треки и курс соперника
 
     Кластеры: зелёный -- центр найден фитом обода, жёлтый -- похож на робота,
-    но обода не видно, серый -- не робот. Треки: синий -- выбранный соперник,
-    фиолетовый -- другие подтверждённые, серый -- неподтверждённые.
+    но обода не видно, серый -- не робот, над ним подпись с причиной.
+    Кластеры меньше min_points не рисуются: это шум. Треки: синий --
+    выбранный соперник, фиолетовый -- другие подтверждённые, серый --
+    неподтверждённые.
     """
+    radius = model.radius
     markers = MarkerArray()
 
     clear = Marker()
@@ -224,7 +231,10 @@ def make_markers(
     clear.action = Marker.DELETEALL
     markers.markers.append(clear)
 
-    for i, (points, detection) in enumerate(zip(clusters, detections)):
+    for i, (points, detection, reason) in enumerate(zip(clusters, detections, reasons)):
+        if len(points) < model.min_points:
+            continue
+
         low, high = points.min(axis=0), points.max(axis=0)
         middle = (low + high) / 2.0
         size = np.maximum(high - low, 0.02)
@@ -248,6 +258,22 @@ def make_markers(
         marker.color.r, marker.color.g, marker.color.b = color
         marker.color.a = 0.4
         markers.markers.append(marker)
+
+        if reason:
+            text = Marker()
+            text.header = header
+            text.ns = "reasons"
+            text.id = i
+            text.type = Marker.TEXT_VIEW_FACING
+            text.pose.position.x = float(middle[0])
+            text.pose.position.y = float(middle[1])
+            text.pose.position.z = float(high[2]) + 0.1
+            text.pose.orientation.w = 1.0
+            text.scale.z = 0.08
+            text.color.r = text.color.g = text.color.b = 0.9
+            text.color.a = 1.0
+            text.text = reason
+            markers.markers.append(text)
 
     for i, track in enumerate(tracks):
         x, y, theta = track.state[X], track.state[Y], track.state[THETA]
@@ -308,6 +334,9 @@ class RobotDetector(Node):
             "background_models", ["totami_built"]
         ).value
         z_slice = self.declare_parameter("z_slice", 0.25).value
+        background_file = self.declare_parameter("background_file", "").value
+        # дальше этого по плоскости от лидара точки не смотрим; 0 -- без обрезки
+        self.max_range = self.declare_parameter("max_range", 0.0).value
         cloud_topic = self.declare_parameter("cloud_topic", "livox/lidar").value
         pose_topic = self.declare_parameter("pose_topic", "localization/pose").value
         self.world_frame = self.declare_parameter("world_frame", "world").value
@@ -333,23 +362,43 @@ class RobotDetector(Node):
             "base_frame", f"{prefix}base_footprint"
         ).value
 
-        if not world:
-            self.get_logger().error("Параметр world не задан")
-            raise SystemExit(1)
-
-        self.boxes = collect_boxes(world, z_slice, models=set(background_models))
-        if not self.boxes:
+        if not world and not background_file:
             self.get_logger().error(
-                f"В {world} у моделей {list(background_models)} нет "
-                f"box-коллизий на высоте {z_slice} м: фон не построен"
+                "Фон не задан: нужен world (стены из .world) или "
+                "background_file (фон, записанный record_background.py)"
             )
             raise SystemExit(1)
-        self.bounds = arena_bounds(self.boxes)
+
+        # Фон из .world: стены полигона, заданные боксами
+        self.boxes = []
+        self.bounds = None
+        if world:
+            self.boxes = collect_boxes(world, z_slice, models=set(background_models))
+            if not self.boxes:
+                self.get_logger().error(
+                    f"В {world} у моделей {list(background_models)} нет "
+                    f"box-коллизий на высоте {z_slice} м: фон не построен"
+                )
+                raise SystemExit(1)
+            self.bounds = arena_bounds(self.boxes)
+
+        # Фон, записанный лидаром: занятые ячейки и плоскость пола. Высоты
+        # точек дальше считаются от этой плоскости, а не от z=0.
+        self.grid = None
+        self.floor_plane = np.zeros(3)
+        if background_file:
+            self.grid = background.load(background_file)
+            self.floor_plane = self.grid["plane"]
+            if self.grid["frame"] != self.world_frame:
+                self.get_logger().warn(
+                    f"Фон записан во фрейме {self.grid['frame']}, а world_frame "
+                    f"{self.world_frame}: ячейки не совпадут"
+                )
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        # поворот и смещение лидара в base_frame: трансформ статический,
-        # поэтому берётся один раз
+        # поворот и смещение лидара в base_frame, а без позы -- сразу в
+        # world_frame: трансформ статический, поэтому берётся один раз
         self.sensor_offset = None
 
         # 50 Гц p3d -- это 2 с истории, с запасом на задержку облака
@@ -357,12 +406,17 @@ class RobotDetector(Node):
         # скан, для которого ещё не пришла поза на его момент
         self.pending = None
 
+        # Без топика позы лидар считается неподвижным: его положение в
+        # world_frame берётся из статического TF, как в бэгах с треноги.
+        self.static = not pose_topic
+
         self.create_subscription(
             PointCloud2, cloud_topic, self.on_cloud, qos_profile_sensor_data
         )
-        self.create_subscription(
-            Odometry, pose_topic, self.on_pose, qos_profile_sensor_data
-        )
+        if not self.static:
+            self.create_subscription(
+                Odometry, pose_topic, self.on_pose, qos_profile_sensor_data
+            )
         self.odometry_publisher = self.create_publisher(
             Odometry, "opponent/odom", 10
         )
@@ -376,12 +430,27 @@ class RobotDetector(Node):
         self.stats = self.empty_stats()
         self.last_log = time.monotonic()
 
-        min_x, min_y, max_x, max_y = self.bounds
+        sources = []
+        if world:
+            min_x, min_y, max_x, max_y = self.bounds
+            sources.append(
+                f"{len(self.boxes)} боксов моделей {list(background_models)} "
+                f"из {world}, арена x [{min_x:.2f}, {max_x:.2f}], "
+                f"y [{min_y:.2f}, {max_y:.2f}]"
+            )
+        if self.grid is not None:
+            a, b, c = self.floor_plane
+            sources.append(
+                f"{len(self.grid['keys'])} ячеек по {self.grid['cell']:.2f} м из "
+                f"{background_file}, пол z = {a:.4f} x + {b:.4f} y + {c:.3f}"
+            )
+        pose = (
+            f"лидар неподвижен в {self.world_frame}"
+            if self.static
+            else f"поза {pose_topic}, база {self.base_frame}"
+        )
         self.get_logger().info(
-            f"Фон: {len(self.boxes)} боксов моделей {list(background_models)} "
-            f"из {world}, арена x [{min_x:.2f}, {max_x:.2f}], "
-            f"y [{min_y:.2f}, {max_y:.2f}]. Облако {cloud_topic}, "
-            f"поза {pose_topic}, база {self.base_frame}"
+            f"Фон: {'; '.join(sources)}. Облако {cloud_topic}, {pose}"
         )
 
     @staticmethod
@@ -408,6 +477,10 @@ class RobotDetector(Node):
         self.flush()
 
     def on_cloud(self, message: PointCloud2):
+        if self.static:
+            self.process(message, stamp_seconds(message.header.stamp), None)
+            return
+
         if self.pending is not None:
             self.get_logger().warn(
                 "Скан пропущен: поза на его момент так и не пришла. "
@@ -446,18 +519,18 @@ class RobotDetector(Node):
         """Поворот и положение лидара в мире на момент скана
 
         :frame фрейм облака
-        :pose (позиция, кватернион) base_frame в мире
+        :pose (позиция, кватернион) base_frame в мире; None -- лидар
+        неподвижен, и его положение в world_frame статическое
 
         :return (rotation, position) или (None, None), если нет TF
         """
+        parent = self.world_frame if pose is None else self.base_frame
         if self.sensor_offset is None:
             try:
-                transform = self.tf_buffer.lookup_transform(
-                    self.base_frame, frame, Time()
-                )
+                transform = self.tf_buffer.lookup_transform(parent, frame, Time())
             except TransformException as error:
                 self.get_logger().warn(
-                    f"Нет TF {self.base_frame} -> {frame}: {error}",
+                    f"Нет TF {parent} -> {frame}: {error}",
                     throttle_duration_sec=5.0,
                 )
                 return None, None
@@ -468,6 +541,9 @@ class RobotDetector(Node):
                 quaternion_matrix([rotation.x, rotation.y, rotation.z, rotation.w]),
                 np.array([translation.x, translation.y, translation.z]),
             )
+
+        if pose is None:
+            return self.sensor_offset
 
         position, quaternion = pose
         base_rotation = quaternion_matrix(quaternion)
@@ -491,23 +567,39 @@ class RobotDetector(Node):
         points = points[np.linalg.norm(points, axis=1) >= self.self_range]
         world = points @ rotation.T + position
 
-        foreground = world[
-            foreground_mask(
-                world,
-                position,
-                self.boxes,
-                self.bounds,
-                self.wall_margin,
-                self.floor_z,
-                self.floor_noise,
-                self.ceiling_z,
+        # дальше z -- высота над полом: пороги робота и пола отсчитаны от него
+        world[:, 2] = background.floor_heights(world, self.floor_plane)
+        position = position.copy()
+        position[2] = background.floor_heights(position[None, :], self.floor_plane)[0]
+
+        keep = foreground_mask(
+            world,
+            position,
+            self.boxes,
+            self.bounds,
+            self.wall_margin,
+            self.floor_z,
+            self.floor_noise,
+            self.ceiling_z,
+        )
+        if self.max_range > 0.0:
+            keep &= (
+                np.hypot(world[:, 0] - position[0], world[:, 1] - position[1])
+                <= self.max_range
             )
-        ]
+        if self.grid is not None:
+            keep &= ~np.isin(
+                background.cell_keys(world[:, :2], self.grid["cell"]),
+                self.grid["keys"],
+            )
+        foreground = world[keep]
         labels, count = cluster_xy(foreground[:, :2], self.cluster_tolerance)
         clusters = split_clusters(foreground, labels, count)
-        detections = [
-            detect_robot(cluster, position[:2], self.model) for cluster in clusters
+        inspected = [
+            inspect_cluster(cluster, position[:2], self.model) for cluster in clusters
         ]
+        detections = [detection for detection, _ in inspected]
+        reasons = [reason for _, reason in inspected]
         opponent = self.tracker.step(
             moment, [detection for detection in detections if detection is not None]
         )
@@ -517,15 +609,22 @@ class RobotDetector(Node):
             self.odometry_publisher.publish(
                 track_to_odometry(header, self.opponent_frame, opponent)
             )
-        self.foreground_publisher.publish(xyz_to_cloud(header, foreground))
+        # в RViz облако должно лечь поверх исходного, поэтому высота над
+        # полом переводится обратно в z world_frame
+        shown = foreground.copy()
+        shown[:, 2] += foreground[:, 2] - background.floor_heights(
+            foreground, self.floor_plane
+        )
+        self.foreground_publisher.publish(xyz_to_cloud(header, shown))
         self.marker_publisher.publish(
             make_markers(
                 header,
                 clusters,
                 detections,
+                reasons,
                 self.tracker.tracks,
                 opponent,
-                self.model.radius,
+                self.model,
             )
         )
 

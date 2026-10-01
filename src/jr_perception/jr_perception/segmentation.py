@@ -59,7 +59,7 @@ def foreground_mask(
     :points (N, 3) точки в системе мира
     :sensor (3,) положение лидара в системе мира
     :boxes фоновые боксы (cx, cy, half_x, half_y, yaw)
-    :bounds габарит арены (min_x, min_y, max_x, max_y)
+    :bounds габарит арены (min_x, min_y, max_x, max_y); None -- без обрезки
     :wall_margin запас вокруг боксов, м
     :floor_z порог пола для пологих лучей, м
     :floor_noise добавка к порогу пола для отвесного луча, м
@@ -73,8 +73,9 @@ def foreground_mask(
     slope = np.clip((sensor[2] - z) / distance, 0.0, 1.0)
     keep = (z >= floor_z + floor_noise * slope) & (z <= ceiling_z)
 
-    min_x, min_y, max_x, max_y = bounds
-    keep &= (x > min_x) & (x < max_x) & (y > min_y) & (y < max_y)
+    if bounds is not None:
+        min_x, min_y, max_x, max_y = bounds
+        keep &= (x > min_x) & (x < max_x) & (y > min_y) & (y < max_y)
 
     for cx, cy, hx, hy, yaw in boxes:
         cos, sin = math.cos(yaw), math.sin(yaw)
@@ -289,8 +290,27 @@ class RobotModel:
     # выше верхней пластины (0.41) у робота ничего нет, а коробку лидар видит
     # почти до её верха 0.5
     max_height: float = 0.43
+    # Верх кластера должен быть не ниже этого, м; 0 -- проверка выключена.
+    # У реального Kobuki лидар видит стойки и пластины до ~0.4 м, а шум у
+    # пола поднимается на пару сантиметров. В симуляции стойки прозрачны, и
+    # вдали робот виден одним нижним поясом корпуса, поэтому там выключено.
+    min_top: float = 0.0
     # размах вдоль главной оси: диаметр 0.356 плюс шум; грань коробки 0.5
     max_extent: float = 0.42
+    # Видимая дуга корпуса не уже этого, м; 0 -- выключено. У реального
+    # робота 0.28-0.34 на 0.5-3 м, а узкие высокие предметы (ножки, стойки)
+    # дают 0.1-0.2.
+    min_extent: float = 0.0
+    # Пробел между нижними пластинами и верхней: у реального Kobuki там
+    # только тонкие стойки. Доля точек кластера в этом слое не больше
+    # max_gap_share; 1 -- проверка выключена.
+    gap_min_z: float = 0.25
+    gap_max_z: float = 0.34
+    max_gap_share: float = 1.0
+    # Если кластер шире робота (робот прижался к стене или предмету), в нём
+    # ищется окружность радиуса radius, и дальше проверяются только точки не
+    # дальше radius + contain_margin от её центра.
+    contain_margin: float = 0.05
     min_points: int = 3
     # сколько точек обода нужно для фита окружности
     min_rim_points: int = 4
@@ -317,28 +337,100 @@ class Detection:
     strong: bool
 
 
-def detect_robot(
-    points: np.ndarray, observer: np.ndarray, model: RobotModel
-) -> "Detection | None":
+def find_circle(
+    xy: np.ndarray,
+    observer: np.ndarray,
+    radius: float,
+    tolerance: float,
+    iterations: int = 200,
+) -> tuple:
+    """Окружность известного радиуса с наибольшим числом точек (RANSAC)
+
+    Две точки на окружности задают два возможных центра; берётся тот, что
+    дальше от наблюдателя: лидар видит ближнюю к себе половину корпуса.
+
+    :xy (N, 2)
+    :observer (2,) положение лидара наблюдателя
+    :radius радиус, м
+    :tolerance точка ближе этого к окружности -- на ней, м
+    :iterations число пар точек
+
+    :return (center, inliers) или (None, 0)
+    """
+    if len(xy) < 3:
+        return None, 0
+
+    # фиксированное зерно: одно и то же облако -- один и тот же ответ
+    rng = np.random.default_rng(len(xy))
+    first = xy[rng.integers(len(xy), size=iterations)]
+    second = xy[rng.integers(len(xy), size=iterations)]
+    chord = second - first
+    half = np.linalg.norm(chord, axis=1) / 2.0
+    usable = (half > 0.02) & (half < radius)
+    if not usable.any():
+        return None, 0
+
+    first, chord, half = first[usable], chord[usable], half[usable]
+    middle = first + chord / 2.0
+    normal = np.stack([-chord[:, 1], chord[:, 0]], axis=1) / (2.0 * half[:, None])
+    offset = np.sqrt(radius ** 2 - half ** 2)[:, None]
+    near, far = middle - normal * offset, middle + normal * offset
+    choose_far = np.linalg.norm(far - observer, axis=1) >= np.linalg.norm(
+        near - observer, axis=1
+    )
+    centers = np.where(choose_far[:, None], far, near)
+
+    distance = np.linalg.norm(xy[None, :, :] - centers[:, None, :], axis=2)
+    counts = (np.abs(distance - radius) <= tolerance).sum(axis=1)
+    best = int(np.argmax(counts))
+    return centers[best], int(counts[best])
+
+
+def inspect_cluster(
+    points: np.ndarray, observer: np.ndarray, model: RobotModel, extract: bool = True
+) -> tuple:
     """Проверить, похож ли кластер на Kobuki, и найти его центр
 
-    :points (N, 3) точки одного кластера в системе мира
+    :points (N, 3) точки одного кластера, z -- высота над полом
     :observer (2,) положение лидара наблюдателя на плоскости
     :model параметры робота
+    :extract искать робота внутри слишком широкого кластера
 
-    :return Detection или None, если кластер на робота не похож
+    :return (Detection или None, причина отказа или "")
     """
     if len(points) < model.min_points:
-        return None
-
-    if points[:, 2].max() > model.max_height:
-        return None
+        return None, f"мало точек: {len(points)}"
 
     xy = points[:, :2]
-    if major_extent(xy) > model.max_extent:
-        return None
+    extent = major_extent(xy)
+    if extent > model.max_extent:
+        if not extract:
+            return None, f"широкий: {extent:.2f}"
 
-    rim = xy[points[:, 2] <= model.rim_max_z]
+        # Робот прижался к стене или предмету и слился с ним: ищем в
+        # кластере окружность корпуса и проверяем только точки вокруг неё.
+        rim = xy[points[:, 2] <= model.rim_max_z]
+        center, count = find_circle(rim, observer, model.radius, model.outlier / 2.0)
+        if center is None or count < model.min_rim_points:
+            return None, f"широкий: {extent:.2f}, круга корпуса нет"
+        inside = np.linalg.norm(xy - center, axis=1) <= model.radius + model.contain_margin
+        detection, reason = inspect_cluster(points[inside], observer, model, extract=False)
+        return detection, reason and f"широкий, внутри: {reason}"
+
+    top = points[:, 2].max()
+    if top > model.max_height:
+        return None, f"высокий: {top:.2f}"
+    if top < model.min_top:
+        return None, f"низкий: {top:.2f}"
+    if extent < model.min_extent:
+        return None, f"узкий: {extent:.2f}"
+
+    heights = points[:, 2]
+    gap = float(np.mean((heights >= model.gap_min_z) & (heights < model.gap_max_z)))
+    if gap > model.max_gap_share:
+        return None, f"нет пробела: {100 * gap:.0f}%"
+
+    rim = xy[heights <= model.rim_max_z]
     guess = edge_center(xy, rim, observer, model.radius)
 
     if len(rim) < model.min_rim_points:
@@ -346,19 +438,36 @@ def detect_robot(
         # ложится на верхнюю грань или пластину. Направление на центр по
         # краям остаётся точным, а дальность -- с точностью до радиуса,
         # отсюда большая СКО.
-        return Detection(guess, model.fallback_std, strong=False)
+        return Detection(guess, model.fallback_std, strong=False), ""
 
     center, residual = fit_circle(rim, model.radius, guess)
     inliers = np.abs(residual) <= model.outlier
     if inliers.sum() < model.min_rim_points:
-        return None
+        return None, f"не окружность: на ней {int(inliers.sum())} из {len(rim)}"
 
     arc = rim[inliers]
     if not inliers.all():
         center, residual = fit_circle(arc, model.radius, center)
 
     rms = math.sqrt(float(np.mean(residual ** 2)))
-    if rms > model.fit_rms_max or rms > model.line_ratio * line_rms(arc):
-        return None
+    if rms > model.fit_rms_max:
+        return None, f"не окружность: невязка {100 * rms:.1f} см"
 
-    return Detection(center, model.measurement_std, strong=True)
+    straight = line_rms(arc)
+    if rms > model.line_ratio * straight:
+        # Короткую дугу от прямой по форме не отличить: так выглядит робот,
+        # у которого часть корпуса закрыта или съедена фоном рядом с
+        # предметом. Если по высоте он проходит, это слабая детекция: трек
+        # она не откроет, но уже идущий продлит.
+        if model.min_top > 0.0 or model.max_gap_share < 1.0:
+            return Detection(guess, model.fallback_std, strong=False), ""
+        return None, f"прямая: {100 * rms:.1f} против {100 * straight:.1f} см"
+
+    return Detection(center, model.measurement_std, strong=True), ""
+
+
+def detect_robot(
+    points: np.ndarray, observer: np.ndarray, model: RobotModel
+) -> "Detection | None":
+    """То же, что inspect_cluster, без причины отказа"""
+    return inspect_cluster(points, observer, model)[0]

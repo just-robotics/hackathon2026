@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Детектор соперника на бэгах с неподвижного реального лидара + RViz.
+
+     Бэг проигрывается отдельно, чтобы им можно было управлять (пауза,
+     повтор): ros2 bag play <бэг> -l
+
+     Фон записывается заранее по бэгу, где соперник ездит:
+     ros2 run jr_perception record_background.py <бэг> <фон.npz> -->
+<launch>
+  <arg name="background_file" description="фон от record_background.py, .npz"/>
+  <arg name="params_file"
+       default="$(find-pkg-share jr_launch)/config/perception/robot_detector_bag.param.yaml"/>
+  <arg name="rviz" default="true" description="открыть RViz"/>
+
+  <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector"
+        output="screen">
+    <param from="$(var params_file)"/>
+    <param name="background_file" value="$(var background_file)"/>
+  </node>
+
+  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz2"
+        args="-d $(find-pkg-share jr_launch)/config/perception/bag.rviz"/>
+</launch>

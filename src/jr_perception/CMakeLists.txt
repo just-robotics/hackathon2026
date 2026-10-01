@@ -11,6 +11,7 @@ install(
   PROGRAMS
     jr_perception/robot_detector.py
     jr_perception/detector_eval.py
+    jr_perception/record_background.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
