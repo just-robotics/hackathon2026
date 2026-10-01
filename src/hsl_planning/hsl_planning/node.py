@@ -17,7 +17,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32, String
 
 from .mppi import mppi_local_guidance
-from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
+from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
                    reachable_intercept, navigation_obstacles, evade_target,
                    local_guidance, path_heading_error, reachable_target,
                    recovery_step, checked_recovery_target, turn_alignment_is_progress, safe_segment,
@@ -516,15 +516,11 @@ class TrajectoryPlanner(Node):
                           tie_seed=self.random_seed + self.recovery_attempt,
                           avoid=recovery_avoid)
             if not route:
-                frontier = (self.world.frontier(
-                    own, target, tie_seed=self.random_seed, min_travel=0.6)
-                    or self.world.frontier(own, target,
-                                           tie_seed=self.random_seed))
-                if frontier:
-                    route = astar(self.world, own, frontier, enemy_future,
-                                  intent.opponent_clearance, intent.opponent_cost_weight,
-                                  tie_seed=self.random_seed + self.recovery_attempt,
-                                  avoid=recovery_avoid)
+                route = reachable_frontier_route(
+                    self.world, own, target, enemy_future,
+                    intent.opponent_clearance, intent.opponent_cost_weight,
+                    tie_seed=self.random_seed + self.recovery_attempt,
+                    avoid=recovery_avoid)
             self.global_path = route
             self.global_target = target
             self.route_behavior = intent.behavior

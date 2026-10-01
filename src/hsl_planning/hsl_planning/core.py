@@ -192,10 +192,8 @@ class VoxelWorld:
                 return False
         return True
 
-    def frontier(self, own, destination=None, tie_seed=0, min_travel=0.0,
-                 avoid=None):
-        if not self.free:
-            return None
+    def frontier_candidates(self, own, destination=None, tie_seed=0, min_travel=0.0,
+                            avoid=None):
         candidates = []
         for c in self.free:
             if c in self.occupied:
@@ -210,7 +208,12 @@ class VoxelWorld:
                     continue
                 toward = hypot(p.x - destination.x, p.y - destination.y) if destination else 0
                 candidates.append((0.4 * travel + toward, cell_tie(tie_seed, c), p))
-        return min(candidates, key=lambda item: item[:2])[2] if candidates else None
+        return [item[2] for item in sorted(candidates, key=lambda item: item[:2])]
+
+    def frontier(self, own, destination=None, tie_seed=0, min_travel=0.0,
+                 avoid=None):
+        candidates = self.frontier_candidates(own, destination, tie_seed, min_travel, avoid)
+        return candidates[0] if candidates else None
 
 
 def opponent_cost(x, y, opponent, clearance, weight):
@@ -230,6 +233,12 @@ def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
                                 if opponent is not None else float("inf"))
     if target in world.occupied or not world.inside_map(goal.x, goal.y,
                                                        world.robot_radius + 0.1):
+        return []
+    target_point = world.point(target)
+    if (opponent is not None and clearance > 0 and source != target and
+            source_opponent_distance >= clearance and
+            hypot(target_point.x - opponent.x, target_point.y - opponent.y) < clearance):
+        # A forbidden endpoint cannot become reachable by exploring more cells.
         return []
     queue = [(0.0, cell_tie(tie_seed, source), source)]
     cost = {source: 0.0}
@@ -298,6 +307,27 @@ def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
             heuristic = hypot(neighbor[0] - target[0], neighbor[1] - target[1])
             heappush(queue, (tentative + heuristic,
                              cell_tie(tie_seed, neighbor), neighbor))
+    return []
+
+
+def reachable_frontier_route(world, own, destination, opponent=None, clearance=0.0,
+                             weight=0.0, tie_seed=0, avoid=None, max_attempts=30):
+    """Try ranked safe frontier endpoints before abandoning navigation for recovery."""
+    attempts = 0
+    for point in world.frontier_candidates(own, destination, tie_seed, min_travel=0.6,
+                                           avoid=avoid):
+        if not world.inside_map(point.x, point.y, world.robot_radius + 0.1):
+            continue
+        if (opponent is not None and clearance > 0 and
+                hypot(point.x - opponent.x, point.y - opponent.y) < clearance):
+            continue
+        attempts += 1
+        route = astar(world, own, point, opponent, clearance, weight,
+                      tie_seed=tie_seed, avoid=avoid)
+        if route:
+            return route
+        if attempts >= max_attempts:
+            break
     return []
 
 
@@ -421,6 +451,10 @@ def reusable_route(world, own, route, previous_target, target,
     if hypot(route[closest].x - own.x, route[closest].y - own.y) > 0.45:
         return []
     remaining = route[closest:]
+    if (hypot(route[-1].x - target.x, route[-1].y - target.y) > 0.3 and
+            hypot(route[-1].x - own.x, route[-1].y - own.y) < 0.3):
+        # A completed detour must retry the objective rather than hold its endpoint.
+        return []
     for point in remaining[:15]:
         distance = hypot(point.x - own.x, point.y - own.y)
         # A fresh scan can reveal an obstacle directly on the next few cells.

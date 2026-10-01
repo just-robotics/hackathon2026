@@ -4,18 +4,20 @@
 import argparse
 import json
 import time
-from math import hypot
+from math import cos, hypot, sin
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.node import Node
+from rcl_interfaces.srv import GetParameters
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
 from hsl_planning.core import (Pose2, VoxelWorld, astar, local_guidance,
-                               reachable_target, recovery_step, safe_segment)
+                               reachable_target, recovery_step, safe_segment,
+                               evade_target, navigation_obstacles)
 from hsl_planning.node import odom_pose, read_xyz
 
 
@@ -29,6 +31,18 @@ def main():
     prefix = "/" + args.namespace.strip("/") if args.namespace else ""
     rclpy.init()
     node = Node("planner_probe")
+    parameters = node.create_client(GetParameters, prefix + "/trajectory_planner/get_parameters")
+    if not parameters.wait_for_service(timeout_sec=5):
+        raise RuntimeError("planner parameter service unavailable")
+    request = GetParameters.Request()
+    request.names = ["resolution", "robot_radius", "arena_bounds"]
+    future_params = parameters.call_async(request)
+    rclpy.spin_until_future_complete(node, future_params, timeout_sec=5)
+    if not future_params.done() or future_params.result() is None:
+        raise RuntimeError("planner parameters not received")
+    values = future_params.result().values
+    resolution, radius = values[0].double_value, values[1].double_value
+    arena_bounds = tuple(values[2].double_array_value)
     data = {}
     subscriptions = []
     for key, topic, kind, qos in (
@@ -61,12 +75,9 @@ def main():
     enemy = odom_pose(data["opponent"]) if "opponent" in data else None
     intent = data["intent"]
     grid = data["known_grid"]
-    world = VoxelWorld(0.15, 0.23)
+    world = VoxelWorld(resolution, radius)
     static = read_xyz(data["map_points"])
     scan = read_xyz(data["scan"], 5000)
-    if enemy:
-        static = [p for p in static if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
-        scan = [p for p in scan if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
     free = set()
     occupied_points = []
     for index, value in enumerate(grid.data):
@@ -80,10 +91,25 @@ def main():
     bounds = (grid.info.origin.position.x, grid.info.origin.position.y,
               grid.info.origin.position.x + grid.info.width * grid.info.resolution,
               grid.info.origin.position.y + grid.info.height * grid.info.resolution)
-    world.update(static + occupied_points, scan, own, free, bounds)
+    if arena_bounds != (-1000000.0, -1000000.0, 1000000.0, 1000000.0):
+        bounds = arena_bounds
+    static, scan = navigation_obstacles(occupied_points, static, scan, enemy)
+    world.update(static, scan, own, free, bounds)
     requested = (Pose2(intent.target.position.x, intent.target.position.y)
                  if intent.has_target else None)
-    target = reachable_target(world, own, requested,
+    velocity = (0.0, 0.0)
+    future = None
+    departure = None
+    if enemy:
+        twist = data["opponent"].twist.twist
+        velocity = (cos(enemy.yaw) * twist.linear.x - sin(enemy.yaw) * twist.linear.y,
+                    sin(enemy.yaw) * twist.linear.x + cos(enemy.yaw) * twist.linear.y)
+        future = Pose2(enemy.x + velocity[0], enemy.y + velocity[1], enemy.yaw)
+        if (intent.behavior == 4 and
+                hypot(own.x - enemy.x, own.y - enemy.y) < intent.opponent_clearance + 0.3):
+            departure = evade_target(world, own, enemy, requested,
+                                     intent.opponent_clearance, 0.14)
+    target = reachable_target(world, own, departure or requested,
                               explore=intent.behavior == 3)
     source = world.cell(own.x, own.y)
     near = {}
@@ -93,6 +119,8 @@ def main():
                                 else "?" for dx in range(-2, 3))
     route = astar(world, own, target, enemy, intent.opponent_clearance,
                   intent.opponent_cost_weight) if target else []
+    predicted_route = astar(world, own, target, future, intent.opponent_clearance,
+                            intent.opponent_cost_weight) if target else []
     frontier = world.frontier(own, target, min_travel=0.6)
     frontier_route = (astar(world, own, frontier, enemy,
                             intent.opponent_clearance,
@@ -133,8 +161,14 @@ def main():
                           if enemy else None})
     local = local_guidance(world, own, route, enemy,
                            intent.opponent_clearance) if route else []
-    print(json.dumps({"own": [own.x, own.y, own.yaw],
+    print(json.dumps({"world_bounds": bounds, "resolution": resolution,
+                      "robot_radius": radius, "own": [own.x, own.y, own.yaw],
                       "opponent": [enemy.x, enemy.y] if enemy else None,
+                      "opponent_velocity_map_mps": list(velocity),
+                      "opponent_prediction_1s": [future.x, future.y] if future else None,
+                      "fresh_evade_departure": [departure.x, departure.y] if departure else None,
+                      "route_cells_predicted_opponent": len(predicted_route),
+                      "snapshot_scope": "fresh target; excludes retained waypoint, route cache and watchdog state",
                       "behavior": intent.behavior,
                       "planner_status": data["status"].data,
                       "actual_mppi_diagnostics": (json.loads(data["mppi_diagnostics"].data)

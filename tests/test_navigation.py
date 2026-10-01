@@ -16,7 +16,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
 from hsl_planning.backend import resolve_backend
-from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
+from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
                                local_guidance, reachable_target, navigation_obstacles, evade_target,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
@@ -490,11 +490,44 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual({route[len(route) // 2].y > 0 for route in routes},
                          {True, False})
 
+    def test_blocked_objective_selects_a_frontier_outside_the_threat(self):
+        world = VoxelWorld(0.1, 0.18)
+        world.update([], [], Pose2(0, 0),
+                     {(x, y) for x in range(-5, 25) for y in range(-5, 6)})
+        own, objective, enemy = Pose2(0, 0), Pose2(2, 0), Pose2(2, 0)
+        self.assertFalse(astar(world, own, objective, enemy, 0.7, 6))
+        route = reachable_frontier_route(world, own, objective, enemy, 0.7, 6)
+        self.assertTrue(route)
+        self.assertGreaterEqual(hypot(route[-1].x - enemy.x, route[-1].y - enemy.y), 0.7)
+        self.assertGreaterEqual(hypot(route[-1].x - own.x, route[-1].y - own.y), 0.6)
+        self.assertTrue(all(hypot(p.x - enemy.x, p.y - enemy.y) >= 0.7 for p in route))
+
+    def test_frontier_search_tries_another_component_when_first_is_unreachable(self):
+        world = VoxelWorld(0.1, 0.18)
+        world.map_bounds = (-1.0, -1.0, 1.8, 1.0)
+        world.free.update({(0, 0), (-5, 0), (13, 0)})
+        world.occupied.update({(6, y) for y in range(-11, 12)})
+        own, goal = Pose2(0, 0), Pose2(1.3, 0)
+        self.assertEqual(world.frontier(own, goal, min_travel=0.6), goal)
+        # Use a valid candidate farther than the minimum travel threshold.
+        world.free.add((-6, 0))
+        route = reachable_frontier_route(world, own, goal)
+        self.assertTrue(route)
+        self.assertLess(route[-1].x, 0.6)
+        self.assertTrue(all(p.x < 0.6 for p in route))
+
     def test_reachable_target_avoids_a_frontier_at_own_position(self):
         world = VoxelWorld(0.1, 0.18)
         world.free.update({world.cell(0, 0), world.cell(1, 0)})
         target = reachable_target(world, Pose2(0, 0), Pose2(0.2, 0.2))
         self.assertEqual(target, Pose2(1, 0))
+
+    def test_completed_partial_route_retries_the_real_objective(self):
+        world = VoxelWorld(0.1, 0.18)
+        route = [Pose2(0, 0), Pose2(0.5, 0), Pose2(1, 0)]
+        goal = Pose2(2, 0)
+        self.assertTrue(reusable_route(world, Pose2(0.1, 0), route, goal, goal))
+        self.assertFalse(reusable_route(world, Pose2(0.9, 0), route, goal, goal))
 
     def test_safe_route_is_advanced_instead_of_replanned(self):
         world = VoxelWorld(0.15, 0.23)
