@@ -8,17 +8,15 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from hsl_planning.backend import resolve_backend
 
 
 def nodes(context):
     values = {name: LaunchConfiguration(name).perform(context) for name in (
         "robot_namespace", "role", "random_seed", "arena_bounds", "control_mode",
         "mpc_path_source", "local_backend")}
-    backend = values["local_backend"]
-    if backend not in ("python", "nav2_cpp"):
-        raise ValueError("local_backend must be python or nav2_cpp")
-    if backend == "nav2_cpp" and values["control_mode"] != "mppi":
-        raise ValueError("nav2_cpp requires control_mode=mppi")
+    backend = resolve_backend(values["control_mode"], values["local_backend"])
+    values["local_backend"] = backend
     params = {key: values[key] for key in (
         "role", "control_mode", "mpc_path_source", "local_backend")}
     params.update(use_sim_time=True, random_seed=int(values["random_seed"]),
@@ -47,6 +45,6 @@ def nodes(context):
 def generate_launch_description():
     defaults = {"robot_namespace": "", "role": "explorer", "random_seed": "0",
                 "arena_bounds": "[-2.66,-0.4,3.34,4.6]", "control_mode": "mppi",
-                "mpc_path_source": "local", "local_backend": "python"}
+                "mpc_path_source": "local", "local_backend": "auto"}
     return LaunchDescription([DeclareLaunchArgument(name, default_value=value)
                               for name, value in defaults.items()] + [OpaqueFunction(function=nodes)])

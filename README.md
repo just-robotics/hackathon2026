@@ -528,15 +528,15 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 смотрите, поднялся ли он в `helm flogs gazebo`, и проверьте пути
 `GAZEBO_MODEL_PATH` / `GAZEBO_RESOURCE_PATH`.
 
-### Экспериментальный официальный MPPI Nav2
+### Основной локальный MPPI Nav2
 
-Основной локальный backend пока `python`; исходный MPC остаётся доступен через `HSL_CONTROL_MODE=mpc`. Для отдельного сравнения после `helm build duel`:
+Основной `HSL_LOCAL_BACKEND=auto` выбирает оригинальный C++ MPPI Nav2 при `HSL_CONTROL_MODE=mppi`. После `helm build duel` обычные `helm start_match1/2/3` используют его. Резервный исходный MPC: `HSL_CONTROL_MODE=mpc HSL_MPC_PATH_SOURCE=global helm start_match2`; auto выбирает совместимый Python planner. Предыдущая Python-адаптация: `HSL_LOCAL_BACKEND=python helm start_match2`. Для серии:
 
 ```bash
 HSL_LOCAL_BACKEND=nav2_cpp python3 benchmarks/run_duel_series.py --runs 3 --start-seed 15 --active-s 90 --scenario 2 --trace
 ```
 
-`hsl_planning/autonomous.launch.py` запускает A* и, при `nav2_cpp`, отдельный `hsl_nav2_control/native_mppi` для каждого робота. Официальный Humble MPPIController принимает `navigation/nav2_reference` и публикует `navigation/mppi_cmd_vel` и короткий `navigation/local_path`; финальный `cmd_vel` публикует существующий шлюз. У каждого MPPI свой rolling costmap со статической картой и текущим сканом. Backend требует `HSL_CONTROL_MODE=mppi`; его превосходство пока не подтверждено прогоном.
+`hsl_planning/autonomous.launch.py` запускает A* и, при `nav2_cpp`, отдельный `hsl_nav2_control/native_mppi` для каждого робота. Официальный Humble MPPIController принимает `navigation/nav2_reference` и публикует `navigation/mppi_cmd_vel` и короткий `navigation/local_path`; финальный `cmd_vel` публикует существующий шлюз. У каждого MPPI свой rolling costmap со статической картой и текущим сканом. Backend требует `HSL_CONTROL_MODE=mppi`. На scenario2 seeds15–17 подтверждены2 цели/1 поимка,0 контактов, все скорости ≥0,2; другие сценарии и финальная серия20 ещё проверяются.
 
 В `duel` файл `sim_kobuki/config/gazebo_duel.yaml` задаёт публикацию `/clock` на100Гц, чтобы ROS-таймеры MPPI и gate20Гц не ограничивались стандартными часами Gazebo10Гц. Физический timestep не меняется. Runner сохраняет эффективные параметры `/gazebo`; после rebuild сверяйте publish_rate и фактические числа циклов.
 

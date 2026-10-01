@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -16,6 +17,8 @@ from scenarios import SCENARIOS, scenario_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src" / "hsl_planning"))
+from hsl_planning.backend import resolve_backend
 RESULTS = ROOT / "results"
 
 
@@ -310,6 +313,8 @@ def main():
         second_role = "guardian" if first_role == "explorer" else "explorer"
         run_id = f"{series_id}-{index:02d}"
         env = os.environ.copy()
+        env["HSL_LOCAL_BACKEND"] = resolve_backend(
+            env.get("HSL_CONTROL_MODE", "mppi"), env.get("HSL_LOCAL_BACKEND", "auto"))
         env.update({"GAZEBO_HEADLESS": "true", "HSL_ROLE": first_role,
                     "HSL_RVIZ_ENABLED": "false",
                     "HSL_OPPONENT_ROLE": second_role,

@@ -15,6 +15,7 @@ from hsl_debug_control.core import (follow, path_turning_decision, safe_follow,
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
+from hsl_planning.backend import resolve_backend
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
                                local_guidance, reachable_target, navigation_obstacles, evade_target,
                                reachable_intercept, path_heading_error,
@@ -861,6 +862,17 @@ class KnownWallPreservationTests(unittest.TestCase):
         wall, obstacle = (1.0, 0.0, 0.3), (0.8, 0.0, 0.3)
         self.assertEqual(navigation_obstacles([wall], [obstacle], [obstacle]),
                          ([wall, obstacle], [obstacle]))
+
+
+class BackendReserveTests(unittest.TestCase):
+    def test_switching_to_stock_mpc_does_not_select_incompatible_native_backend(self):
+        self.assertEqual(resolve_backend("mppi"), "nav2_cpp")
+        self.assertEqual(resolve_backend("mpc"), "python")
+        with self.assertRaises(ValueError):
+            resolve_backend("mpc", "nav2_cpp")
+
+    def test_explicit_python_checkpoint_remains_available(self):
+        self.assertEqual(resolve_backend("mppi", "python"), "python")
 
 
 class EncounterRegressionTests(unittest.TestCase):
