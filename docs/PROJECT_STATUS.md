@@ -34,6 +34,14 @@ seed0 0.379/0.364м, seed1 0.378/0.362м. Все gate audits before/partial/afte
 на stationary robot. Следующая проверка —3 обычных дуэли seeds0–2 с тем
 же кандидатом без box, trace/gates,360sim лимит. Она нужна для проверки
 потери настоящего соперника после фильтра, не заменяет новую итоговую20.
+Обычная проверка запущена: series-20261001T221115Z, PID3214204/exec36697
+подтверждён живым pgrep, лог /tmp/detector-diameter-ordinary3.log.
+Команда: `python3 benchmarks/run_duel_series.py --isolated-project hsl-eval
+--ros-domain-id 73 --gazebo-port 11418 --runs 3 --start-seed 0
+--active-s 360 --trace --audit-start`. Не менять nav/config до terminal,
+не перезапускать по одному observation timeout. Checkpoint
+checkpoint/detector-diameter-low-20261002 указывает на a9584bf.
+
 После неё отдельный цикл own-speed interception mismatch и оставшихся
 false tracks. Цель не завершена.
 
