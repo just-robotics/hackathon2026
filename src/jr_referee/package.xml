@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>jr_referee</name>
+  <version>0.1.0</version>
+  <description>Referee for the two-robot duel.</description>
+
+  <maintainer email="dev@just-robotics.ru">Just Robotics</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>jr_msgs</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

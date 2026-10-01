@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Судья соревнования.
+
+     Следит за двумя условиями окончания и останавливает обоих роботов:
+       атакующий пересёк футпринтом синюю зону, победа атакующего;
+       защитник ближе стоп-дистанции к атакующему, победа защитника.
+
+     Публикует jr_msgs/DuelStatus в duel/status: исход, расстояние до зоны
+     по прямой и вдоль пути, расстояние между роботами. Контур зоны идёт
+     отдельным маркером в duel/zone для RViz. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <arg name="attacker_frame" default="attacker/base_footprint"/>
+  <arg name="defender_frame" default="defender/base_footprint"/>
+  <arg name="output_frame" default="world"/>
+
+  <!-- Синяя зона totami: центр и полуразмеры прямоугольника 1x2 м. -->
+  <arg name="zone_x" default="3.5"/>
+  <arg name="zone_y" default="0.0"/>
+  <arg name="zone_half_x" default="0.5"/>
+  <arg name="zone_half_y" default="1.0"/>
+
+  <arg name="robot_radius" default="0.175" description="футпринт Kobuki, м"/>
+  <arg name="catch_distance" default="0.1" description="дистанция поимки, м"/>
+  <arg name="rate" default="20.0" description="частота проверки, Гц"/>
+
+  <node pkg="jr_referee" exec="duel_referee.py" name="duel_referee"
+        output="screen">
+    <param name="attacker_frame" value="$(var attacker_frame)"/>
+    <param name="defender_frame" value="$(var defender_frame)"/>
+    <param name="output_frame" value="$(var output_frame)"/>
+    <param name="zone_center" value="[$(var zone_x), $(var zone_y)]"/>
+    <param name="zone_half_size" value="[$(var zone_half_x), $(var zone_half_y)]"/>
+    <param name="robot_radius" value="$(var robot_radius)"/>
+    <param name="catch_distance" value="$(var catch_distance)"/>
+    <param name="rate" value="$(var rate)"/>
+    <param name="use_sim_time" value="$(var simulation)"/>
+  </node>
+</launch>
