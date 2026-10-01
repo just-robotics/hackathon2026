@@ -336,6 +336,16 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(reachable_intercept(world, own, opponent,
                                              visible_prediction), visible_prediction)
 
+    def test_interception_forecast_does_not_require_prey_to_leave_wall(self):
+        world = VoxelWorld(0.1, 0.23)
+        wall = [(index * 0.1, 0, 0.3) for index in range(-10, 21)]
+        world.update(wall, [], None, map_bounds=(-2, -1, 3, 2))
+        own, opponent, predicted = Pose2(-0.5, 1), Pose2(0, 0.3), Pose2(1, 0.3)
+        # The unchanged recovery policy demands departure from this wall,
+        # but it is a valid constant-velocity forecast along the corridor.
+        self.assertFalse(safe_segment(world, opponent, predicted))
+        self.assertEqual(reachable_intercept(world, own, opponent, predicted), predicted)
+
     def test_small_intercept_updates_are_smoothed_but_large_redirects_are_immediate(self):
         previous = Pose2(1, 1, 0)
         updated = smooth_intercept_target(previous, Pose2(1.4, 1, 0.5))

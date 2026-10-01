@@ -414,7 +414,11 @@ def reachable_intercept(world, own, opponent, predicted):
     if (predicted is not None and
             world.inside_map(predicted.x, predicted.y, world.robot_radius + 0.07) and
             not world.blocked(predicted.x, predicted.y) and
-            safe_segment(world, opponent, predicted)):
+            # Validate a forecast, not our own recovery manoeuvre. A prey
+            # moving parallel to a wall need not increase its clearance by
+            # the extra recovery margin. Keep the footprint and wall checks;
+            # the guardian's route and MPPI rollout are checked separately.
+            safe_segment(world, opponent, predicted, safety_margin=0.0)):
         return predicted
     return capture_goal(world, own, opponent) or predicted
 
