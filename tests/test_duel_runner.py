@@ -46,10 +46,14 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,
             "MPPI": {"PathAngleCritic": {"forward_preference": role == "guardian"},
-                     "PreferForwardCritic": {"enabled": role == "guardian"},
+                     "PreferForwardCritic": {"enabled": True},
                      "GoalAngleCritic": {"enabled": role == "guardian"}}}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
+    params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = False
+    with pytest.raises(RuntimeError, match="PreferForwardCritic.enabled"):
+        validate_runtime_metadata(runtime, env)
+    params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = True
     referee["run_id"] = "manual"
     with pytest.raises(RuntimeError, match="referee run_id"):
         validate_runtime_metadata(runtime, env)

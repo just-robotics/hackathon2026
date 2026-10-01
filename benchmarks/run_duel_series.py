@@ -187,7 +187,7 @@ def validate_runtime_metadata(runtime, env):
             checks["native_mppi"] = {
                 "role": role, "random_seed": seed,
                 "MPPI.PathAngleCritic.forward_preference": role == "guardian",
-                "MPPI.PreferForwardCritic.enabled": role == "guardian",
+                "MPPI.PreferForwardCritic.enabled": True,
                 "MPPI.GoalAngleCritic.enabled": role == "guardian"}
         for node, values in checks.items():
             for name, value in values.items():
