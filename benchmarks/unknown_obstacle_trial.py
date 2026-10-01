@@ -82,6 +82,8 @@ def main():
     parser.add_argument('--output', required=True)
     parser.add_argument('--arena-bounds', type=float, nargs=4, required=True)
     parser.add_argument('--select-only', action='store_true')
+    parser.add_argument('--record-scans', action='store_true',
+                        help='save height-filtered map-frame clouds of both robots for offline replay')
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--origin-x', type=float, default=-0.34)
     parser.add_argument('--origin-y', type=float, default=0.4)
@@ -97,6 +99,7 @@ def main():
         ('peer','/opponent/navigation/self',Odometry,10),
         ('path','/navigation/global_path',Path,10),
         ('scan','/navigation/scan',PointCloud2,qos_profile_sensor_data),
+        ('peer_scan','/opponent/navigation/scan',PointCloud2,qos_profile_sensor_data),
         ('track','/navigation/opponent',Odometry,10),
         ('status','/navigation/planner_status',String,10),
         ('outcome','/match/outcome',String,qos),
@@ -107,6 +110,9 @@ def main():
               'scope':'debug duel; capture must also pass fixture line-of-sight check',
               'fixture_spawned':False, 'samples':records}
     future, centre, last, finished = None, None, -1.0, None
+    clouds, last_cloud = [], {}
+    if args.record_scans:
+        report['cloud_samples'] = clouds
     deadline = time.monotonic() + args.wall_seconds
     try:
         while time.monotonic() < deadline:
@@ -164,6 +170,21 @@ def main():
                     track = data['track'].pose.pose.position
                     record['estimated_opponent'] = [track.x,track.y]
                 records.append(record)
+                if args.record_scans:
+                    for key, observer, target in (('scan', own, peer), ('peer_scan', peer, own)):
+                        cloud = data.get(key)
+                        if cloud is None:
+                            continue
+                        stamp = cloud.header.stamp.sec + cloud.header.stamp.nanosec * 1e-9
+                        if stamp - last_cloud.get(key, float('-inf')) < 0.5:
+                            continue
+                        last_cloud[key] = stamp
+                        clouds.append(dict(observer=key, stamp_sim_s=stamp, received_sim_s=now,
+                                           own_xy=[observer.x,observer.y],
+                                           peer_truth_xy=[target.x,target.y],
+                                           points=[p for p in read_xyz(cloud, 1000000)
+                                                   if 0.08 <= p[2] <= 0.60]))
+
     finally:
         if records:
             physical_records = [r for r in records if r['sim_s'] >= report.get('spawn_completed_sim_s',float('inf'))]
@@ -173,6 +194,13 @@ def main():
             report['safe_replanned_route_seen'] = any(r['global_route_avoids_fixture'] and r['sim_s']>report.get('spawn_completed_sim_s',float('inf')) for r in records)
             if report.get('outcome',{}).get('event') == 'guardian_capture':
                 report['capture_fixture_line_of_sight_clear'] = all(box_distance(p,centre)>0 for p in samples([records[-1]['own'],records[-1]['peer']], 0.005))
+        if args.record_scans and 'grid' in data:
+            g = data['grid']
+            report['replay_grid'] = dict(resolution=g.info.resolution,
+                width=g.info.width, height=g.info.height,
+                origin_x=g.info.origin.position.x, origin_y=g.info.origin.position.y,
+                data=list(g.data))
+            report['cloud_scope'] = 'read-only evaluation; peer truth is an offline label, never a navigation input'
         if not centre:
             report['error'] = 'No suitable free route point with a feasible alternative before outcome/deadline'
         report['final_map_sha'] = (__import__('hashlib').sha256(

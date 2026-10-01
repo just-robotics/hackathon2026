@@ -309,7 +309,7 @@ def finish_traces(traces):
             output.close()
 
 
-def start_obstacle_trial(series_dir, index, run_id, config, env):
+def start_obstacle_trial(series_dir, index, run_id, config, env, record_scans=False):
     command(["docker", "cp", str(ROOT / "benchmarks" / "unknown_obstacle_trial.py"),
              "docker-hsl-adapter-1:/tmp/hsl_unknown_obstacle_trial.py"], env, timeout=15)
     remote = f"/tmp/hsl_obstacle_{index:02d}.json"
@@ -318,7 +318,8 @@ def start_obstacle_trial(series_dir, index, run_id, config, env):
     bounds = " ".join(str(value) for value in config["simulation"]["arena_bounds"])
     script = ("source /autoware/install/setup.bash && python3 /tmp/hsl_unknown_obstacle_trial.py "
               f"--run-id {run_id} --output {remote} --origin-x {origin[0]} "
-              f"--origin-y {origin[1]} --arena-bounds {bounds} --wall-seconds 1200")
+              f"--origin-y {origin[1]} --arena-bounds {bounds} --wall-seconds 1200"
+              + (" --record-scans" if record_scans else ""))
     process = subprocess.Popen(
         ["docker", "exec", container_name("docker-hsl-adapter-1", env), "bash", "-lc", script],
         cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -337,7 +338,7 @@ def finish_obstacle_trial(trial, series_dir, index, env):
         if process.returncode or not report.get("fixture_spawned"):
             raise RuntimeError("unmapped obstacle trial did not spawn the required fixture")
         return {key: value for key, value in report.items()
-                if key not in ("samples", "original_route", "offline_alternative")}
+                if key not in ("samples", "original_route", "offline_alternative", "cloud_samples", "replay_grid")}
     finally:
         if process.poll() is None:
             process.terminate()
@@ -439,6 +440,8 @@ def main():
                         help="verify both gates before and after granting only the first permission")
     parser.add_argument("--unknown-obstacle", action="store_true",
                         help="spawn an unmapped box on the first robot's actual route; requires isolation")
+    parser.add_argument("--record-detector-scans", action="store_true",
+                        help="save clouds of both observers for offline detector replay; requires unknown-obstacle")
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
@@ -447,6 +450,8 @@ def main():
     parser.add_argument("--ros-domain-id", type=int, default=73)
     parser.add_argument("--gazebo-port", type=int, default=11418)
     args = parser.parse_args()
+    if args.record_detector_scans and not args.unknown_obstacle:
+        parser.error("record-detector-scans requires unknown-obstacle")
     if args.unknown_obstacle and not args.isolated_project:
         parser.error("unknown-obstacle requires an isolated evaluation project")
     config = load_config(args.config)
@@ -534,7 +539,7 @@ def main():
                 command(audit[:-1] + [audit[-1] + " --partial-start"], env, timeout=25,
                         log=series_dir / f"{index:02d}-gate-partial-start.json")
             if args.unknown_obstacle:
-                obstacle_trial = start_obstacle_trial(series_dir, index, run_id, config, env)
+                obstacle_trial = start_obstacle_trial(series_dir, index, run_id, config, env, args.record_detector_scans)
             allow_motion(env, series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
                                   time.monotonic() + args.wall_timeout_s, runtime=runtime, env=env)
