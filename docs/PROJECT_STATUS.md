@@ -2,6 +2,19 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — полная серия20 запущена
+
+После matched3 записан4165d62, checkpoint/continuous-pursuit-three-20261002.
+Полная series-20261001T224501Z выполняется: PID3288247 подтверждён pgrep,
+exec87168 write_stdin вернул running; это verified wait, не terminal.
+Лог /tmp/continuous-pursuit-series20.log. Команда совпадает с matched3,
+кроме --runs20; seeds0–19 выбраны заранее, world reset каждый матч,
+фиксированные роли/старты, active360, trace/audit-start.
+Image44ef9955/source813b515; doc-only4165d62 не меняет образ.
+Не перезапускать по отсутствию новых строк: продолжить exec87168 или
+проверить PID, затем читать results/isolated/hsl-eval/series-20261001T224501Z.
+Текущая серия ещё не даёт итоговых метрик, цель не завершена.
+
 ## 02.10.2026 — короткая цель физически проверена; готовится полная20
 
 Изменение813b515 собрано terminal0 (exec45561), image
