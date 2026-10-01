@@ -32,6 +32,10 @@ def nodes(context):
         result.append(Node(package="hsl_nav2_control", executable="native_mppi",
                            namespace=values["robot_namespace"], parameters=[config, {
                                "role": values["role"],
+                               # Capture requires the guardian to face its prey;
+                               # explorer evasion can follow a route in reverse.
+                               "MPPI.PathAngleCritic.forward_preference":
+                                   values["role"] == "guardian",
                                "random_seed": int(values["random_seed"])}], output="screen"))
     for process in list(result):
         result.append(RegisterEventHandler(OnProcessExit(
