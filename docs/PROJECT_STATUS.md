@@ -2,6 +2,49 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — полная20:6 готовы; геометрический просвет и разбор отхода
+
+Предыдущий turn — progress: добавлен offline straight-motion report638156c,
+147 тестов прошли, серия224501Z оставалась live. Сейчас PID3288247/exec87168
+подтверждены live;6 completed/seed6 выполняется, не перезапускать runner.
+Навигационные исходники813b515/image44ef9955 прежние, дерево чистое до журнала.
+
+Первые6: все explorer_goal, контакты0, speeds E/G:
+seed0 .387/.418;1 .344/.420;2 .364/.411;3 .377/.400;
+4 .385/.409;5 .358/.388. Минимумы .344/.388; поимок0/6.
+Это промежуточные результаты; итоговую успешность стража пока не оценивать.
+График progress-motion.png и rows обновлены6/20 в директории серии.
+
+Из установленного jr_map.sdf_map_server.collect_boxes получены20 wall boxes
+на z=.25 с применением SDF state link poses (в определении стены иначе
+совпадают). Map pose переведена вworld через сохранённый map_origin_world.
+Static-clearance-progress.json содержит signed point-to-oriented-rectangle
+clearance минус radius.178 (body approximation) и.23 (native safety envelope).
+Chords между own trace poses с gap<=.3s подразделены шагом<=.02m; frame/window
+совпадают с referee. Для первых4 min envelope E/G .152/.137m; body .204/.189m.
+Для slow short3seed2 min envelope .149/.179m, контактов0. Dynamic obstacles
+и точный moving footprint в этом расчёте не измеряются, .25-height slice
+соответствует стенам данного мира. Не заявлять доказанную непрерывную
+collision safety по одному этому приближению. Frozen static-boxes-world.json
+и analyze-static-clearance.py сохранены в224501Z, воспроизводятся с argvseries;
+геометрия и скрипт являются артефактами измерения, не входом алгоритмов.
+
+Дополнительно разобран short3seed2 explorer speed.233/capture8.1:
+не recovery/statusfailure. На1.02s v.0055/omega1.06 (первоначальный turn);
+на5.62s EVADE shortgoal .9m NW, на5.84s уже objective fullgoal distance2.85m.
+До7.84s reverse v~.12–.16 при rasterhead SW→South→East; на8.04s v-.267.
+Гипотеза «удлинить короткую escape point для устранения всего замедления»
+отвергнута: большую часть ухода reference уже длинная. Переключение начальной
+departure direction и прохождение rastercorner остаются гипотезами;
+не менять несколько элементов без отдельного причинного прогона.
+
+Официальный PathAngleCritic1.1.20 сверён по
+https://raw.githubusercontent.com/ros-navigation/navigation2/1.1.20/nav2_mppi_controller/src/critics/path_angle_critic.cpp:
+vx_min<0 и forward_preferencefalse корректируют angle к ближайшему концу
+робота; ограничение/штраф самого reverse этим critic не подтверждён.
+Следующий шаг — завершить эту20, сопоставить индивидуальные motion/straight/
+clearance/capture traces; при низкой скорости/слабой роли продолжать цикл.
+
 ## 02.10.2026 — анализ прямых участков во время полной20
 
 Предыдущий goal-turn — progress: safe continuous goal813b515 реализован,
