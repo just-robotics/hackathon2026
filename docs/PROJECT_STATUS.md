@@ -33,8 +33,21 @@ duplicated/rotated points, low wide box и допустимый неоднозн
 fragment.135 Python/navigation/runner/config/capture/helm тестов прошли.
 README/AGENTS описывают кандидата и ограничения. Физические показатели
 скорости/контактов/RTF/ложных треков после изменения ещё не получены.
-Следующий шаг: helm build duel, затем seeds0/1 с low fixture0.15,
-record-detector-scans/trace/audit-start. Не считать replay завершением цели.
+helm build duel завершён terminal0(exec23251), лог
+/tmp/detector-diameter-build.log; новый image
+5d414dfd304790e7e4cf184b61458c08db5ca3cc305996b3618f645b02802d69,
+source commit5a65d45. Compose config --quiet прошёл (VEHICLE_ID=0 для
+неиспользуемых заготовок real-data; без него были только warnings).
+
+Запущен физический повтор `series-20261001T220410Z`, PID3199183/exec39712
+подтверждён живым pgrep, лог /tmp/detector-diameter-low-series.log:
+`python3 benchmarks/run_duel_series.py --isolated-project hsl-eval
+--ros-domain-id 73 --gazebo-port 11418 --runs 2 --start-seed 0
+--active-s 90 --trace --audit-start --unknown-obstacle
+--obstacle-height 0.15 --record-detector-scans`.
+Навигацию/конфиг не менять до terminal, не перезапускать по timeout
+наблюдения. После завершения сравнить Gspeed с0.143, fresh box tracks с662,
+контакты/clearance/RTF/исходы и replay. Не считать replay завершением цели.
 
 ## 02.10.2026 — низкое неизвестное препятствие выявило ложный трек
 
