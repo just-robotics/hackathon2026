@@ -207,7 +207,11 @@ def main():
                       "local_points": len(local),
                       "local_end": [local[-1].x, local[-1].y] if local else None,
                       "local_occupancy": near,
-                      "occupied_cells": len(world.occupied), "free_cells": len(world.free)},
+                      "occupied_cells": len(world.occupied), "free_cells": len(world.free),
+                      "world_snapshot": {"free_cells": sorted(world.free),
+                                         "occupied_cells": sorted(world.occupied),
+                                         "static_points": world.static_points,
+                                         "scan_points": world.scan_points}},
                      indent=2))
     node.destroy_node()
     rclpy.shutdown()
