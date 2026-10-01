@@ -16,7 +16,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
-                               local_guidance, reachable_target, navigation_obstacles,
+                               local_guidance, reachable_target, navigation_obstacles, evade_target,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
                                reusable_route, safe_segment, smooth_control_route,
@@ -302,11 +302,13 @@ class PlanningTests(unittest.TestCase):
         self.assertAlmostEqual(path_heading_error(Pose2(0, 0, 0.7), path), 0.7)
         self.assertIsNone(path_heading_error(Pose2(0, 0), [Pose2(0, 0)]))
 
-    def test_only_guardian_chase_turns_count_as_watchdog_progress(self):
+    def test_navigation_and_evasion_turns_can_be_bounded_watchdog_progress(self):
         self.assertTrue(turn_alignment_is_progress("guardian", 6))
         self.assertTrue(turn_alignment_is_progress("guardian", 7))
         self.assertFalse(turn_alignment_is_progress("guardian", 5))
         self.assertFalse(turn_alignment_is_progress("explorer", 6))
+        self.assertTrue(turn_alignment_is_progress("explorer", 2))
+        self.assertTrue(turn_alignment_is_progress("explorer", 4))
 
     def test_local_guidance_is_straight_on_clear_corridor(self):
         world = VoxelWorld(0.1, 0.2)
@@ -859,6 +861,42 @@ class KnownWallPreservationTests(unittest.TestCase):
         wall, obstacle = (1.0, 0.0, 0.3), (0.8, 0.0, 0.3)
         self.assertEqual(navigation_obstacles([wall], [obstacle], [obstacle]),
                          ([wall, obstacle], [obstacle]))
+
+
+class EncounterRegressionTests(unittest.TestCase):
+    def test_evasion_in_open_space_departs_away_from_guardian(self):
+        world = VoxelWorld(0.1, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        target = evade_target(world, Pose2(0, 0), Pose2(0.7, 0), Pose2(2, 0))
+        self.assertIsNotNone(target)
+        self.assertLess(target.x, 0)
+        self.assertGreater(hypot(target.x - 0.7, target.y), 0.7)
+        self.assertTrue(safe_segment(world, Pose2(0, 0), target))
+
+    def test_evasion_with_wall_chooses_safe_side_departure(self):
+        world = VoxelWorld(0.1, 0.23)
+        world.update([(-0.45, y / 10, 0.3) for y in range(-20, 21)], [], None,
+                     map_bounds=(-3, -3, 3, 3))
+        target = evade_target(world, Pose2(0, 0), Pose2(0.7, 0), Pose2(2, 0), safety_margin=0.12)
+        self.assertIsNotNone(target)
+        self.assertLessEqual(target.x, 1e-6)
+        self.assertTrue(safe_segment(world, Pose2(0, 0), target))
+
+    def test_guardian_in_capture_range_faces_prey_without_orbiting(self):
+        world = VoxelWorld(0.15, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        own, enemy = Pose2(0.41, 0, pi), Pose2(0, 0)
+        target = capture_goal(world, own, enemy)
+        self.assertAlmostEqual(target.x, own.x)
+        self.assertAlmostEqual(target.y, own.y)
+        self.assertAlmostEqual(abs(target.yaw), pi)
+
+    def test_guardian_radial_approach_retains_continuous_capture_distance(self):
+        world = VoxelWorld(0.15, 0.23)
+        world.update([], [], None, map_bounds=(-3, -3, 3, 3))
+        target = capture_goal(world, Pose2(1, 0), Pose2(0, 0))
+        self.assertAlmostEqual(target.x, 0.39)
+        self.assertAlmostEqual(target.y, 0)
 
 
 if __name__ == "__main__":

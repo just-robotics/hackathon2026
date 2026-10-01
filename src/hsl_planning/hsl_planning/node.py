@@ -18,9 +18,9 @@ from std_msgs.msg import Float32, String
 
 from .mppi import mppi_local_guidance
 from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
-                   reachable_intercept, navigation_obstacles,
+                   reachable_intercept, navigation_obstacles, evade_target,
                    local_guidance, path_heading_error, reachable_target,
-                   recovery_step, checked_recovery_target, turn_alignment_is_progress,
+                   recovery_step, checked_recovery_target, turn_alignment_is_progress, safe_segment,
                    reusable_route,
                    smooth_control_route,
                    smooth_intercept_target)
@@ -135,6 +135,9 @@ class TrajectoryPlanner(Node):
         self.measured_speed = 0.0
         self.measured_omega = 0.0
         self.opponent = None
+        self.evade_waypoint = None
+        self.alignment_until = 0.0
+        self.nominal_retry = 0
         self.intent = None
         self.scan_stamp = 0.0
         self.map_points = []
@@ -231,6 +234,14 @@ class TrajectoryPlanner(Node):
         if msg.header.frame_id == self.frame:
             if self.local_behavior is not None and msg.behavior != self.local_behavior:
                 self.mppi_controls = None
+            if self.intent is not None and msg.behavior != self.intent.behavior:
+                # A manoeuvre selected for another task is no longer authoritative.
+                self.recovery_goal = None
+                self.recovery_origin = None
+                self.recovery_avoid = None
+                self.recovery_until = 0.0
+                self.evade_waypoint = None
+                self.nominal_retry = 0
             if msg.behavior != 5:
                 self.search_waypoint = None
                 self.search_visited = []
@@ -364,18 +375,21 @@ class TrajectoryPlanner(Node):
         own = self.own[0]
         intent = self.intent
         pending_native_recovery = False
-        heading_error = path_heading_error(own, self.local_path)
+        heading_error = path_heading_error(own, self.global_path)
         if (self.progress_pose is None or self.progress_since is None or
                 now < self.progress_since or intent.behavior != self.progress_behavior or
                 hypot(own.x - self.progress_pose.x,
                       own.y - self.progress_pose.y) >= 0.2):
             self.progress_pose = own
             self.progress_since = now
+            self.nominal_retry = 0
             self.progress_behavior = intent.behavior
+            self.alignment_until = now + 8.0
             self.progress_heading_error = heading_error
         else:
             turning_progress = (
                 turn_alignment_is_progress(self.role, intent.behavior) and
+                now < self.alignment_until and abs(self.measured_omega) > 0.08 and
                 heading_error is not None and
                 self.progress_heading_error is not None and
                 heading_error < self.progress_heading_error - 0.02)
@@ -392,16 +406,12 @@ class TrajectoryPlanner(Node):
             self.recovery_until = now + 8.0
             self.recovery_attempt += 1
             self.global_path = []
-            if self.local_backend == "nav2_cpp":
-                # Select after rebuilding the world from the current scan.
-                self.recovery_goal = None
-                pending_native_recovery = True
-            else:
-                step = recovery_step(self.world, own,
-                                     safety_margin=self.local_safety_margin)
-                self.recovery_goal = (Pose2(own.x + step[1] * cos(step[0]),
-                                            own.y + step[1] * sin(step[0]))
-                                      if step else None)
+            # First retry the nominal route/warm start. A useful turn in free
+            # space must not immediately hand authority to an arbitrary escape.
+            self.mppi_controls = None
+            self.recovery_goal = None
+            pending_native_recovery = self.nominal_retry > 0
+            self.nominal_retry += 1
             self.recovery_origin = own
             self.progress_pose = own
             self.progress_since = now
@@ -425,8 +435,7 @@ class TrajectoryPlanner(Node):
             self.world.update(static_points, scan_points, own,
                               self.grid_free, self.grid_bounds)
             self.dirty = False
-        if self.local_backend == "nav2_cpp" and (
-                pending_native_recovery or self.recovery_goal is not None):
+        if pending_native_recovery or self.recovery_goal is not None:
             previous = self.recovery_goal
             self.recovery_goal = checked_recovery_target(
                 self.world, own, previous, enemy, intent.opponent_clearance,
@@ -460,6 +469,23 @@ class TrajectoryPlanner(Node):
                 target = self.search_waypoint
             else:
                 target = self.world.frontier(own, tie_seed=self.random_seed)
+        if intent.behavior == 4 and enemy:
+            separation = hypot(own.x - enemy.x, own.y - enemy.y)
+            if separation < intent.opponent_clearance + 0.3:
+                previous = self.evade_waypoint
+                if (previous is None or hypot(previous.x - own.x, previous.y - own.y) < 0.15 or
+                        not self.world.inside_map(previous.x, previous.y) or
+                        not safe_segment(self.world, own, previous, enemy,
+                                         intent.opponent_clearance, self.local_safety_margin) or
+                        (previous.x - own.x) * (own.x - enemy.x) +
+                        (previous.y - own.y) * (own.y - enemy.y) < 0):
+                    self.evade_waypoint = evade_target(
+                        self.world, own, enemy, target, intent.opponent_clearance,
+                        self.local_safety_margin)
+                if self.evade_waypoint is not None:
+                    target = self.evade_waypoint
+            else:
+                self.evade_waypoint = None
         requested_target = target
         target = reachable_target(self.world, own, target,
                                   explore=intent.behavior == 3,
@@ -504,6 +530,14 @@ class TrajectoryPlanner(Node):
             self.route_behavior = intent.behavior
         else:
             self.global_path = route
+        if intent.behavior == 7 and target is not None and self.global_path:
+            # Keep the continuous capture pose and its facing constraint. A*
+            # raster centres can otherwise stop outside the capture radius.
+            if len(self.global_path) == 1:
+                self.global_path = [own, target]
+            elif safe_segment(self.world, self.global_path[-2], target,
+                              safety_margin=self.local_safety_margin):
+                self.global_path[-1] = target
         if (self.recovery_goal is not None and self.recovery_origin is not None and
                 (hypot(own.x - self.recovery_origin.x,
                        own.y - self.recovery_origin.y) >= 0.45 or
@@ -511,17 +545,9 @@ class TrajectoryPlanner(Node):
                        own.y - self.recovery_goal.y) < 0.06)):
             self.recovery_goal = None
         if not self.global_path and self.recovery_goal is None:
-            if self.local_backend == "nav2_cpp":
-                self.recovery_goal = checked_recovery_target(
-                    self.world, own, None, enemy, intent.opponent_clearance,
-                    self.local_safety_margin)
-            else:
-                step = recovery_step(self.world, own, enemy,
-                                     intent.opponent_clearance,
-                                     safety_margin=self.local_safety_margin)
-                if step:
-                    self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
-                                               own.y + step[1] * sin(step[0]))
+            self.recovery_goal = checked_recovery_target(
+                self.world, own, None, enemy, intent.opponent_clearance,
+                self.local_safety_margin)
             if self.recovery_goal is not None:
                 self.recovery_origin = own
             else:
@@ -558,6 +584,11 @@ class TrajectoryPlanner(Node):
             self.mppi_controls = None
             self.local_path = []
             local = [own, Pose2(own.x, own.y, target.yaw)]
+            if intent.behavior == 7:
+                self.local_path = local
+                self.local_pub.publish(make_path(self, local))
+                self.status_pub.publish(String(data="CAPTURE_ALIGNMENT"))
+                return
         else:
             same_target = (self.local_target is not None and
                            hypot(target.x - self.local_target.x,
@@ -596,16 +627,14 @@ class TrajectoryPlanner(Node):
         if not local:
             self.local_path = []
             self.global_path = []
-            step = recovery_step(self.world, own, enemy,
-                                 intent.opponent_clearance,
-                                 safety_margin=self.local_safety_margin)
-            if step:
-                self.recovery_goal = Pose2(own.x + step[1] * cos(step[0]),
-                                           own.y + step[1] * sin(step[0]))
+            self.recovery_goal = checked_recovery_target(
+                self.world, own, None, enemy, intent.opponent_clearance,
+                self.local_safety_margin)
+            if self.recovery_goal is not None:
                 self.recovery_origin = own
                 local = self.recovery_path(own, enemy, enemy_velocity, intent)
                 if not local:
-                    local = [own, Pose2(own.x, own.y, step[0])]
+                    local = [own, Pose2(own.x, own.y, self.recovery_goal.yaw)]
                 self.local_path = local
                 self.local_pub.publish(make_path(self, local))
                 if self.mpc_path_source == "smoothed":

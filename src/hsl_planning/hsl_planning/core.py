@@ -47,8 +47,9 @@ def path_heading_error(own, path):
 
 
 def turn_alignment_is_progress(role, behavior):
-    """Only delay watchdog recovery while a guardian aligns for pursuit."""
-    return role == "guardian" and behavior in (6, 7)
+    """Goal/evasion turns can be useful too; caller bounds their duration."""
+    return ((role == "guardian" and behavior in (6, 7)) or
+            (role == "explorer" and behavior in (2, 4)))
 
 
 def cell_tie(seed, cell):
@@ -300,15 +301,39 @@ def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
     return []
 
 
-def capture_goal(world, own, opponent):
+def evade_target(world, own, opponent, goal, clearance=1.0, safety_margin=0.12):
+    """A reachable short departure that never initially heads into the threat."""
+    away_x, away_y = own.x - opponent.x, own.y - opponent.y
+    initial = hypot(away_x, away_y)
     options = []
-    for index in range(16):
-        angle = 2 * pi * index / 16
+    for length in (0.9, 0.6, 0.3):
+        for index in range(32):
+            yaw = 2 * pi * index / 32
+            dx, dy = length * cos(yaw), length * sin(yaw)
+            if dx * away_x + dy * away_y < -1e-6:
+                continue
+            point = Pose2(own.x + dx, own.y + dy, yaw)
+            if not safe_segment(world, own, point, opponent, clearance, safety_margin):
+                continue
+            separation_gain = hypot(point.x - opponent.x, point.y - opponent.y) - initial
+            goal_gain = (hypot(own.x - goal.x, own.y - goal.y) -
+                         hypot(point.x - goal.x, point.y - goal.y)) if goal else 0.0
+            options.append((2 * separation_gain + 0.4 * goal_gain, point))
+        if options:
+            break
+    return max(options, key=lambda item: item[0])[1] if options else None
+
+
+def capture_goal(world, own, opponent):
+    if (0.36 < hypot(own.x - opponent.x, own.y - opponent.y) < 0.45 and
+            world.clear_line_3d(own, opponent)):
+        return Pose2(own.x, own.y, atan2(opponent.y - own.y, opponent.x - own.x))
+    options = []
+    radial = atan2(own.y - opponent.y, own.x - opponent.x)
+    for angle in [radial] + [2 * pi * index / 16 for index in range(16)]:
         pose = Pose2(opponent.x + 0.39 * cos(angle),
                      opponent.y + 0.39 * sin(angle), angle + pi)
-        rounded = world.point(world.cell(pose.x, pose.y))
-        if (hypot(rounded.x - opponent.x, rounded.y - opponent.y) <= 0.36
-                or world.blocked(pose.x, pose.y)
+        if (world.blocked(pose.x, pose.y)
                 or not world.inside_map(pose.x, pose.y, world.robot_radius + 0.07)
                 or world.obstacle_clearance(pose.x, pose.y) < world.robot_radius + 0.07
                 or not world.clear_line_3d(pose, opponent)):
