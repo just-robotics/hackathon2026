@@ -129,6 +129,7 @@ def main():
                              if opponent_message else None)
         time_series.append({
             "t_s": round(t - latest["series_t0"], 3),
+            "sim_t_s": t,
             "speed_mps": round(hypot(message.twist.twist.linear.x,
                                      message.twist.twist.linear.y), 4),
             "own_x_m": round(p.x, 4),

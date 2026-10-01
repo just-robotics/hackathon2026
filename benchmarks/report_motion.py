@@ -13,12 +13,14 @@ def quantile(values, fraction):
     return ordered[min(len(ordered) - 1, round((len(ordered) - 1) * fraction))]
 
 
-def trace_error(path, key):
+def trace_error(path, key, window=None):
     if not path.is_file():
         return None, None, 0
     samples = json.loads(path.read_text()).get("time_series", [])
     values = [abs(sample[key]) for sample in samples
-              if sample.get(key) is not None]
+              if sample.get(key) is not None and
+              (window is None or (sample.get("sim_t_s") is not None and
+                                  window[0] <= sample["sim_t_s"] <= window[1]))]
     if not values:
         return None, None, 0
     return sqrt(mean(value * value for value in values)), quantile(values, 0.95), len(values)
@@ -31,7 +33,8 @@ def rows(series):
             continue
         for side, robot in zip(("first", "second"), record["robots"]):
             rms, p95, count = trace_error(
-                series / f"{index:02d}-trace-{side}.json", "lateral_global_m")
+                series / f"{index:02d}-trace-{side}.json", "lateral_global_m",
+                (robot["window_start_sim_s"], robot["window_end_sim_s"]))
             yield {
                 "seed": record["seed"],
                 "event": record["outcome"]["event"],
@@ -75,7 +78,7 @@ def report(series):
               f"stop-go mean {number(average('stop_go'), 1)}; "
               f"contacts {sum(row['collisions'] for row in group)}")
     if any(row["error_samples"] == 0 for row in data):
-        print("Lateral error unavailable for runs without valid --trace samples.")
+        print("Lateral error unavailable without absolute sim timestamps in the referee window; old traces are not treated as synchronized measurements.")
 
 
 def main():
