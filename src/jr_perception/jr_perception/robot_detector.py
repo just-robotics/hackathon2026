@@ -390,7 +390,7 @@ class RobotDetector(Node):
             self.grid = background.load(background_file)
             self.floor_plane = self.grid["plane"]
             if self.grid["frame"] != self.world_frame:
-                self.get_logger().warn(
+                self.get_logger().warning(
                     f"Фон записан во фрейме {self.grid['frame']}, а world_frame "
                     f"{self.world_frame}: ячейки не совпадут"
                 )
@@ -482,7 +482,7 @@ class RobotDetector(Node):
             return
 
         if self.pending is not None:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 "Скан пропущен: поза на его момент так и не пришла. "
                 "Проверьте, что публикуется localization/pose",
                 throttle_duration_sec=5.0,
@@ -508,7 +508,7 @@ class RobotDetector(Node):
         message, self.pending = self.pending, None
         pose = interpolate_pose(self.poses, moment)
         if pose is None:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 "Скан старше буфера поз, пропущен", throttle_duration_sec=5.0
             )
             return
@@ -529,7 +529,7 @@ class RobotDetector(Node):
             try:
                 transform = self.tf_buffer.lookup_transform(parent, frame, Time())
             except TransformException as error:
-                self.get_logger().warn(
+                self.get_logger().warning(
                     f"Нет TF {parent} -> {frame}: {error}",
                     throttle_duration_sec=5.0,
                 )
