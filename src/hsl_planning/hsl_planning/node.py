@@ -18,7 +18,7 @@ from std_msgs.msg import Float32, String
 
 from .mppi import mppi_local_guidance
 from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
-                   reachable_intercept,
+                   reachable_intercept, navigation_obstacles,
                    local_guidance, path_heading_error, reachable_target,
                    recovery_step, checked_recovery_target, turn_alignment_is_progress,
                    reusable_route,
@@ -420,13 +420,8 @@ class TrajectoryPlanner(Node):
         else:
             enemy_future = None
         if self.dirty:
-            static_points = self.map_points + self.grid_points
-            scan_points = self.scan_points
-            if enemy:
-                static_points = [p for p in static_points
-                                 if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
-                scan_points = [p for p in scan_points
-                               if hypot(p[0] - enemy.x, p[1] - enemy.y) > 0.45]
+            static_points, scan_points = navigation_obstacles(
+                self.grid_points, self.map_points, self.scan_points, enemy)
             self.world.update(static_points, scan_points, own,
                               self.grid_free, self.grid_bounds)
             self.dirty = False

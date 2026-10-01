@@ -17,6 +17,17 @@ class Pose2:
     yaw: float = 0.0
 
 
+def navigation_obstacles(grid_points, map_points, scan_points, enemy=None):
+    """Exclude a tracked robot from observed clouds, never from known walls."""
+    def without_robot(points):
+        return [point for point in points
+                if enemy is None or
+                hypot(point[0] - enemy.x, point[1] - enemy.y) > 0.45]
+
+    return (list(grid_points) + without_robot(map_points),
+            without_robot(scan_points))
+
+
 def angle_error(a, b):
     return (a - b + pi) % (2 * pi) - pi
 

@@ -16,7 +16,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target,
-                               local_guidance, reachable_target,
+                               local_guidance, reachable_target, navigation_obstacles,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
                                reusable_route, safe_segment, smooth_control_route,
@@ -838,6 +838,27 @@ class PlanningTests(unittest.TestCase):
         report = run.snapshot(1, wall_now=112)
         self.assertEqual(report["timing_ms"]["command_period_wall"]["max"], 12000)
         self.assertEqual(report["timing_ms"]["command_period_wall"]["over_2s"], 1)
+
+
+class KnownWallPreservationTests(unittest.TestCase):
+    def test_wall_near_tracked_robot_remains_blocked_for_interception(self):
+        wall = (1.0, 0.0, 0.3)
+        robot_return = (0.8, 0.0, 0.3)
+        far_obstacle = (2.0, 0.0, 0.3)
+        static, scan = navigation_obstacles(
+            [wall], [robot_return, far_obstacle],
+            [robot_return, far_obstacle], Pose2(0.8, 0))
+        self.assertEqual(static, [wall, far_obstacle])
+        self.assertEqual(scan, [far_obstacle])
+        world = VoxelWorld(0.1, 0.23)
+        world.update(static, scan, Pose2(0, 0))
+        self.assertTrue(world.blocked(1.0, 0))
+        self.assertFalse(safe_segment(world, Pose2(0.5, 0), Pose2(1.5, 0)))
+
+    def test_lost_track_keeps_all_observed_obstacles(self):
+        wall, obstacle = (1.0, 0.0, 0.3), (0.8, 0.0, 0.3)
+        self.assertEqual(navigation_obstacles([wall], [obstacle], [obstacle]),
+                         ([wall, obstacle], [obstacle]))
 
 
 if __name__ == "__main__":
