@@ -17,7 +17,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Bool, Float32, String
 
 from .mppi import mppi_local_guidance
-from .core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
+from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_target, reachable_frontier_route,
                    reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
                    local_guidance, path_heading_error, reachable_target,
                    recovery_step, checked_recovery_target, turn_alignment_is_progress, safe_segment,
@@ -487,7 +487,13 @@ class TrajectoryPlanner(Node):
                                                self.recovery_goal.y - previous.y) > 0.01)):
                 self.recovery_origin = own
         if intent.behavior == 7 and enemy:
-            target = capture_goal(self.world, own, enemy) or Pose2(
+            target, capture_enemy = moving_capture_goal(
+                self.world, own, enemy, enemy_velocity,
+                pursuer_speed=self.mppi_max_speed or 0.3)
+            self.planning_diagnostics["capture_enemy_prediction"] = [capture_enemy.x, capture_enemy.y]
+            self.planning_diagnostics["capture_strategy"] = (
+                "direct" if capture_enemy == enemy else "lead")
+            target = target or Pose2(
                 intent.target.position.x, intent.target.position.y)
         elif intent.has_target:
             q = intent.target.orientation

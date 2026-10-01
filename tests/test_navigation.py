@@ -16,7 +16,7 @@ from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
 from hsl_planning.backend import resolve_backend
-from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, coverage_target, reachable_frontier_route,
+from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, moving_capture_goal, coverage_target, reachable_frontier_route,
                                local_guidance, reachable_target, navigation_obstacles, evade_target, evade_objective_route,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
@@ -345,6 +345,37 @@ class PlanningTests(unittest.TestCase):
         # but it is a valid constant-velocity forecast along the corridor.
         self.assertFalse(safe_segment(world, opponent, predicted))
         self.assertEqual(reachable_intercept(world, own, opponent, predicted), predicted)
+
+    def test_close_capture_leads_receding_and_crossing_prey_but_directly_approaches_incoming_prey(self):
+        world = VoxelWorld(0.1, 0.23)
+        world.update([], [], None, map_bounds=(-2, -2, 3, 2))
+        own, enemy = Pose2(0, 0), Pose2(0.6, 0)
+        direct = capture_goal(world, own, enemy)
+        target, predicted = moving_capture_goal(world, own, enemy, (0.5, 0), 0.5)
+        self.assertGreater(predicted.x, enemy.x)
+        self.assertGreater(target.x, direct.x)
+        _, crossing = moving_capture_goal(world, own, enemy, (0, 0.5), 0.5)
+        self.assertGreater(crossing.y, enemy.y)
+        for velocity in ((0, 0), (-0.5, 0)):
+            target, predicted = moving_capture_goal(world, own, enemy, velocity, 0.5)
+            self.assertEqual(predicted, enemy)
+            self.assertEqual(target, direct)
+        _, fast = moving_capture_goal(world, own, enemy, (1.0, 0), 0.5)
+        self.assertAlmostEqual(fast.x - enemy.x, 1.0)
+
+    def test_close_capture_forecast_respects_wall_and_existing_capture_orientation(self):
+        world = VoxelWorld(0.1, 0.23)
+        wall = [(1.0, index * 0.1, 0.3) for index in range(-10, 11)]
+        world.update(wall, [], None, map_bounds=(-2, -2, 3, 2))
+        own, enemy = Pose2(0, 0), Pose2(0.6, 0)
+        target, predicted = moving_capture_goal(world, own, enemy, (0.8, 0), 0.5)
+        self.assertEqual(predicted, enemy)
+        self.assertEqual(target, capture_goal(world, own, enemy))
+        own = Pose2(0.2, 0, pi)
+        target, predicted = moving_capture_goal(world, own, enemy, (0.3, 0), 0.5)
+        self.assertEqual(predicted, enemy)
+        self.assertEqual((target.x, target.y), (own.x, own.y))
+        self.assertAlmostEqual(target.yaw, 0.0)
 
     def test_small_intercept_updates_are_smoothed_but_large_redirects_are_immediate(self):
         previous = Pose2(1, 1, 0)

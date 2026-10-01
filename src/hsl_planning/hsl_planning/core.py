@@ -409,6 +409,32 @@ def capture_goal(world, own, opponent):
     return min(options, key=lambda pair: pair[0])[1] if options else None
 
 
+def moving_capture_goal(world, own, opponent, velocity, pursuer_speed=0.3):
+    """Use a short reachable lead unless the prey is approaching head-on.
+
+    Return the capture goal and the prey pose it refers to. Once already in
+    capture range, face the observed prey rather than a future position.
+    """
+    dx, dy = opponent.x - own.x, opponent.y - own.y
+    distance, speed = hypot(dx, dy), hypot(*velocity)
+    if distance > 0.45 and speed > 1e-6:
+        radial_cosine = (dx * velocity[0] + dy * velocity[1]) / (distance * speed)
+        # Blend continuously: direct for head-on approach, full lead for
+        # transverse/receding motion. Do not assume a maximum rival speed.
+        fraction = min(1.0, max(0.0, 1.0 + radial_cosine))
+        lead_time = min(1.0, distance / max(pursuer_speed, 1e-6)) * fraction
+        predicted = Pose2(opponent.x + velocity[0] * lead_time,
+                          opponent.y + velocity[1] * lead_time, opponent.yaw)
+        if (lead_time > 1e-6 and
+                world.inside_map(predicted.x, predicted.y, world.robot_radius + 0.07) and
+                not world.blocked(predicted.x, predicted.y) and
+                safe_segment(world, opponent, predicted, safety_margin=0.0)):
+            target = capture_goal(world, own, predicted)
+            if target is not None:
+                return target, predicted
+    return capture_goal(world, own, opponent), opponent
+
+
 def reachable_intercept(world, own, opponent, predicted):
     """Do not pursue an extrapolation that runs through a known wall."""
     if (predicted is not None and

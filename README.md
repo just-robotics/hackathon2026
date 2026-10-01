@@ -323,7 +323,8 @@ python3 benchmarks/run_duel_series.py --runs 20 --active-s 360 --build --scenari
 `navigation/planning_diagnostics` и аналог второго робота (`String` с JSON)
 сохраняют стадии выбора цели и источник глобального маршрута за один цикл:
 входные stamps, raw/validated/smoothed/reachable target, cached target/end,
-route source и причины геометрического отклонения intercept. `--trace`
+route source, причины геометрического отклонения intercept и выбор
+`capture_strategy`/`capture_enemy_prediction` для близкого перехвата. `--trace`
 записывает их в поле `planning`; данные только диагностические.
 Статус `RECOVERY_MPPI` обозначает проверенную дугу выхода из застревания:
 шлюз использует её команду MPPI, а метрики учитывают время выхода отдельно
