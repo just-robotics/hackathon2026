@@ -19,7 +19,7 @@ from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_targe
                    reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
                    path_heading_error, reachable_target,
                    checked_recovery_target, turn_alignment_is_progress, safe_segment,
-                   reusable_route,
+                   reusable_route, continuous_short_goal_route,
                    smooth_intercept_target)
 
 
@@ -476,12 +476,14 @@ class TrajectoryPlanner(Node):
             if objective_route:
                 self.global_target = target
                 self.route_behavior = intent.behavior
+        if intent.behavior in (6, 7):
+            self.global_path = continuous_short_goal_route(
+                self.world, own, self.global_path, target,
+                safety_margin=self.local_safety_margin)
         if intent.behavior == 7 and target is not None and self.global_path:
             # Keep the continuous capture pose and its facing constraint. A*
             # raster centres can otherwise stop outside the capture radius.
-            if len(self.global_path) == 1:
-                self.global_path = [own, target]
-            elif safe_segment(self.world, self.global_path[-2], target,
+            if len(self.global_path) >= 2 and safe_segment(self.world, self.global_path[-2], target,
                               safety_margin=self.local_safety_margin):
                 self.global_path[-1] = target
         if (self.recovery_goal is not None and self.recovery_origin is not None and

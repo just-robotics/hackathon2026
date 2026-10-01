@@ -18,7 +18,7 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, moving_ca
                                reachable_target, navigation_obstacles, evade_target, evade_objective_route,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
-                               reusable_route, safe_segment,
+                               reusable_route, safe_segment, continuous_short_goal_route,
                                smooth_intercept_target)
 from hsl_sim_adapter.cloud import transform
 from hsl_sim_adapter.visibility import StaticGrid
@@ -433,6 +433,41 @@ class PlanningTests(unittest.TestCase):
         goal = Pose2(2, 0)
         self.assertTrue(reusable_route(world, Pose2(0.1, 0), route, goal, goal))
         self.assertFalse(reusable_route(world, Pose2(0.9, 0), route, goal, goal))
+
+    def test_single_cell_pursuit_keeps_continuous_target_and_heading(self):
+        world = VoxelWorld(0.15, 0.23)
+        own, target = Pose2(0.01, 0.01), Pose2(0.04, 0.03, 1.2)
+        route = [Pose2(0, 0)]
+        self.assertEqual(continuous_short_goal_route(world, own, route, target),
+                         [own, target])
+
+    def test_reused_single_cell_tracks_moved_goal(self):
+        world = VoxelWorld(0.15, 0.23)
+        own, previous = Pose2(0.02, 0), Pose2(0.04, 0)
+        target, route = Pose2(0.24, 0.02), [Pose2(0, 0)]
+        reused = reusable_route(world, own, route, previous, target)
+        self.assertEqual(reused, route)
+        self.assertEqual(continuous_short_goal_route(world, own, reused, target),
+                         [own, target])
+
+    def test_single_cell_goal_does_not_bypass_obstacles_or_map_boundary(self):
+        for points, bounds, target in (
+                ([(0.3, 0, 0.3)], (-2, -2, 2, 2), Pose2(0.6, 0)),
+                ([], (-1, -1, 0.4, 1), Pose2(0.5, 0))):
+            for use_scan in (False, True):
+                world = VoxelWorld(0.1, 0.18)
+                world.update([] if use_scan else points,
+                             points if use_scan else [], Pose2(0, 0),
+                             map_bounds=bounds)
+                route = [Pose2(0, 0)]
+                self.assertEqual(continuous_short_goal_route(
+                    world, Pose2(0, 0), route, target), route)
+
+    def test_continuous_goal_leaves_long_and_empty_routes_unchanged(self):
+        world = VoxelWorld(0.15, 0.23)
+        for route in ([], [Pose2(0, 0), Pose2(0, 1), Pose2(1, 1)]):
+            self.assertEqual(continuous_short_goal_route(
+                world, Pose2(0, 0), route, Pose2(1, 0)), route)
 
     def test_safe_route_is_advanced_instead_of_replanned(self):
         world = VoxelWorld(0.15, 0.23)

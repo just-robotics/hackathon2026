@@ -566,6 +566,19 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0,
     return True
 
 
+def continuous_short_goal_route(world, own, route, target, safety_margin=0.12):
+    """Preserve a continuous pursuit goal when raster planning has one cell.
+
+    MPPI needs at least two poses. Repeating the raster centre would hide a
+    moved goal, so use the current pose and actual target only when their
+    swept segment is safe. Longer routes keep their planned corridor.
+    """
+    if (len(route) == 1 and target is not None and
+            safe_segment(world, own, target, safety_margin=safety_margin)):
+        return [own, target]
+    return route
+
+
 def recovery_step(world, own, opponent=None, clearance=0.0,
                   safety_margin=0.12):
     """Find a safe escape direction when the nominal corridor cannot be entered."""
