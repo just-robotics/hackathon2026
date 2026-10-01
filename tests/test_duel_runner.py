@@ -52,3 +52,19 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
     params["/opponent/native_mppi"]["random_seed"] = 1
     with pytest.raises(RuntimeError, match="random_seed"):
         validate_runtime_metadata(runtime, env)
+
+
+def test_compose_preserves_scientific_looking_revision_as_ros_string():
+    import shlex
+    import yaml
+    config = yaml.safe_load((Path(__file__).resolve().parents[1] /
+                             "docker/docker-compose.yaml").read_text())
+    for revision in ("5787e30", "0123456", "abc1234"):
+        for service in ("hsl-referee", "hsl-metrics", "hsl-opponent-metrics"):
+            command = config["services"][service]["command"]
+            command = command.replace("$CMD", "/bin/bash -ic").replace(
+                "${DUEL_REVISION:-unknown}", revision)
+            shell_command = shlex.split(command)[-1]
+            ros_arg = next(arg for arg in shlex.split(shell_command)
+                           if arg.startswith("code_revision:="))
+            assert yaml.safe_load(ros_arg.split(":=", 1)[1]) == revision

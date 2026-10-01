@@ -18,7 +18,7 @@ from std_msgs.msg import String
 from hsl_planning.core import (Pose2, VoxelWorld, astar, local_guidance,
                                reachable_target, recovery_step, safe_segment,
                                evade_target, navigation_obstacles)
-from hsl_planning.node import odom_pose, read_xyz
+from hsl_planning.node import odom_pose, read_xyz, seconds
 
 
 def main():
@@ -53,6 +53,7 @@ def main():
         ("status", "planner_status", String, 10),
         ("mppi_diagnostics", "mppi_diagnostics", String, 10),
         ("global_path", "global_path", Path, 10),
+        ("native_reference", "nav2_reference", Path, 10),
         ("local_path", "local_path", Path, 10),
         ("known_grid", "known_grid", OccupancyGrid,
          QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)),
@@ -72,7 +73,9 @@ def main():
                           if "status" in data else None}))
         raise SystemExit(1)
     own = odom_pose(data["own"])
-    enemy = odom_pose(data["opponent"]) if "opponent" in data else None
+    sample_time = seconds(data["own"].header.stamp)
+    enemy = (odom_pose(data["opponent"]) if "opponent" in data and
+             sample_time - seconds(data["opponent"].header.stamp) <= 2.0 else None)
     intent = data["intent"]
     grid = data["known_grid"]
     world = VoxelWorld(resolution, radius)
@@ -162,17 +165,22 @@ def main():
     local = local_guidance(world, own, route, enemy,
                            intent.opponent_clearance) if route else []
     print(json.dumps({"world_bounds": bounds, "resolution": resolution,
-                      "robot_radius": radius, "own": [own.x, own.y, own.yaw],
+                      "robot_radius": radius, "snapshot_sim_s": sample_time, "own": [own.x, own.y, own.yaw],
                       "opponent": [enemy.x, enemy.y] if enemy else None,
                       "opponent_velocity_map_mps": list(velocity),
                       "opponent_prediction_1s": [future.x, future.y] if future else None,
                       "fresh_evade_departure": [departure.x, departure.y] if departure else None,
                       "route_cells_predicted_opponent": len(predicted_route),
                       "snapshot_scope": "fresh target; excludes retained waypoint, route cache and watchdog state",
+                      "opponent_clearance": intent.opponent_clearance,
+                      "opponent_cost_weight": intent.opponent_cost_weight,
                       "behavior": intent.behavior,
                       "planner_status": data["status"].data,
                       "actual_mppi_diagnostics": (json.loads(data["mppi_diagnostics"].data)
                           if "mppi_diagnostics" in data else None),
+                      "actual_native_reference": [[p.pose.position.x, p.pose.position.y]
+                          for p in data["native_reference"].poses]
+                          if "native_reference" in data else None,
                       "actual_global_head": [[p.pose.position.x, p.pose.position.y]
                           for p in data["global_path"].poses[:10]]
                           if "global_path" in data else None,
