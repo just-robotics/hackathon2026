@@ -184,3 +184,8 @@ CAPTURE-кандидат `moving_capture_goal` смешивает прямое �
 не принимается. `planning_diagnostics` добавляет capture_strategy и
 capture_enemy_prediction. Проверять реальное сокращение дистанции и
 контакты отдельно от корректности helper; результат пока в статусе.
+
+Параметрический кандидат: autonomous.launch.py задаёт стандартный
+MPPI.GoalCritic.cost_weight15 для guardian и5 для explorer; YAML остаётся
+базой5 для одиночного native launch. Проверять эффективный вес по роли
+в runtime.json; не считать этот опыт улучшением до фактической дуэли.

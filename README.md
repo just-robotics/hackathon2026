@@ -566,3 +566,8 @@ HSL_LOCAL_BACKEND=nav2_cpp python3 benchmarks/run_duel_series.py --runs 3 --star
 при наличии `DISPLAY` Compose запускает RViz с конфигурацией `duel.rviz`,
 при отсутствии дисплея пропускает его. Gazebo остаётся headless; обычная
 оценка без этого флага сохраняет отключённый RViz.
+
+В текущем параметрическом опыте autonomous launch задаёт
+`MPPI.GoalCritic.cost_weight=15` стражу, исследователь сохраняет5.
+Это штатный critic Nav2; фактические результаты опыта и его принятие
+фиксируются в [PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
