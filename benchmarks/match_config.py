@@ -78,7 +78,9 @@ def configuration_environment(config):
         'DUEL_ARENA_BOUNDS': json.dumps(config['simulation']['arena_bounds'], separators=(',', ':')),
         'HSL_OPPONENT_MAX_HEIGHT': config['perception']['opponent_max_height'],
         'HSL_ROLE': role, 'HSL_OPPONENT_ROLE': 'guardian' if role == 'explorer' else 'explorer',
-        'HSL_ALLOW_REVERSE': config['motion']['allow_reverse'], 'HSL_MAX_SPEED': config['motion']['max_speed'],
+        # The decision node declares a DOUBLE parameter; YAML accepts integer
+        # spelling too, so emit 1.0 instead of a ROS INTEGER override of 1.
+        'HSL_ALLOW_REVERSE': config['motion']['allow_reverse'], 'HSL_MAX_SPEED': float(config['motion']['max_speed']),
         'HSL_MAX_ANGULAR_SPEED': config['motion']['max_angular_speed'],
         'DUEL_SEED': config['match']['seed'], 'DUEL_OPPONENT_SEED': config['match']['seed']+1000003,
         'DUEL_MAX_ACTIVE_S': config['match']['active_seconds'],

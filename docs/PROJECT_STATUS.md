@@ -2,6 +2,39 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — запущен физический own-speed цикл, исправлен integer YAML
+
+Предыдущий turn — progress: ordinary3 завершены, внесён own-speed fix,
+136 тестов/Compose прошли и запущена сборка. Сборка завершена terminal0
+(exec11716), imagefe8eafa4d5752fb16ccdb184de0d187e6a594290e1347a53c2b7f74f9126ffca,
+sourcefbcbb6b. После неё запущена новая серия series-20261001T222149Z,
+PID3239056/exec74694 подтверждён живым ps, лог
+/tmp/intercept-own-speed-series3.log. Команда:
+`python3 benchmarks/run_duel_series.py --isolated-project hsl-eval
+--ros-domain-id 73 --gazebo-port 11418 --runs 3 --start-seed 0
+--active-s 360 --trace --audit-start`.
+Default match config не менялся, сравнение с221115Z на seeds0–2.
+Первый seed0 explorer_goal18.5s, speedsE/G0.392/0.397, contacts0/0.
+00-runtime.json подтверждает own_max_speed0.5 обоих decision nodes.
+Остальные результаты пока не получены; не объявлять новый win-rate,
+не менять nav source до terminal и не перезапускать по timeout наблюдения.
+
+Независимый проверяемый дефект external YAML: допустимое max_speed:1
+экспортировалось HSL_MAX_SPEED='1'; прямой ROS DOUBLE own_max_speed override
+получал INTEGER. Standalone запуск нового installed node в отдельном
+ROS_DOMAIN_ID84 завершился InvalidParameterTypeException/exit1 при:=1.
+При:=1.0 node остаётся жив до timeout3s/exit124, type exception нет.
+При этом motion не разрешалось и наблюдений не было; это startup type
+проверка, не физическое движение или целый mission1м/с.
+
+configuration_environment теперь преобразует max_speed к float перед
+экспортом; значение1 становится'1.0'. Default0.5 и численное значение не
+изменились, навигационный image/source этого цикла не менялись. Добавлен
+unit integer YAML→ROS DOUBLE,24 config/runner теста прошли. Изменение
+хостового exporter не требует rebuild навигации, относится к согласованию
+нового own_max_speed интерфейса. Остаточные box tracks/одноточечные пути
+и слабая роль стража остаются открытыми.
+
 ## 02.10.2026 — обычные прогоны diameter detector и кандидат own-speed fix
 
 Предыдущий turn — progress: diameter filter подтверждён двумя low trials,

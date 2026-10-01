@@ -50,3 +50,13 @@ def test_body_height_profile_and_older_configuration(tmp_path):
     del cfg['perception']
     path.write_text(yaml.safe_dump(cfg))
     assert load_config(path)['perception']['opponent_max_height'] == 0.46
+
+
+def test_integer_speed_in_yaml_is_exported_as_ros_double(tmp_path):
+    cfg = load_config()
+    cfg['motion']['max_speed'] = 1
+    path = tmp_path / 'match.yaml'
+    path.write_text(yaml.safe_dump(cfg))
+    env = configuration_environment(load_config(path))
+    assert env['HSL_MAX_SPEED'] == '1.0'
+    assert isinstance(yaml.safe_load(env['HSL_MAX_SPEED']), float)
