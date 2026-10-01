@@ -3,7 +3,7 @@
 import argparse
 import json
 import time
-from math import hypot, ceil
+from math import hypot, ceil, isfinite
 from pathlib import Path as File
 
 import rclpy
@@ -81,6 +81,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True)
     parser.add_argument('--arena-bounds', type=float, nargs=4, required=True)
+    parser.add_argument('--height', type=float, default=0.8,
+                        help='fixture height; XY size remains 0.6 x 0.6 m')
     parser.add_argument('--select-only', action='store_true')
     parser.add_argument('--record-scans', action='store_true',
                         help='save height-filtered map-frame clouds of both robots for offline replay')
@@ -89,6 +91,8 @@ def main():
     parser.add_argument('--origin-y', type=float, default=0.4)
     parser.add_argument('--wall-seconds', type=float, default=1200)
     args = parser.parse_args()
+    if not isfinite(args.height) or args.height < 0.15:
+        parser.error("fixture height must be finite and at least 0.15 m")
     rclpy.init()
     node = Node('unknown_obstacle_trial', parameter_overrides=[Parameter('use_sim_time', value=True)])
     data, records = {}, []
@@ -106,7 +110,7 @@ def main():
     ):
         node.create_subscription(kind, topic, lambda msg, key=key: data.__setitem__(key,msg), quality)
     client = node.create_client(SpawnEntity, '/spawn_entity')
-    report = {'run_id':args.run_id, 'fixture_size_m':[0.6,0.6,0.8],
+    report = {'run_id':args.run_id, 'fixture_size_m':[0.6,0.6,args.height],
               'scope':'debug duel; capture must also pass fixture line-of-sight check',
               'fixture_spawned':False, 'samples':records}
     future, centre, last, finished = None, None, -1.0, None
@@ -141,9 +145,9 @@ def main():
                     request.reference_frame = 'world'
                     request.initial_pose.position.x = centre[0]+args.origin_x
                     request.initial_pose.position.y = centre[1]+args.origin_y
-                    request.initial_pose.position.z = 0.4
+                    request.initial_pose.position.z = args.height/2
                     request.initial_pose.orientation.w = 1.0
-                    request.xml = '''<sdf version="1.6"><model name="unmapped_test_box"><static>true</static><link name="box"><collision name="collision"><geometry><box><size>0.6 0.6 0.8</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.6 0.6 0.8</size></box></geometry></visual></link></model></sdf>'''
+                    request.xml = f'''<sdf version="1.6"><model name="unmapped_test_box"><static>true</static><link name="box"><collision name="collision"><geometry><box><size>0.6 0.6 {args.height}</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.6 0.6 {args.height}</size></box></geometry></visual></link></model></sdf>'''
                     report.update(fixture_map_xy=list(centre), spawn_requested_sim_s=now,
                                   original_route=route, offline_alternative=detour,
                                   original_map_sha=__import__('hashlib').sha256(bytes((v+1)%256 for v in data['grid'].data)).hexdigest())

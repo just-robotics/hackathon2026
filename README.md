@@ -343,3 +343,13 @@ python3 benchmarks/replay_detector_clouds.py results/isolated/hsl-eval/series-20
 Нужен host g++ с C++17. Truth используется только для labels результата,
 не для выбора кандидата. Это дополнительная проверка на записанных входах,
 а не замена новой дуэли или измерения recall при всех условиях видимости.
+
+Для отдельной проверки низкого препятствия после освобождения
+изолированного стенда:
+```bash
+python3 benchmarks/run_duel_series.py --isolated-project hsl-eval --ros-domain-id 73 --gazebo-port 11418 --runs 1 --start-seed 0 --active-s 90 --trace --audit-start --unknown-obstacle --obstacle-height 0.15 --record-detector-scans
+```
+`--obstacle-height` меняет физическую высоту fixture, XY остаётся0.6×0.6м.
+Default0.8м, минимум0.15м; размеры сохраняются в отчёте. Новый низкий
+вариант подготовлен, но ещё не проверен физически; два успешных заезда
+с высокой коробкой не доказывают его обработку.

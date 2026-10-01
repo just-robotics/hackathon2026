@@ -121,3 +121,17 @@ def test_live_launch_can_wait_for_gazebo_to_appear(monkeypatch):
     readiness = iter([False, True, True, True, True])
     monkeypatch.setattr(runner, 'ready_topic', lambda *a, **k: next(readiness))
     runner.wait_ready({}, 100)
+
+
+@pytest.mark.parametrize('value,extra,message', [
+    ('0.14', ['--unknown-obstacle'], 'at least 0.15'),
+    ('nan', ['--unknown-obstacle'], 'finite'),
+    ('0.15', [], 'requires unknown-obstacle'),
+])
+def test_invalid_fixture_height_is_rejected_before_launch(value, extra, message):
+    import subprocess
+    result = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] /
+                            'benchmarks/run_duel_series.py'), '--obstacle-height', value, *extra],
+                            text=True, capture_output=True, timeout=10)
+    assert result.returncode == 2
+    assert message in result.stderr
