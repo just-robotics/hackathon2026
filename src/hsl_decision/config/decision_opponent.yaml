@@ -14,3 +14,5 @@
     capture_distance: 0.8
     danger_weight: 2.0
     goal_weight: 1.0
+    # Own motion capability for interception; rival velocity remains observed.
+    own_max_speed: 0.5

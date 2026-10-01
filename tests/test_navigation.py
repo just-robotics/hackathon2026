@@ -88,6 +88,22 @@ class DecisionTests(unittest.TestCase):
                                  (0.35, 0))
         self.assertAlmostEqual(target.x, 2.7)
 
+    def test_guardian_interception_uses_configured_own_speed(self):
+        obs = self.observation(opponent=DecisionPose(1, 0))
+        obs = Observation(obs.now, obs.own, obs.own_stamp, obs.opponent,
+                          obs.opponent_stamp, obs.scan_stamp, obs.map_stamp,
+                          obs.allowed, (-0.25, 0))
+        slow = DecisionPolicy("guardian", self.area, own_max_speed=0.3).step(obs)
+        fast = DecisionPolicy("guardian", self.area, own_max_speed=0.5).step(obs)
+        self.assertEqual(slow.behavior, PURSUE)
+        self.assertEqual(fast.behavior, PURSUE)
+        # Analytic head-on meeting: t = distance / (own speed + approach speed).
+        self.assertAlmostEqual(slow.target.x, 1 - 0.25 / 0.55 - 0.42)
+        self.assertAlmostEqual(fast.target.x, 1 - 0.25 / 0.75 - 0.42)
+        for invalid in (0, -0.1, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                DecisionPolicy("guardian", self.area, own_max_speed=invalid)
+
     def test_guardian_searches_then_pursues_and_captures(self):
         policy = DecisionPolicy("guardian", self.area)
         initial = policy.step(self.observation())

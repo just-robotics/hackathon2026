@@ -2,6 +2,45 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — обычные прогоны diameter detector и кандидат own-speed fix
+
+Предыдущий turn — progress: diameter filter подтверждён двумя low trials,
+запущена обычная проверка. series-20261001T221115Z завершена terminal0
+(exec36697),3completed/0failed, source5a65d45/image5d414dfd, fixed explorer
+first seeds0–2,360sim лимит до первого события, без unknown fixture.
+
+| seed | исход | sim s | скорость E/G м/с | global RMS E/G м | RTF | контакты |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | explorer_goal | 17.3 | 0.372/0.431 | 0.058/0.043 | 0.621 | 0/0 |
+| 1 | explorer_goal | 20.6 | 0.370/0.361 | 0.080/0.034 | 0.606 | 0/0 |
+| 2 | explorer_goal | 18.1 | 0.346/0.398 | 0.077/0.038 | 0.592 | 0/0 |
+
+Все gates passed, все owned runtime очищены. Средние/min speeds
+E0.363/0.346,G0.397/0.361; global RMS mean0.072/0.038м,
+angular accel RMS mean0.819/1.025рад/с². Ordinary3 не показала регрессии
+скорости/контактов, но поимок0; нельзя считать эффективность стража
+исправленной или статистику трёх seeds доказательством win rate.
+Checkpoint/detector-diameter-ordinary3-20261002 сохраняет636cb7b,
+версия nav та же5a65d45. Low remnants идут сериями маленьких фрагментов
+(например old replay scan timestamps682.49…684.0), поэтому простое правило
+двух последовательных обнаружений не обосновано как решение false tracks.
+
+Следующий отдельный кандидат: own_max_speed у DecisionPolicy/ROS node,
+default0.5, конечное положительное значение. Compose обеих ролей передаёт
+HSL_MAX_SPEED из existing motion.max_speed; обе YAML конфигурации объявляют
+параметр. PURSUE явно передаёт его intercept_point; прежний implicit0.3
+убран из этого вызова. CAPTURE planner/control tuning/intent max-speed
+fields не менялись. Скорость соперника не ограничивается. Runtime audit
+требует equality own_max_speed текущему конфигу, включая namespaceopponent.
+
+Контрольный head-on пример own[0,0], prey[1,0], measuredv[-0.25,0]:
+meetingtime1.818s при own0.3 против1.333s при own0.5. Unit test проверяет
+аналитический target и отказ NaN/Inf/zero; metadata regression отвергает
+old0.3 в opponent decision manager.136 Python/helm тестов и Compose config
+прошли. README/AGENTS обновлены. Польза для реальных исходов пока не
+проверена; после сборки прогнать те же ordinary seeds0–2, затем оценить
+следующий цикл. Остаточные ложные box tracks остаются отдельным дефектом.
+
 ## 02.10.2026 — diameter filter подтверждён двумя low-fixture матчами
 
 Предыдущий turn — progress: внесён model diameter check,7 CPP/135 Python

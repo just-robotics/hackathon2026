@@ -43,7 +43,7 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
     for prefix, role, seed in (("/", "explorer", 20), ("/opponent/", "guardian", 1000023)):
         params[prefix + "trajectory_planner"] = {
             "role": role, "random_seed": seed, "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]), "require_match_active": True}
-        params[prefix + "decision_manager"] = {"role": role,
+        params[prefix + "decision_manager"] = {"role": role, "own_max_speed": 0.5,
             "own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
             "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])}
         params[prefix + "opponent_detector"] = {"use_sim_time": True, "opponent_max_height": 0.46}
@@ -56,6 +56,10 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
                      "wz_max": 1.5, "vx_max": 0.5, "vx_min": -0.5 if role == "explorer" else 0.0}}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
+    params["/opponent/decision_manager"]["own_max_speed"] = 0.3
+    with pytest.raises(RuntimeError, match="own_max_speed"):
+        validate_runtime_metadata(runtime, env)
+    params["/opponent/decision_manager"]["own_max_speed"] = 0.5
     params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = True
     with pytest.raises(RuntimeError, match="PreferForwardCritic.enabled"):
         validate_runtime_metadata(runtime, env)

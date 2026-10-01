@@ -1,7 +1,7 @@
 """Pure behavior logic; ROS transport lives in node.py."""
 
 from dataclasses import dataclass
-from math import atan2, hypot, sqrt
+from math import atan2, hypot, isfinite, sqrt
 
 
 WAIT, STOP, GOAL, EXPLORE, EVADE, SEARCH, PURSUE, CAPTURE = range(8)
@@ -91,9 +91,12 @@ class DecisionPolicy:
     def __init__(self, role, opponent_start, *, own_start=None, pose_timeout=0.5,
                  scan_timeout=1.0, opponent_timeout=1.0, switch_margin=0.15,
                  min_dwell=0.5, evade_distance=1.8, capture_distance=0.8,
-                 danger_weight=2.0, goal_weight=1.0):
+                 danger_weight=2.0, goal_weight=1.0, own_max_speed=0.5):
         if role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
+        if not isfinite(own_max_speed) or own_max_speed <= 0:
+            raise ValueError("own_max_speed must be finite and positive")
+        self.own_max_speed = own_max_speed
         self.role = role
         self.goal = polygon_center(opponent_start)
         self.goal_polygon = opponent_start
@@ -199,7 +202,8 @@ class DecisionPolicy:
             scores = {PURSUE: 1.0, CAPTURE: 1.0 + max(0.0, 1.0 - distance / self.capture_distance)}
             chosen = self._select(scores, obs.now)
             predicted = (intercept_point(obs.own, obs.opponent,
-                                         obs.opponent_velocity)
+                                         obs.opponent_velocity,
+                                         pursuer_speed=self.own_max_speed)
                          if chosen == PURSUE else obs.opponent)
             dx = obs.own.x - predicted.x
             dy = obs.own.y - predicted.y

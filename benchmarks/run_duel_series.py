@@ -196,6 +196,7 @@ def validate_runtime_metadata(runtime, env):
                   "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]),
                   "require_match_active": True},
                   "decision_manager": {"role": role,
+                      "own_max_speed": float(env.get("HSL_MAX_SPEED", "0.5")),
                       **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
                           "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
                   "hsl_motion_gate": {"require_match_active": True},
