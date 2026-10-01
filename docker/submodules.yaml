@@ -1,20 +1,11 @@
 # Git-подмодули с ROS-пакетами, подключаемыми в src/.
 #
 # Подключаются командой `helm submodules`. В корне подмодуля лежит
-# COLCON_IGNORE, поэтому автообход colcon его пропускает, а пакеты из
-# packages собираются явными путями (см. docker/Dockerfile).
+# COLCON_IGNORE. LIO-SAM пока не входит в основной образ: локализация
+# в Gazebo берётся из p3d; его сборку подключают отдельно.
 
 submodules:
-  mpc_motion_control:
-    url: https://github.com/artem-kondratew/mpc_motion_control.git
-    branch: hackathon2026
-    path: src/mpc_motion_control
-    packages:
-      - src/mpc_motion_control/workspace/src/swarm_msgs
-      - src/mpc_motion_control/workspace/src/swarm_controller
-
-  # Локализация. Тот же репозиторий, но ветка main: в hackathon2026 LIO-SAM
-  # вырезан как относящийся к реальному железу, а нам он нужен в симуляторе.
+  # Необязательная локализация по LiDAR/IMU, независимая от MPPI.
   lio_sam:
     url: https://github.com/artem-kondratew/mpc_motion_control.git
     branch: main

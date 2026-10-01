@@ -15,6 +15,6 @@ setup(
     license="Apache-2.0",
     entry_points={"console_scripts": [
         "debug_follower = hsl_debug_control.node:main",
-        "mpc_gate = hsl_debug_control.mpc_gate:main",
+        "motion_gate = hsl_debug_control.motion_gate:main",
     ]},
 )

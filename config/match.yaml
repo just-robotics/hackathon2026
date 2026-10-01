@@ -1,0 +1,21 @@
+# All mission coordinates are in map; angles are radians.
+robot:
+  role: explorer
+  start: [0.0, 0.0, 0.0]
+  start_area_half_size: 0.5
+opponent:
+  start: [2.84, 2.1, 3.141592653589793]
+  start_area_half_size: 0.25
+motion:
+  allow_reverse: true
+  max_speed: 0.5
+  max_angular_speed: 1.5
+match:
+  seed: 0
+  active_seconds: 360.0
+simulation:
+  world: maze
+  map_origin_world: [-0.34, 0.4]
+  arena_bounds: [-2.66, -0.4, 3.34, 4.6]
+  headless: false
+  rviz: auto

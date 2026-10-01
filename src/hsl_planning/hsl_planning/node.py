@@ -22,7 +22,6 @@ from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_targe
                    local_guidance, path_heading_error, reachable_target,
                    recovery_step, checked_recovery_target, turn_alignment_is_progress, safe_segment,
                    reusable_route,
-                   smooth_control_route,
                    smooth_intercept_target)
 
 
@@ -90,26 +89,16 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("mppi_horizon", 3.0)
         self.declare_parameter("mppi_model_dt", 0.15)
         self.declare_parameter("mppi_temperature", 0.3)
-        self.declare_parameter("control_mode", "mppi")
         self.declare_parameter("local_backend", "python")
         self.declare_parameter("require_match_active", False)
         self.require_match_active = self.get_parameter("require_match_active").value
         self.match_state = None
-        self.declare_parameter("mpc_path_source", "local")
         self.declare_parameter("role", "explorer")
         self.frame = self.get_parameter("planning_frame").value
         self.role = self.get_parameter("role").value
-        self.control_mode = self.get_parameter("control_mode").value
         self.local_backend = self.get_parameter("local_backend").value
         if self.local_backend not in ("python", "nav2_cpp"):
             raise ValueError("local_backend must be python or nav2_cpp")
-        if self.local_backend == "nav2_cpp" and self.control_mode != "mppi":
-            raise ValueError("nav2_cpp requires control_mode=mppi")
-        self.mpc_path_source = self.get_parameter("mpc_path_source").value
-        if self.control_mode not in ("mpc", "mppi"):
-            raise ValueError("control_mode must be mpc or mppi")
-        if self.mpc_path_source not in ("local", "global", "smoothed"):
-            raise ValueError("mpc_path_source must be local, global or smoothed")
         if self.role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         self.local_safety_margin = 0.14 if self.role == "explorer" else 0.12
@@ -124,12 +113,9 @@ class TrajectoryPlanner(Node):
             "dt": float(self.get_parameter("mppi_model_dt").value),
             "temperature": float(self.get_parameter("mppi_temperature").value),
         }
-        if self.control_mode == "mppi":
-            # Nav2 uses a model step no shorter than the command period.
-            # Match this node's 0.2 s timer and stock actuator bounds.
-            self.mppi_config.update(dt=0.2, linear_accel=0.5,
-                                    angular_accel=2.0)
-        self.mppi_max_speed = 0.5 if self.control_mode == "mppi" else None
+        self.mppi_config.update(dt=0.2, linear_accel=0.5, angular_accel=2.0)
+        self.declare_parameter("max_speed", 0.5)
+        self.mppi_max_speed = float(self.get_parameter("max_speed").value)
         self.rng = random.Random(self.random_seed)
         self.mppi_rng = np.random.default_rng(self.random_seed)
         self.world = VoxelWorld(self.get_parameter("resolution").value,
@@ -202,7 +188,6 @@ class TrajectoryPlanner(Node):
                 Path, "navigation/nav2_reference", 10)
             self.create_subscription(Path, "navigation/local_path",
                                      self.on_native_path, 10)
-        self.mpc_path_pub = self.create_publisher(Path, "navigation/mpc_path", 10)
         self.direct_cmd_pub = (self.create_publisher(Twist, "navigation/mppi_cmd_vel", 10)
                                if self.local_backend == "python" else None)
         self.mppi_diag_pub = (self.create_publisher(String, "navigation/mppi_diagnostics", 10)
@@ -303,8 +288,6 @@ class TrajectoryPlanner(Node):
             self.local_pub.publish(make_path(self, []))
         if self.native_reference_pub is not None:
             self.native_reference_pub.publish(make_path(self, []))
-        if self.mpc_path_source == "smoothed":
-            self.mpc_path_pub.publish(make_path(self, []))
         self.status_pub.publish(String(data=reason))
 
     def recovery_path(self, own, enemy, enemy_velocity, intent):
@@ -367,7 +350,7 @@ class TrajectoryPlanner(Node):
             self._tick()
         finally:
             command = Twist()
-            if self.control_mode == "mppi" and self.direct_controls:
+            if self.direct_controls:
                 command.linear.x = float(self.direct_controls[0][0])
                 command.angular.z = float(self.direct_controls[0][1])
             if self.direct_cmd_pub is not None:
@@ -721,8 +704,6 @@ class TrajectoryPlanner(Node):
                     local = [own, Pose2(own.x, own.y, self.recovery_goal.yaw)]
                 self.local_path = local
                 self.local_pub.publish(make_path(self, local))
-                if self.mpc_path_source == "smoothed":
-                    self.mpc_path_pub.publish(make_path(self, local))
                 self.status_pub.publish(String(data="RECOVERY_ESCAPE"))
                 return
             self.local_pub.publish(make_path(self, []))
@@ -730,15 +711,9 @@ class TrajectoryPlanner(Node):
             return
         self.global_pub.publish(make_path(self, self.global_path))
         self.local_pub.publish(make_path(self, local))
-        if self.mpc_path_source == "smoothed":
-            control_route = (local if self.recovery_goal is not None else
-                             smooth_control_route(self.world, self.global_path,
-                                                  enemy, intent.opponent_clearance,
-                                                  self.local_safety_margin))
-            self.mpc_path_pub.publish(make_path(self, control_route))
         status = ("RECOVERY_MPPI" if self.recovery_goal is not None and
-                  self.control_mode == "mppi" and self.direct_controls else
-                  "OK" if self.control_mode == "mpc" or self.direct_controls
+                  self.direct_controls else
+                  "OK" if self.direct_controls
                   else "RECOVERY_FALLBACK")
         self.status_pub.publish(String(data=status))
 

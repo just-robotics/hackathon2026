@@ -17,7 +17,6 @@ from typing import Callable, List, Dict
 # он зависит от способа установки (локально или глобально через pip).
 SCRIPTS = {
     "__submodules_script__": "submodules.py",
-    "__control_script__": "control.py",
 }
 
 

@@ -10,10 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>foxglove_bridge</exec_depend>
-  <!-- swarm_controller приходит из подмодуля mpc_motion_control и может быть
-       не подключен, поэтому в зависимостях его нет: jr_control и jr_planning
-       в этом случае просто не найдут пакет при запуске, а сборка jr_launch
-       и образа остается рабочей -->
+
 
 
   <export>

@@ -16,7 +16,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import (DurabilityPolicy, QoSProfile,
                        qos_profile_sensor_data)
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Bool, Float64, String
+from std_msgs.msg import Bool, String
 
 
 def signed_polyline_distance(x, y, path):
@@ -40,9 +40,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="")
     parser.add_argument("--wall-seconds", type=float, default=60)
-    parser.add_argument("--control-mode", choices=("mpc", "mppi"), default="mppi")
-    parser.add_argument("--control-path-source", choices=("local", "global", "smoothed"),
-                        default="local")
     parser.add_argument("--timeseries", action="store_true")
     parser.add_argument("--spawn-x", type=float, default=-0.34)
     parser.add_argument("--spawn-y", type=float, default=0.4)
@@ -67,8 +64,6 @@ def main():
     clipped_errors = []
     gate_clipped_tangent_errors = []
     opponent_position_errors = []
-    controller_speed_references = []
-    controller_curve_limits = []
     time_series = []
     subscriptions = []
 
@@ -81,10 +76,6 @@ def main():
         def callback(message):
             latest[name] = (message, time.monotonic(),
                             stamp(message))
-            if latest.get("allowed", False) and name == "v_ref":
-                controller_speed_references.append(float(message.data))
-            elif latest.get("allowed", False) and name == "v_curve":
-                controller_curve_limits.append(float(message.data))
         return callback
 
     def on_pose(message):
@@ -201,8 +192,7 @@ def main():
         previous = latest.get("path")
         latest["path"] = (message, time.monotonic(),
                            stamp(message))
-        if args.control_mode == "mppi" or args.control_path_source == "local":
-            latest["control_path"] = latest["path"]
+        latest["control_path"] = latest["path"]
         if not latest.get("allowed", False):
             return
         samples["path_updates"] += 1
@@ -294,8 +284,6 @@ def main():
 
     def on_global_path(message):
         latest["global_path"] = (message, time.monotonic(), stamp(message))
-        if args.control_mode == "mpc" and args.control_path_source == "global":
-            latest["control_path"] = latest["global_path"]
         if not latest.get("allowed", False):
             return
         pose = latest.get("pose")
@@ -322,12 +310,9 @@ def main():
     for name, kind, topic in (
         ("intent", PlanningIntent, "navigation/intent"),
         ("status", String, "navigation/planner_status"),
-        ("mpc", Twist, "navigation/mpc_cmd_vel"),
         ("mppi", Twist, "navigation/mppi_cmd_vel"),
         ("mppi_diagnostics", String, "navigation/mppi_diagnostics"),
         ("planning_diagnostics", String, "navigation/planning_diagnostics"),
-        ("v_ref", Float64, "v_ref"),
-        ("v_curve", Float64, "v_curve"),
     ):
         subscriptions.append(node.create_subscription(
             kind, prefix + "/" + topic, remember(name), 10))
@@ -354,11 +339,6 @@ def main():
         Path, prefix + "/navigation/local_path", on_path, 10))
     subscriptions.append(node.create_subscription(
         Path, prefix + "/navigation/global_path", on_global_path, 10))
-    if args.control_mode == "mpc" and args.control_path_source == "smoothed":
-        subscriptions.append(node.create_subscription(
-            Path, prefix + "/navigation/mpc_path",
-            lambda message: latest.__setitem__(
-                "control_path", (message, time.monotonic(), stamp(message))), 10))
 
     truth_topic = ("/opponent/localization/pose" if not prefix
                    else "/localization/pose")
@@ -397,12 +377,6 @@ def main():
         if current_status and current_status[0].data in (
                 "RECOVERY_FALLBACK", "RECOVERY_ESCAPE"):
             samples["fallback_total"] += 1
-            mpc_record = latest.get("mpc")
-            if mpc_record and sim_now - mpc_record[2] <= 0.5:
-                samples["fallback_mpc_fresh"] += 1
-                if (abs(mpc_record[0].linear.x) > 0.02 or
-                        abs(mpc_record[0].angular.z) > 0.15):
-                    samples["fallback_mpc_nonzero"] += 1
             if abs(message.linear.x) > 0.02 or abs(message.angular.z) > 0.15:
                 samples["fallback_cmd_nonzero"] += 1
         sums["cmd_linear"] += message.linear.x
@@ -415,8 +389,7 @@ def main():
         intent = latest.get("intent")
         path = latest.get("path")
         status = latest.get("status")
-        mpc = (latest.get("mppi") if args.control_mode == "mppi" and
-               status and status[0].data == "OK" else latest.get("mpc"))
+        controller = latest.get("mppi")
         if path and len(path[0].poses) >= 2:
             first = path[0].poses[0].pose.position
             last = path[0].poses[-1].pose.position
@@ -430,7 +403,7 @@ def main():
                 error = abs((atan2(last.y - first.y, last.x - first.x) -
                              own_yaw + pi) % (2 * pi) - pi)
                 path_errors.append(error)
-                if message.linear.x <= 0.02 and mpc and mpc[0].linear.x > 0.02:
+                if message.linear.x <= 0.02 and controller and controller[0].linear.x > 0.02:
                     clipped_errors.append(error)
         if not intent or sim_now - intent[2] > 1.0 or intent[0].behavior in (0, 1):
             reason = "intent_wait_stop_stale"
@@ -460,8 +433,8 @@ def main():
                         samples["rotate_error_under_0_5"] += 1
                     else:
                         samples["rotate_error_over_0_5"] += 1
-            elif not mpc or sim_now - mpc[2] > 0.5 or mpc[0].linear.x <= 0.02:
-                reason = "mpc_zero_or_stale"
+            elif not controller or sim_now - controller[2] > 0.5 or controller[0].linear.x <= 0.02:
+                reason = "mppi_zero_or_stale"
             else:
                 reason = "gate_clipped"
                 if pose and len(path[0].poses) >= 2:
@@ -502,7 +475,7 @@ def main():
                                  int(fraction * (len(ordered) - 1)))], 3)
 
     report = {"namespace": prefix or "/", "wall_seconds": args.wall_seconds,
-              "control_mode": args.control_mode,
+              "control_mode": "mppi",
               "counts": dict(samples),
               "fractions": {key: round(value / total, 3)
                             for key, value in samples.items() if key != "total"},
@@ -549,30 +522,14 @@ def main():
               "curved_path_fraction": round(
                   samples["curved_path_updates"] /
                   max(1, samples["path_updates"]), 3),
-              "v_ref_p10_mps": percentile(controller_speed_references, 0.1),
-              "v_ref_median_mps": percentile(controller_speed_references, 0.5),
-              "v_ref_p90_mps": percentile(controller_speed_references, 0.9),
-              "v_curve_p10_mps": percentile(controller_curve_limits, 0.1),
-              "v_curve_median_mps": percentile(controller_curve_limits, 0.5),
-              "v_curve_p90_mps": percentile(controller_curve_limits, 0.9),
-              "v_curve_below_0_2_fraction": round(
-                  sum(value < 0.2 for value in controller_curve_limits) /
-                  max(1, len(controller_curve_limits)), 3),
-              "last_v_ref": latest["v_ref"][0].data if "v_ref" in latest else None,
-              "last_v_curve": latest["v_curve"][0].data if "v_curve" in latest else None,
               "fallback": {
                   "samples": samples["fallback_total"],
-                  "mpc_fresh_fraction": round(samples["fallback_mpc_fresh"] /
-                                              max(1, samples["fallback_total"]), 3),
-                  "mpc_nonzero_fraction": round(samples["fallback_mpc_nonzero"] /
-                                                max(1, samples["fallback_total"]), 3),
                   "final_nonzero_fraction": round(samples["fallback_cmd_nonzero"] /
                                                   max(1, samples["fallback_total"]), 3),
               }}
     if args.timeseries:
         report["time_series"] = time_series
-        report["control_path_source"] = ("local" if args.control_mode == "mppi"
-                                         else args.control_path_source)
+        report["control_path_source"] = "local"
     print(json.dumps(report, indent=2, sort_keys=True))
     node.destroy_node()
     rclpy.shutdown()

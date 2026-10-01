@@ -20,8 +20,8 @@
    cd hackathon2026
    ```
 
-   Пакеты из подмодулей (например MPC-контроллер) подключаются отдельной
-   командой после установки `helm` — см. [Подмодули](#подмодули).
+   Основной MPPI устанавливается при сборке образа; подмодуль контроллера
+   не требуется. Необязательный LIO-SAM подключается отдельно.
 
 2. Поставить `helm`. Команда зависит от версии дистрибутива:
 
@@ -51,355 +51,152 @@
    sudo activate-global-python-argcomplete # or activate-global-python-argcomplete3
    ```
 
-## Подмодули
-
-Внешние ROS-пакеты подключаются git-подмодулями в [src/](src/). Список описан в
-[docker/submodules.yaml](docker/submodules.yaml), подключение автоматизировано:
+## Сборка и запуск
 
 ```bash
-helm submodules                     # все подмодули из конфига
-helm submodules mpc_motion_control  # только указанные
+helm build duel              # после изменений исходников
+helm start_match             # свежий матч из config/match.yaml
+helm stop_match              # остановить обоих
 ```
 
-Команда идемпотентна: если подмодуль уже подключен, она его не добавляет
-повторно, а доподтягивает (`git submodule update --init`). Поэтому одной и той
-же командой закрываются оба случая — первое подключение и свежий клон
-репозитория.
+Настройки матча находятся в **`config/match.yaml`**. Редактирование этого
+файла не требует пересборки: он читается на хосте при каждом старте.
+`robot.start` и `opponent.start` — `[x, y, yaw]` в системе `map`,
+метры и радианы. `robot.role` задаёт нашу роль, роль соперника противоположная.
+`start_area_half_size` задаёт половину стороны квадратной стартовой площадки.
+`motion.allow_reverse` разрешает равноправное движение передом/задом;
+страж в CAPTURE всё равно ориентируется передом на исследователя.
+`max_speed` и `max_angular_speed` — ограничения штатного MPPI, а не порог
+средней скорости. `match` задаёт seed и длительность активной части.
 
-Сейчас подключаются два подмодуля:
+`simulation` задаёт мир, смещение `map` относительно world, границы арены,
+GUI/headless и RViz. Смещение карты не зависит от стартовой позы.
+При отсутствии DISPLAY запуск автоматически headless. Положение внутри стен
+и свободное место вокруг стартов нужно проверить по карте: YAML не проверяет
+пересечение с геометрией стен. Mission-секции предназначены и для хакатона;
+источники реальной карты, локализации и наблюдений ещё предстоит подключить.
 
-| Подмодуль | Ветка | Пакеты | Назначение |
-| --- | --- | --- | --- |
-| [mpc_motion_control](https://github.com/artem-kondratew/mpc_motion_control/tree/hackathon2026) | `hackathon2026` | `swarm_msgs`, `swarm_controller` | MPC: круиз-контроль, ACC, удержание в полосе |
-| [lio_sam](https://github.com/artem-kondratew/mpc_motion_control/tree/main) | `main` | `lio_sam` | локализация по лидару и IMU |
-
-Это один и тот же репозиторий, но разные ветки: в `hackathon2026` LIO-SAM
-вырезан как относящийся к реальному железу, поэтому локализация берется из
-`main` и подключается вторым подмодулем.
-
-В корне подмодуля лежит `COLCON_IGNORE`, поэтому автообход colcon его
-пропускает, а пакеты собираются явными путями — они перечислены в поле
-`packages` конфига и продублированы аргументом `SUBMODULE_PACKAGES` в
-[docker/Dockerfile](docker/Dockerfile). Там же ставятся решатель QP
-(`osqp`, `scipy`) и GTSAM для `lio_sam`, которых нет в базовом образе. Если
-подмодуль не подключен, шаг сборки пропускается и образ остается собираемым.
-
-После подключения подмодуля пересоберите образ, иначе пакетов в контейнере
-не будет:
+Каждый `helm start_match` пересоздаёт мир и сохраняет копию конфига и
+эффективные настройки в `results/manual-*/`. Подготовить мир без движения:
 
 ```bash
-helm build gazebo
+python3 benchmarks/start_match.py --prepare-only
+python3 benchmarks/start_match.py --print-env     # проверить конфиг без запуска
+HSL_MATCH_CONFIG=/absolute/path/match.yaml helm start_match
+python3 benchmarks/run_duel_series.py --config config/match.yaml --runs 20 --trace
 ```
 
-Контроллер запускается вместе с симуляцией — команды прописаны в сервисах
-`planning` и `control`, отдельно ничего запускать не нужно:
+Benchmark сохраняет YAML и параметры каждого заезда; CLI seed, длительность
+и назначение ролей служат явными overrides для серии.
+
+`helm start` и `helm stop` — алиасы start_match/stop_match. До общего старта
+и после первого исхода оба робота получают нулевые финальные команды.
+`helm up gazebo` запускает одиночный сенсорный стенд; профиль `simulation`
+содержит Gazebo, карту и инструменты, без старой демонстрации MPC/траектории.
+Автономное движение проверяется в `duel`.
+
+RViz2 автоматически открывается при наличии DISPLAY и показывает карту,
+оба RobotModel и пути. Для headless: `HSL_RVIZ_ENABLED=false`.
+Второй RobotModel использует TF Prefix `opponent`; названия First/Second
+обозначают физические namespace, а не неизменные роли.
+
+## Контроллер и безопасность
+
+**MPPI — единственный контроллер рабочего стека.** Исходный C++ плагин
+Nav2 Humble MPPIController1.1.20 используется собственной обёрткой,
+без controller_server. MPC-ноды, подмодуль, параметры и fallback удалены;
+вернуться к прежнему варианту можно через историю Git/checkpoint.
+`HSL_CONTROL_MODE` и `HSL_MPC_PATH_SOURCE` больше не выбирают контроллер.
+
+A* строит глобальный маршрут по текущим наблюдениям и карте. Каждый робот
+имеет отдельные decision manager, планировщик, rolling costmap, MPPI,
+шлюз и метрики. MPPI выдаёт прямую команду `navigation/mppi_cmd_vel` и
+показывает ближайшие1,2м оптимизированной траектории в `local_path`.
+Перед выдачей команды проверяется весь3-секундный перемещаемый контур,
+а не только этот визуальный префикс. Защитный радиус0,23м соответствует
+глобальному планировщику; физический collision cylinder имеет радиус0,178м.
+
+Перед/зад равнозначны: `vx_min=-0.5`, `vx_max=0.5`, PreferForward выключен,
+PathAngle.forward_preference=false. GoalAngle включается обёрткой только
+у стража в CAPTURE, чтобы поимка выполнялась передом. GoalCritic вес15
+у стража и5 у исследователя. Это новый кандидат: качество обоих направлений
+в Gazebo ещё требует испытаний; отдельная свободная ROS-карта проверяет
+команды и переключение, но не физическое движение.
+
+Единственный издатель каждого финального cmd_vel — `hsl_motion_gate`.
+Он пропускает MPPI только со статусом OK/RECOVERY_MPPI и свежими pose,
+scan, intent, path, command и общим match/active. При отсутствии безопасной
+команды остановка сохраняется; планирование альтернативы продолжается.
+Шлюз не добавляет доворот на месте или резервного исполнителя траектории.
+
+`HSL_LOCAL_BACKEND=auto` выбирает C++ Nav2; предыдущая Python-адаптация MPPI
+доступна через `HSL_LOCAL_BACKEND=python`. Ни один backend не запускает MPC.
+Описание границ интеграции — [NAV2_MPPI_ADAPTATION.md](docs/NAV2_MPPI_ADAPTATION.md).
+
+## ROS-интерфейс duel
+
+Первый стек использует `/navigation/...`, второй — `/opponent/navigation/...`:
+
+| Интерфейс | Тип и назначение |
+| --- | --- |
+| self / opponent | Odometry: собственная локализация и наблюдаемый трек соперника |
+| scan / map_points / known_grid | PointCloud2 / OccupancyGrid: препятствия и карта |
+| intent | PlanningIntent: задача от decision manager |
+| global_path / nav2_reference / local_path | Path: A*, ссылка MPPI, визуальный префикс rollout |
+| mppi_cmd_vel | Twist: проверенная команда MPPI |
+| planner_status / global_status | String: состояние локального/глобального планирования |
+| planning_diagnostics / mppi_diagnostics | String JSON: входы/выбор пути и результат MPPI |
+| control_cycle_ms / native_mppi_cycle_ms | Float32: вычислительные задержки |
+
+Общие `/match/active`, `/match/outcome` задают активное окно и первый исход.
+Разрешения `/match/allow_motion` и `/opponent/match/allow_motion` (SetBool)
+нужны обоим. Финальные `/cmd_vel` и `/opponent/cmd_vel` раздельны.
+Отчёты referee и обоих роботов сохраняются в `results/` и относятся к
+одному активному окну; разрешение только одному не запускает движение.
+
+## Оценка и диагностика
 
 ```bash
-helm up simulation
+python3 -m pytest -q tests helm_launch/tests/tests.py
+python3 benchmarks/run_duel_series.py --runs 3 --start-seed 19 --first-role guardian --active-s 90 --scenario 3 --trace --audit-start
+python3 benchmarks/report_motion.py results/series-YYYYMMDDTHHMMSSZ
 ```
 
-`simulation` ведёт одного Kobuki по заранее заданной траектории. Двухроботный
-сценарий `duel` описан ниже. Запускайте эти профили по отдельности.
+Финальная оценка — не менее20 независимых заездов до первого события или
+360с активного симуляционного времени. Скорость измеряется за весь матч,
+без исключения разворотов/остановок из знаменателя. Начальные пороги0,2м/с,
+далее0,3м/с — критерии средней скорости, не потолки команд. Нужны повторные
+цели и поимки текущей версии, отсутствие контактов и приемлемые ошибки и
+плавность. Геометрия поимки: дистанция<0,45м, направление переда≤45°,
+нет препятствия. Требования и остающиеся ограничения — в
+[PROJECT_GOAL.md](docs/PROJECT_GOAL.md) и [PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
-`planning` поднимает `sim_planning.launch.py` (строит опорную траекторию в
-`/planning/trajectory`), `control` — `sim_control.launch.py`
-(`/planning/trajectory` + `/odom` → `/cmd_vel`). Параметры вынесены в
-[.env](.env):
+Runner сохраняет seed, роли, source hashes, image IDs, эффективные параметры,
+версии Nav2, парные метрики и trace. `--rviz` включает GUI при DISPLAY.
+В trace measured_omega_radps — собственная измеренная угловая скорость;
+`mppi_capture_heading_required` показывает требование ориентации при поимке.
+Сравнивайте ускорения на общих временных окнах при разных длительностях.
 
-| Переменная | По умолчанию | Значения |
-| --- | --- | --- |
-| `MPC_TRAJECTORY` | `lanelet` | `line`, `circle`, `lanelet` |
-| `MPC_TRAJECTORY_FILE` | `my_trajectory5.yaml` | waypoints для `lanelet` |
-| `MPC_LATERAL` | `true` | удержание в полосе |
-| `MPC_LONGITUDINAL` | `cc` | `cc` — профиль скорости, `acc` — зазор за лидером |
-
-После правки `.env` пересоздайте контейнеры: `helm clean simulation && helm up simulation`.
-
-Контроллер стартует в режиме ожидания и не двигает робота, пока не выставлен
-параметр `start` — это страховка от самопроизвольного старта:
+Отдельная проверка native MPPI на синтетической свободной карте:
 
 ```bash
-helm start   # поехали
-helm stop    # стоп
+docker run --rm --network host -e ROS_DOMAIN_ID=73 -v "$PWD/benchmarks/audit_native_bidirectional.py:/tmp/audit.py:ro" --entrypoint bash jr_image:latest -lc 'source /autoware/install/setup.bash && python3 /tmp/audit.py'
 ```
 
-Имя продольной ноды зависит от режима (`swarm_cc_mpc_node` для `cc`,
-`swarm_acc_mpc_node` для `acc`), поэтому команда не зашивает его, а находит
-среди запущенных нод ту, у которой есть параметр `start`. Если контроллер не
-поднят, команда сообщает об этом и возвращает ненулевой код — `ros2 param set`
-сам по себе в этом случае молча завершается успехом.
+Она использует отдельный ROS-домен73, не запускает Gazebo и не публикует
+финальный cmd_vel. Это проверка интеграции, не оценочный матч.
 
-Траекторию можно менять на ходу, без перезапуска:
+## Необязательная локализация
 
 ```bash
-helm exec planning ros2 param set /planning/trajectory_planner trajectory line
-helm exec planning ros2 param set /planning/trajectory_planner circle_radius 3.0
+helm submodules lio_sam
 ```
 
-## Локализация
-
-Позу робота даёт сам симулятор: плагин `gazebo_ros_p3d` в URDF берёт её прямо
-из физического движка и публикует в `/localization/pose` как
-`nav_msgs/Odometry`. Это ground truth — без дрейфа, без накопления ошибки и без
-SLAM.
-
-```bash
-helm exec tools ros2 topic echo /localization/pose --once
-```
-
-В Gazebo Classic `/odom` тоже задан в мировых координатах, но рассчитывается
-по колёсам и может накапливать ошибку. `/localization/pose` служит эталоном.
-
-В TF плагин ничего не публикует — иначе у `base_footprint` было бы два
-родителя (`odom` от `diff_drive` и фрейм p3d) и дерево развалилось бы.
-
-Лидарная одометрия (LIO-SAM) пока не включена. Заготовка под неё есть:
-подмодуль `lio_sam`, launch-файл
-[jr_localization.launch.xml](src/jr_launch/launch/components/jr_localization.launch.xml)
-и конфиг
-[lio_sam.param.yaml](src/jr_launch/config/localization/lio_sam.param.yaml).
-Чтобы её включить, нужен плагин Livox с настоящим паттерном: LIO-SAM требует
-в облаке поля `ring` и `time` для деskew'а, а штатный `ray`-сенсор их не даёт.
-
-## Сборка
-
-Основной образ содержит Autoware, ROS 2 Humble, Gazebo Classic 11 и пакет
-`sim_kobuki`:
-
-```bash
-helm build gazebo
-```
-
-Gazebo Classic формально EOL с января 2025, но выбран сознательно: только под
-него существуют плагины Livox, воспроизводящие настоящий non-repetitive паттерн
-Mid-360 вместе с полями `tag`/`line` и `offset_time`, которые нужны алгоритмам
-лидарной одометрии для деskew'а. Плата за это — растеризация лучей на CPU
-силами ODE вместо GPU.
-
-## Запуск Gazebo
-
-Только симулятор:
-
-```bash
-helm up gazebo
-helm flogs gazebo
-helm down gazebo
-```
-
-Gazebo вместе с модулями автопилота:
-
-```bash
-helm up simulation
-```
-
-Двухроботный сценарий с выбором поведения и построением путей:
-
-```bash
-helm submodules mpc_motion_control
-helm build duel
-helm clean duel
-GAZEBO_HEADLESS=false helm up duel  # открыть Gazebo и RViz2
-```
-
-`duel` запускает двух Kobuki, каждому — адаптер наблюдений, выбор поведения,
-A*, локальный MPPI, исходный MPC как резерв и наблюдатель метрик. По умолчанию
-`HSL_CONTROL_MODE=mppi`: локальный MPPI выбирает проверенную траекторию и
-передаёт её первую команду скорости через защитный шлюз. Если для recovery
-вместо MPPI-дуги построен короткий безопасный путь, шлюз использует исходный
-MPC. `HSL_CONTROL_MODE=mpc` полностью возвращает штатное управление по пути.
-Глобальный A* маршрут остаётся основой локального планирования и может быть
-подан в MPC для сравнительных испытаний. MPPI — Python-адаптация идей Nav2
-Humble, не запущенный C++ controller_server. Проверки — в
-[PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
-
-Роли задаются в `.env` через
-`HSL_ROLE` (первый робот, по умолчанию `explorer`) и `HSL_OPPONENT_ROLE`
-(второй, по умолчанию `guardian`). Для смены ролей пересоздайте контейнеры:
-`helm clean duel && helm up duel`. Профиль `scripted_duel` оставляет
-сценарного патрульного для отдельной отладки; в обычный `duel` он не входит.
-Если доступен `DISPLAY`, RViz2 открывается вместе с `duel` и показывает карту,
-роботов, глобальные и локальные пути. В headless серии задаётся
-`HSL_RVIZ_ENABLED=false`, окно не запускается.
-Параметры движения загружаются из исходных YAML подмодуля MPC: CC `v_ref=0,3`,
-`v_cmd_max=0,5` м/с; Lat `a_lat_max=0,03`, `v_min=0,1` м/с,
-`curve_lookahead=2,0` м. Launch задаёт ROS-интерфейсы и sim time без
-переопределения этих параметров. Для сравнительного эксперимента
-`HSL_MPC_PATH_SOURCE=global` подаёт Lat-MPC сырой длинный A* маршрут,
-`HSL_MPC_PATH_SOURCE=smoothed` — длинный маршрут после проверенных на карте
-сокращений и скруглений (по умолчанию `local`). Локальный путь остаётся у
-защитного шлюза. Шлюз проверяет разрешение движения,
-актуальность данных и необходимость разворота; угловую команду MPC пропускает
-в его исходном диапазоне. Ближайшая задача — плавная езда без столкновений и
-средняя скорость за всё активное время не ниже **0,2 м/с**, затем **0,3 м/с**.
-Это пороги результата, а не временные ограничения команд. Регулирование
-скорости по кривизне остаётся штатной функцией MPC.
-
-Для графика скорости и латерального отклонения запустите сравниваемые дуэли
-с `--trace` через `benchmarks/run_duel_series.py`, затем
-`python3 benchmarks/plot_control_comparison.py --mppi-series results/series-20260930T112819Z --mpc-series results/series-20260930T113038Z --output results/control-comparison.png`.
-Опция `--raw-series` добавляет третий ряд сырого глобального MPC. График
-сравнивает отклонение от общего глобального маршрута; у разных режимов
-длительность заезда может различаться из-за ранней цели или поимки.
-
-Готовые независимые сценарии того же лабиринта запускаются напрямую:
-
-```bash
-helm start_match1  # страж: (2.5, 2.5)
-helm start_match2  # страж: (1.5, 1.5)
-helm start_match3  # страж: (-2.5, 1.5)
-```
-
-Каждая команда пересоздаёт мир, ждёт обе позы и разрешает движение. Исследователь
-стартует внутри лабиринта в `(-0.34, 0.4)`. Для ручного выбора позиции стража до
-`helm up duel` задайте `OPPONENT_X`, `OPPONENT_Y` и полигон площадки
-`DUEL_SECOND_START` в координатах `map`. Границы игровой области задаются
-`DUEL_ARENA_BOUNDS`; координата старта первого робота по Y в `duel` —
-`DUEL_SPAWN_Y=0.4`, независимо от одиночного `SPAWN_Y`.
-
-В демонстрационном `maze.world` соперник появляется внутри лабиринта в
-`OPPONENT_X=2.5`, `OPPONENT_Y=2.5`. При смене мира проверьте проходимость
-стартов и обновите примеры площадок в `src/hsl_decision/config/decision.yaml`
-и `decision_opponent.yaml`. Каждый адаптер публикует наблюдение соперника
-в своём пространстве имён (`/navigation/*` и `/opponent/navigation/*`). Первый публикует
-`/navigation/opponent` только после подтверждения соперника текущим облаком
-LiDAR, кластеризации возвратов вне статической карты и проверки прямой
-видимости. Положение центра оценивается по видимой поверхности с учётом радиуса
-корпуса Kobuki; скорость — по последовательным оценённым положениям. Эти оценки
-публикуются только при свежем обнаружении в `/navigation/opponent` и
-`/navigation/opponent_visible` (`std_msgs/Bool`). После потери наблюдения
-последний трек устаревает, и страж ищет в последней видимой точке. Навигационный
-адаптер не читает pose или velocity соперника из Gazebo; ground truth используется
-для точной локализации собственного робота и в referee/metrics.
-`/navigation/map_points` содержит только точки, совпавшие со статической
-картой: динамические объекты остаются в текущем `/navigation/scan`.
-
-Для `duel` по умолчанию используется CPU LiDAR 360 × 16 лучей с частотой 10 Гц.
-Число лучей задаётся в `.env` через `DUEL_LIDAR_HORIZONTAL_SAMPLES` и
-`DUEL_LIDAR_VERTICAL_SAMPLES`; одиночный `simulation` сохраняет 900 × 40.
-После изменения этих значений пересоздайте контейнеры:
-`helm clean duel && helm up duel`. Меньшее число лучей ускоряет Gazebo, но
-уменьшает плотность точек на дальних препятствиях и сопернике.
-
-До конца `freeze time` движение запрещено. После подготовки запустите заезд:
-
-```bash
-helm start_match
-# ... наблюдайте дуэль ...
-helm stop_match
-cat results/latest.json
-```
-
-`start_match` и `stop_match` переключают сервисы `/match/allow_motion` и
-`/opponent/match/allow_motion`. Контейнеры остаются запущенными; после
-`stop_match` два наблюдателя сохраняют JSON в `results/` и
-`results/opponent/`. Судейский узел также завершает заезд при первой поимке,
-касании площадки или через 360 с активного времени и сохраняет исход в
-`results/latest_outcome.json`. Повторный `start_match` без `helm clean duel && helm up duel`
-продолжит с текущих поз, поэтому независимый заезд требует пересоздания мира.
-Серия независимых заездов с разными seed и перестановкой ролей запускается так:
-
-```bash
-python3 benchmarks/run_duel_series.py --runs 20 --active-s 360 --build --scenario 1
-```
-
-Сводка и журнал каждого запуска сохраняются в `results/series-*/`.
-`NN-runtime.json` содержит ID образов/контейнеров, стартовые параметры сценария
-и параметры узлов. Перед стартом runner сравнивает исходники в обоих planning
-контейнерах с рабочим деревом; при несовпадении требуется `--build`.
-Оценочные метрики пересчитываются в общем интервале судьи:
-`started_at_sim_s`—`finished_at_sim_s` из outcome. Оба отчёта содержат
-`window_source=referee`, совпадающие `window_start_sim_s`/`window_end_sim_s`
-и `sample_coverage_fraction`; runner отклоняет несовпадающие окна.
-Ручной stop без судейского исхода сохраняет окно отдельного разрешения движения
-с `window_source=allow_motion`.
-Для диагностики локального пути добавьте `--trace`: скрипт запустит запись
-активных команд обоих роботов до начала матча и сохранит `*-trace-*.json`
-в каталоге серии. Для снимка первого отказа планировщика добавьте
-`--probe-status NO_GLOBAL_PATH`; результат появится в `*-probe-*.json`.
-Планировщики публикуют `/navigation/mppi_diagnostics` и
-`/opponent/navigation/mppi_diagnostics` (`String` с JSON): число допустимых
-образцов, просвет, продвижение и первую выбранную команду. При `--trace`
-эти данные совмещаются с позой и скоростью в активном временном ряду.
-`navigation/planning_diagnostics` и аналог второго робота (`String` с JSON)
-сохраняют стадии выбора цели и источник глобального маршрута за один цикл:
-входные stamps, raw/validated/smoothed/reachable target, cached target/end,
-route source, причины геометрического отклонения intercept и выбор
-`capture_strategy`/`capture_enemy_prediction` для близкого перехвата. `--trace`
-записывает их в поле `planning`; данные только диагностические.
-Статус `RECOVERY_MPPI` обозначает проверенную дугу выхода из застревания:
-шлюз использует её команду MPPI, а метрики учитывают время выхода отдельно
-от обычного `OK`. `RECOVERY_FALLBACK` выбирает резервный MPC.
-Скорость каждого робота, RMS и p95 бокового отклонения от глобального пути,
-RMS углового ускорения, остановки и контакты по трассируемым сериям:
-
-```bash
-python3 benchmarks/report_motion.py results/series-ИМЯ_БАЗЫ results/series-ИМЯ_ОПЫТА
-```
-
-В сводке отдельно показано число заездов, где средняя скорость каждой роли ниже
-0,2 и 0,3 м/с; технические сбои запуска не засчитываются как исход матча. В отчёте
-`mean_speed_mps` — пройденный путь за всё активное время, а
-`moving_fraction`, `turning_fraction` и `active_motion_fraction` отдельно
-показывают поступательное движение и развороты; режимы, во время которых
-происходили развороты, записаны в `turning_by_behavior_fraction`.
-Текущие метрики публикуются раз в секунду:
-
-```bash
-helm exec hsl-metrics ros2 topic echo /match/metrics --full-length --once
-```
-
-В отчёте: средняя линейная скорость за весь матч (пройденный путь / активное
-время, включая развороты), скорость во время поступательного движения,
-доля от ориентира `0.7 м/с`, пройденный путь, отдельные доли времени
-в поступательном движении и в поворотах при работающем планировщике,
-а также их сумма `active_motion_fraction`,
-RMS линейного и углового ускорения, число остановок с повторным стартом,
-столкновения корпуса со стенами и соперником, доля времени видимости соперника,
-доля времени с работоспособным планировщиком и время до поимки/достижения цели.
-Также сохраняются `real_time_factor` (симуляционное время / стенное время),
-реальное время заезда и `timing_ms`: p95, максимум и число превышений бюджета
-для вычисления решения (200 мс), планирования (200 мс) и шлюза управления
-(50 мс). Отдельно измеряются реальные промежутки между публикациями решения,
-планировщика, скана и `/cmd_vel`, а также возраст последнего скана к моменту
-команды. `max` показывает редкие задержки, которые скрывает среднее значение;
-`over_2s` считает события длительностью от двух секунд в каждом ряду.
-Столкновением считается новый контакт корпуса после размыкания; контакты колёс
-с полом не считаются. Поле `collision_points` сохраняет время и позицию до
-50 зарегистрированных контактов для разбора повторных касаний. Скорость и ускорения измеряются по точной одометрии Gazebo,
-а не по команде `/cmd_vel`. Порог поимки проверяется по истинным позам, углу и
-статической карте симуляции. Эти метрики предназначены для сравнения прогонов,
-они не являются официальными баллами соревнования. Команды `helm start` и
-`helm stop` по-прежнему относятся к профилю `simulation`.
-Отладочные переносы робота командой `gz model` исключаются из пройденного пути;
-их число указывается в `pose_jumps_ignored`.
-Топики и ограничения `duel` описаны в
-[инструкциях для агентов](docs/AGENTS.md); текущее состояние — в
-[PROJECT_STATUS.md](docs/PROJECT_STATUS.md). Границы адаптации Nav2 — в [NAV2_MPPI_ADAPTATION.md](docs/NAV2_MPPI_ADAPTATION.md).
-
-Окно симулятора открывается при выключенном headless-режиме. Compose передаёт в
-контейнер `DISPLAY` и cookie X-сервера из `XAUTHORITY`. Процесс внутри идёт от
-uid 1000, как и пользователь хоста, поэтому `xhost` не нужен.
-
-Запуск без графики (например, на машине без дисплея) — через [.env](.env):
-
-```bash
-GAZEBO_HEADLESS=true
-```
-
-Либо разово, переменной окружения:
-
-```bash
-helm clean gazebo && GAZEBO_HEADLESS=true helm up gazebo
-```
-
-После изменения Dockerfile, compose или launch-файлов пересоберите образ и
-пересоздайте контейнер:
-
-```bash
-helm clean gazebo
-helm build gazebo
-helm up gazebo
-```
+LIO-SAM хранится в `src/lio_sam_src`, пока исключён из сборки основного образа.
+В Gazebo собственная локализация берётся из p3d. Трек соперника оценивается
+по LiDAR-кластерам и их истории, ground truth используется только referee
+и измерениями. Статическая карта из SDF разрешена текущей архитектурой;
+переносимость на другие лабиринты/реальное оборудование ещё не доказана.
 
 ## Модель и ROS-интерфейс
 
@@ -476,110 +273,3 @@ visual-геометрия самих пластин, поэтому не соз�
 безфрикционные ролики, и робот после команды «стоп» продолжал скользить вперёд
 примерно 17 см. Сейчас выбег около 0.5 см, полная остановка за 0.13 с, а корпус
 опирается на передний ролик с наклоном примерно 0.25°.
-
-## Проверка
-
-```bash
-helm enter gazebo
-source /autoware/install/setup.bash
-
-ros2 topic list
-ros2 topic hz /livox/lidar
-ros2 topic echo /odom --once
-ros2 run tf2_ros tf2_echo odom base_link
-ros2 run tf2_ros tf2_echo base_link livox_frame
-```
-
-Управление с клавиатуры:
-
-```bash
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-```
-
-Просмотр облака:
-
-```bash
-ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
-```
-
-В RViz выберите `Fixed Frame: odom` и добавьте PointCloud2
-`/livox/lidar`. В настройках дисплея поставьте **Reliability: Best Effort**.
-
-## Структура репозитория
-
-| Путь | Назначение |
-| --- | --- |
-| [docker/Dockerfile](docker/Dockerfile) | образ Autoware + Humble + Gazebo Classic |
-| [docker/docker-compose.yaml](docker/docker-compose.yaml) | сервисы автопилота и `gazebo` |
-| [docker/launch.yaml](docker/launch.yaml) | команды `helm` |
-| [docker/submodules.yaml](docker/submodules.yaml) | список подмодулей с ROS-пакетами |
-| [src/sim_kobuki/](src/sim_kobuki/) | модель, мир и launch симуляции |
-| [src/hsl_decision/](src/hsl_decision/), [src/hsl_planning/](src/hsl_planning/) | выбор поведения, глобальный A* и локальный MPPI-путь |
-| [src/hsl_sim_adapter/](src/hsl_sim_adapter/), [src/hsl_debug_control/](src/hsl_debug_control/) | временные симуляционные входы и контроллер/шлюз |
-| `src/mpc_motion_control/` | подмодуль с MPC-контроллером (`helm submodules`) |
-| [helm_launch/](helm_launch/) | CLI `helm` |
-| [docs/PROJECT_GOAL.md](docs/PROJECT_GOAL.md), [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md), [docs/AGENTS.md](docs/AGENTS.md) | цель и регламент, состояние, инструкции для агентов |
-| [docs/DUEL_IMPROVEMENT_PROMPT.md](docs/DUEL_IMPROVEMENT_PROMPT.md) | полный промпт для продолжения итерационной доработки дуэли |
-
-## Диагностика
-
-**Нет `/clock` или `/livox/lidar`.** Проверьте `helm flogs gazebo`. `/clock`
-публикует `libgazebo_ros_init.so`, который грузит `gzserver` (аргумент
-`init:=true`); топики сенсоров дают плагины `gazebo_ros` из URDF.
-
-**GUI не открывается.** Установите `GAZEBO_HEADLESS=false`, выполните
-`xhost +local:root` и проверьте переменную `DISPLAY`.
-
-**Модель не спавнится.** `spawn_entity.py` ждёт готовности `gzserver`;
-смотрите, поднялся ли он в `helm flogs gazebo`, и проверьте пути
-`GAZEBO_MODEL_PATH` / `GAZEBO_RESOURCE_PATH`.
-
-### Основной локальный MPPI Nav2
-
-Переднее и заднее движение в основном MPPI имеют одинаковый диапазон
-`vx_min=-0.5`, `vx_max=0.5`; `PreferForwardCritic` выключен, а
-`PathAngleCritic.forward_preference=false` допускает меньший доворот любой
-стороной. Обёртка включает штатный `GoalAngleCritic` только для стража в
-`CAPTURE`: у точки поимки он должен смотреть передом на исследователя.
-Проверки контура и препятствий сохраняются. Этот новый вариант требует
-проверки дуэлями; результаты прежнего диапазона не доказывают его качество.
-
-Опция `--first-role guardian` или `--first-role explorer` фиксирует роли на
-физических стартах для всей серии; по умолчанию они чередуются. Это позволяет
-воспроизвести одиночный проблемный заезд на том же старте.
-
-Опция оценочного runner `--audit-start` проверяет нулевые команды обоих
-роботов до старта и при разрешении только одному из них, затем начинает матч.
-Ручные `helm start_match*` и автоматическую серию запускайте отдельно.
-
-В автономном `duel` движение обоих роботов дополнительно закрыто общим
-`/match/active` от referee. Он становится true после обоих разрешений и false
-после первого исхода; отсутствие свежего heartbeat тоже закрывает движение.
-Так последовательные сервисные вызовы `start_match` не дают первому роботу
-неизмеренный ранний старт.
-
-Основной `HSL_LOCAL_BACKEND=auto` выбирает оригинальный C++ MPPI Nav2 при `HSL_CONTROL_MODE=mppi`. После `helm build duel` обычные `helm start_match1/2/3` используют его. Резервный исходный MPC: `HSL_CONTROL_MODE=mpc HSL_MPC_PATH_SOURCE=global helm start_match2`; auto выбирает совместимый Python planner. Предыдущая Python-адаптация: `HSL_LOCAL_BACKEND=python helm start_match2`. Для серии:
-
-```bash
-HSL_LOCAL_BACKEND=nav2_cpp python3 benchmarks/run_duel_series.py --runs 3 --start-seed 15 --active-s 90 --scenario 2 --trace
-```
-
-`hsl_planning/autonomous.launch.py` запускает A* и, при `nav2_cpp`, отдельный `hsl_nav2_control/native_mppi` для каждого робота. Официальный Humble MPPIController принимает `navigation/nav2_reference` и публикует `navigation/mppi_cmd_vel` и короткий `navigation/local_path`; финальный `cmd_vel` публикует существующий шлюз. У каждого MPPI свой rolling costmap со статической картой и текущим сканом. Backend требует `HSL_CONTROL_MODE=mppi`. На scenario2 seeds15–17 подтверждены2 цели/1 поимка,0 контактов, все скорости ≥0,2; другие сценарии и финальная серия20 ещё проверяются.
-
-В `duel` файл `sim_kobuki/config/gazebo_duel.yaml` задаёт публикацию `/clock` на100Гц, чтобы ROS-таймеры MPPI и gate20Гц не ограничивались стандартными часами Gazebo10Гц. Физический timestep не меняется. Runner сохраняет эффективные параметры `/gazebo`; после rebuild сверяйте publish_rate и фактические числа циклов.
-
-В native-кандидате `costmap.robot_radius=0.23` согласован с глобальным planner; это защитный контур для корпуса модели0.178м. Проверка всего перемещаемого контура сохранена; дополнительный просвет оценивают штатные critics Nav2. Принятие кандидата определяется дуэлями, не одной конфигурацией.
-
-Для проверки графического автозапуска оценочный runner поддерживает `--rviz`:
-при наличии `DISPLAY` Compose запускает RViz с конфигурацией `duel.rviz`,
-при отсутствии дисплея пропускает его. Gazebo остаётся headless; обычная
-оценка без этого флага сохраняет отключённый RViz.
-
-В текущем параметрическом опыте autonomous launch задаёт
-`MPPI.GoalCritic.cost_weight=15` стражу, исследователь сохраняет5.
-Это штатный critic Nav2; фактические результаты опыта и его принятие
-фиксируются в [PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
-
-Временной ряд `--trace` содержит `measured_omega_radps` из Odometry;
-его можно сравнивать с командой `cmd_omega_radps` в одинаковом окне
-симуляционного времени при разных исходах матчей.

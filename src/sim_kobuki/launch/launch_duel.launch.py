@@ -31,6 +31,9 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_vertical_samples", default_value="16"),
         DeclareLaunchArgument("spawn_x", default_value="-0.34"),
         DeclareLaunchArgument("spawn_y", default_value="0.4"),
+        DeclareLaunchArgument("spawn_yaw", default_value="0"),
+        DeclareLaunchArgument("map_origin_x", default_value="-0.34"),
+        DeclareLaunchArgument("map_origin_y", default_value="0.4"),
         DeclareLaunchArgument("spawn_z", default_value="0.23"),
         DeclareLaunchArgument("opponent_x", default_value="2.5"),
         DeclareLaunchArgument("opponent_y", default_value="2.5"),
@@ -57,7 +60,7 @@ def generate_launch_description():
                  arguments=["-topic", "robot_description", "-entity", "kobuki",
                             "-x", LaunchConfiguration("spawn_x"),
                             "-y", LaunchConfiguration("spawn_y"),
-                            "-z", LaunchConfiguration("spawn_z")], output="screen"),
+                            "-z", LaunchConfiguration("spawn_z"), "-Y", LaunchConfiguration("spawn_yaw")], output="screen"),
             Node(package="gazebo_ros", executable="spawn_entity.py",
                  arguments=["-topic", "/opponent/robot_description", "-entity", "opponent",
                             "-x", LaunchConfiguration("opponent_x"),
@@ -70,9 +73,9 @@ def generate_launch_description():
 
 
 def world_odom_transforms(context):
-    """Gazebo Classic odometry is world-based; map is shifted to own spawn."""
-    own_x = float(LaunchConfiguration("spawn_x").perform(context))
-    own_y = float(LaunchConfiguration("spawn_y").perform(context))
+    """Gazebo Classic odometry is world-based; map has an independent configured world origin."""
+    own_x = float(LaunchConfiguration("map_origin_x").perform(context))
+    own_y = float(LaunchConfiguration("map_origin_y").perform(context))
     return [Node(package="tf2_ros", executable="static_transform_publisher",
                  arguments=["--x", str(-own_x), "--y", str(-own_y),
                             "--z", "0", "--yaw", "0", "--pitch", "0", "--roll", "0",

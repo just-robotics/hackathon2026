@@ -13,7 +13,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scenarios import SCENARIOS, scenario_environment
+from match_config import DEFAULT_CONFIG, load_config, configuration_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -168,8 +168,9 @@ def validate_runtime_metadata(runtime, env):
         "code_revision": env["DUEL_REVISION"],
         "max_active_s": float(env["DUEL_MAX_ACTIVE_S"]),
         "first_role": env["HSL_ROLE"], "second_role": env["HSL_OPPONENT_ROLE"],
-        "spawn_x": float(env["SPAWN_X"]), "spawn_y": float(env["DUEL_SPAWN_Y"]),
+        "spawn_x": float(env.get("MAP_ORIGIN_X", env["SPAWN_X"])), "spawn_y": float(env.get("MAP_ORIGIN_Y", env["DUEL_SPAWN_Y"])),
         "second_start": json.loads(env["DUEL_SECOND_START"]),
+        **({"first_start": json.loads(env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {}),
     }
     for name, value in expected.items():
         actual = params["/duel_referee"].get(name)
@@ -181,15 +182,19 @@ def validate_runtime_metadata(runtime, env):
                   "local_backend": env["HSL_LOCAL_BACKEND"],
                   "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]),
                   "require_match_active": True},
-                  "decision_manager": {"role": role},
-                  "hsl_mpc_gate": {"require_match_active": True}}
+                  "decision_manager": {"role": role,
+                      **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
+                          "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
+                  "hsl_motion_gate": {"require_match_active": True}}
         if env["HSL_LOCAL_BACKEND"] == "nav2_cpp":
             checks["native_mppi"] = {
                 "role": role, "random_seed": seed,
-                "MPPI.PathAngleCritic.forward_preference": False,
+                "MPPI.PathAngleCritic.forward_preference": env.get("HSL_ALLOW_REVERSE", "true") != "true",
                 "MPPI.PreferForwardCritic.enabled": False,
                 "MPPI.GoalAngleCritic.enabled": False,
-                "MPPI.vx_max": 0.5, "MPPI.vx_min": -0.5}
+                "MPPI.wz_max": float(env.get("HSL_MAX_ANGULAR_SPEED", "1.5")),
+                "MPPI.vx_max": float(env.get("HSL_MAX_SPEED", "0.5")),
+                "MPPI.vx_min": -float(env.get("HSL_MAX_SPEED", "0.5")) if env.get("HSL_ALLOW_REVERSE", "true") == "true" else 0.0}
         for node, values in checks.items():
             for name, value in values.items():
                 actual = parameter_value(params[prefix + node], name)
@@ -197,21 +202,19 @@ def validate_runtime_metadata(runtime, env):
                     raise RuntimeError(f"{prefix + node} {name}={actual!r}, expected {value!r}; runtime does not belong to this evaluation")
 
 
-def runtime_snapshot(env, scenario):
+def runtime_snapshot(env, config):
     containers = ["docker-" + name + "-1" for name in (
         "hsl-planning", "hsl-opponent-planning", "hsl-control", "hsl-opponent-control",
         "hsl-decision", "hsl-opponent-decision", "hsl-adapter", "hsl-opponent-adapter",
         "hsl-referee", "hsl-metrics", "hsl-opponent-metrics", "gazebo-duel")]
     images = command(["docker", "inspect", "--format", "{{.Name}} {{.Id}} {{.Image}}",
                       *containers], env, timeout=15)
-    runtime = {"scenario_environment": scenario_environment(scenario),
+    runtime = {"match_config": config, "configuration_environment": configuration_environment(config),
                "containers": {name.lstrip("/"): {"container_id": cid, "image_id": image}
                               for name, cid, image in (line.split() for line in images.splitlines())}}
     paths = []
     for package in ("hsl_planning", "hsl_decision", "hsl_sim_adapter", "hsl_debug_control",
-                    "hsl_interfaces", "hsl_nav2_control", "sim_kobuki", "jr_map",
-                    "mpc_motion_control/workspace/src/swarm_controller",
-                    "mpc_motion_control/workspace/src/swarm_msgs"):
+                    "hsl_interfaces", "hsl_nav2_control", "sim_kobuki", "jr_map"):
         paths.extend(path for path in (ROOT / "src" / package).rglob("*")
                      if path.is_file() and path.suffix in
                      (".py", ".yaml", ".cpp", ".hpp", ".msg", ".world", ".xacro"))
@@ -227,8 +230,7 @@ def runtime_snapshot(env, scenario):
             raise RuntimeError(f"navigation sources in {container} differ from the worktree; rebuild duel")
     runtime["verified_source_sha256"] = expected
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
-             ("trajectory_planner", "decision_manager", "hsl_cc_mpc", "hsl_lat_mpc",
-              "hsl_mpc_gate")]
+             ("trajectory_planner", "decision_manager", "hsl_motion_gate")]
     nodes.extend(("/duel_referee", "/gazebo"))
     if env.get("HSL_LOCAL_BACKEND", "python") == "nav2_cpp":
         nodes.extend(prefix + name for prefix in ("/", "/opponent/")
@@ -265,21 +267,15 @@ def start_traces(series_dir, index, env):
     command(["docker", "cp", str(ROOT / "benchmarks" / "trace_motion.py"),
              "docker-hsl-adapter-1:/tmp/hsl_trace_motion.py"], env, timeout=15)
     traces = []
-    spawn_x = float(env.get("SPAWN_X", "-0.34"))
-    spawn_y = float(env.get("DUEL_SPAWN_Y", "0.4"))
-    control_mode = env.get("HSL_CONTROL_MODE", "mppi")
-    if control_mode not in ("mpc", "mppi"):
-        raise ValueError("HSL_CONTROL_MODE must be mpc or mppi")
-    path_source = ("local" if control_mode == "mppi" else
-                   env.get("HSL_MPC_PATH_SOURCE", "local"))
+    spawn_x = float(env.get("MAP_ORIGIN_X", "-0.34"))
+    spawn_y = float(env.get("MAP_ORIGIN_Y", "0.4"))
     for role, namespace in (("first", ""), ("second", " --namespace opponent")):
         destination = series_dir / f"{index:02d}-trace-{role}.json"
         output = destination.open("w")
         script = ("source /autoware/install/setup.bash && python3 "
                   f"/tmp/hsl_trace_motion.py --wall-seconds 1200 "
                   f"--spawn-x {spawn_x} --spawn-y {spawn_y} "
-                  f"--control-mode {control_mode} "
-                  f"--control-path-source {path_source} --timeseries" + namespace)
+                  "--timeseries" + namespace)
         process = subprocess.Popen(
             ["docker", "exec", "docker-hsl-adapter-1", "bash", "-lc", script],
             cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
@@ -370,13 +366,24 @@ def summary(runs):
     return result
 
 
+def allow_motion(env, log=None):
+    """Grant both permissions on the already prepared world; never reset it."""
+    for container, service in (("docker-hsl-decision-1", "/match/allow_motion"),
+                               ("docker-hsl-opponent-decision-1", "/opponent/match/allow_motion")):
+        command(["docker", "exec", container, "bash", "-lc",
+                 "source /autoware/install/setup.bash && ros2 service call " + service +
+                 " std_srvs/srv/SetBool '{data: true}'"], env, timeout=45,
+                log=log if service == "/match/allow_motion" else
+                    log.with_name(log.stem + "-opponent" + log.suffix) if log else None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", type=int, default=20)
-    parser.add_argument("--start-seed", type=int, default=0)
-    parser.add_argument("--first-role", choices=("alternate", "explorer", "guardian"),
-                        default="alternate", help="fix physical role assignment or alternate it")
-    parser.add_argument("--active-s", type=float, default=360.0)
+    parser.add_argument("--start-seed", type=int, default=None)
+    parser.add_argument("--first-role", choices=("config", "alternate", "explorer", "guardian"),
+                        default="config", help="fix physical role assignment or alternate it")
+    parser.add_argument("--active-s", type=float, default=None)
     parser.add_argument("--wall-timeout-s", type=float, default=1200.0)
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--trace", action="store_true",
@@ -387,8 +394,12 @@ def main():
                         help="verify both gates before and after granting only the first permission")
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
-    parser.add_argument("--scenario", type=int, choices=SCENARIOS, default=1)
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     args = parser.parse_args()
+    config = load_config(args.config)
+    args.start_seed = config["match"]["seed"] if args.start_seed is None else args.start_seed
+    args.active_s = config["match"]["active_seconds"] if args.active_s is None else args.active_s
+    args.first_role = config["robot"]["role"] if args.first_role == "config" else args.first_role
     if args.runs < 1 or args.active_s <= 0:
         parser.error("runs and active-s must be positive")
     if args.probe_status and not re.fullmatch(r"[A-Z_]+", args.probe_status):
@@ -396,6 +407,7 @@ def main():
     series_id = datetime.now(timezone.utc).strftime("series-%Y%m%dT%H%M%SZ")
     series_dir = RESULTS / series_id
     series_dir.mkdir(parents=True, exist_ok=True)
+    (series_dir / "match.yaml").write_text(__import__("yaml").safe_dump(config, sort_keys=False))
     code_revision = revision()
     runs = []
     if args.build:
@@ -406,8 +418,9 @@ def main():
         first_role, second_role = roles_for_run(index, args.first_role)
         run_id = f"{series_id}-{index:02d}"
         env = os.environ.copy()
+        env.update(configuration_environment(config))
         env["HSL_LOCAL_BACKEND"] = resolve_backend(
-            env.get("HSL_CONTROL_MODE", "mppi"), env.get("HSL_LOCAL_BACKEND", "auto"))
+            env.get("HSL_LOCAL_BACKEND", "auto"))
         env.update({"GAZEBO_HEADLESS": "true", "HSL_ROLE": first_role,
                     "HSL_RVIZ_ENABLED": "auto" if args.rviz else "false",
                     "HSL_OPPONENT_ROLE": second_role,
@@ -415,10 +428,10 @@ def main():
                     "DUEL_OPPONENT_SEED": str(seed + 1000003),
                     "DUEL_REVISION": code_revision,
                     "DUEL_MAX_ACTIVE_S": str(args.active_s)})
-        env.update(scenario_environment(args.scenario))
         record = {"run_id": run_id, "seed": seed,
-                  "roles": [first_role, second_role], "scenario": args.scenario,
-                  "rviz_requested": args.rviz}
+                  "roles": [first_role, second_role], "match_config": config,
+                  "rviz_requested": args.rviz,
+                  "effective_environment": {key: env[key] for key in configuration_environment(config)}}
         print(f"[{index + 1}/{args.runs}] {run_id} "
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []
@@ -437,7 +450,7 @@ def main():
                 except TimeoutError:
                     if attempt == 2:
                         raise
-            runtime = runtime_snapshot(env, args.scenario)
+            runtime = runtime_snapshot(env, config)
             (series_dir / f"{index:02d}-runtime.json").write_text(
                 json.dumps(runtime, indent=2, sort_keys=True) + "\n")
             record["runtime_snapshot"] = f"{index:02d}-runtime.json"
@@ -456,8 +469,7 @@ def main():
                          "std_srvs/srv/SetBool '{data: true}'"], env, timeout=30)
                 command(audit[:-1] + [audit[-1] + " --partial-start"], env, timeout=25,
                         log=series_dir / f"{index:02d}-gate-partial-start.json")
-            command(["helm", "start_match"], env, timeout=45,
-                    log=series_dir / f"{index:02d}-start.log")
+            allow_motion(env, series_dir / f"{index:02d}-start.log")
             outcome = wait_report(RESULTS / "latest_outcome.json", run_id,
                                   time.monotonic() + args.wall_timeout_s, runtime=runtime, env=env)
             first = wait_report(RESULTS / "latest.json", run_id,
@@ -501,7 +513,7 @@ def main():
             runs, indent=2, sort_keys=True) + "\n")
     aggregate = summary(runs)
     aggregate.update(series_id=series_id, code_revision=code_revision,
-                     active_limit_s=args.active_s, scenario=args.scenario,
+                     active_limit_s=args.active_s, match_config=config,
                      role_assignment=args.first_role)
     (series_dir / "summary.json").write_text(json.dumps(
         aggregate, indent=2, sort_keys=True) + "\n")

@@ -13,13 +13,15 @@ from hsl_planning.backend import resolve_backend
 
 def nodes(context):
     values = {name: LaunchConfiguration(name).perform(context) for name in (
-        "robot_namespace", "role", "random_seed", "arena_bounds", "control_mode",
-        "mpc_path_source", "local_backend")}
-    backend = resolve_backend(values["control_mode"], values["local_backend"])
+        "robot_namespace", "role", "random_seed", "arena_bounds", "local_backend", "allow_reverse", "max_speed", "max_angular_speed")}
+    backend = resolve_backend(values["local_backend"])
     values["local_backend"] = backend
     params = {key: values[key] for key in (
-        "role", "control_mode", "mpc_path_source", "local_backend")}
-    params.update(use_sim_time=True, require_match_active=True, random_seed=int(values["random_seed"]),
+        "role", "local_backend")}
+    allow_reverse = values["allow_reverse"].lower() == "true"
+    speed = float(values["max_speed"])
+    angular = float(values["max_angular_speed"])
+    params.update(max_speed=speed, use_sim_time=True, require_match_active=True, random_seed=int(values["random_seed"]),
                   arena_bounds=[float(v) for v in json.loads(values["arena_bounds"])])
     planner = Node(package="hsl_planning", executable="trajectory_planner",
                    namespace=values["robot_namespace"], parameters=[params], output="screen")
@@ -32,7 +34,9 @@ def nodes(context):
                                "role": values["role"],
                                # Both travel directions are equal. Native MPPI
                                # enables endpoint yaw only for guardian capture.
-                               "MPPI.PathAngleCritic.forward_preference": False,
+                               "MPPI.vx_max": speed, "MPPI.vx_min": -speed if allow_reverse else 0.0,
+                               "MPPI.wz_max": angular,
+                               "MPPI.PathAngleCritic.forward_preference": not allow_reverse,
                                "MPPI.PreferForwardCritic.enabled": False,
                                "MPPI.GoalAngleCritic.enabled": False,
                                # A moving capture goal needs stronger positional
@@ -49,7 +53,8 @@ def nodes(context):
 
 def generate_launch_description():
     defaults = {"robot_namespace": "", "role": "explorer", "random_seed": "0",
-                "arena_bounds": "[-2.66,-0.4,3.34,4.6]", "control_mode": "mppi",
-                "mpc_path_source": "local", "local_backend": "auto"}
+                "arena_bounds": "[-2.66,-0.4,3.34,4.6]",
+                "local_backend": "auto", "allow_reverse": "true",
+                "max_speed": "0.5", "max_angular_speed": "1.5"}
     return LaunchDescription([DeclareLaunchArgument(name, default_value=value)
                               for name, value in defaults.items()] + [OpaqueFunction(function=nodes)])

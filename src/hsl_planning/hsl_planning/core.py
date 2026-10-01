@@ -544,7 +544,7 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0,
         required = world.robot_radius + safety_margin
         travel = hypot(x - start.x, y - start.y)
         # A path beginning too close to a wall must actually leave it. Merely
-        # holding the same small clearance allowed MPC tracking error to scrape
+        # holding the same small clearance allowed tracking error to scrape
         # along a wall until physical contact.
         if wall < required:
             gain = min(0.04, 0.15 * travel)
@@ -566,67 +566,9 @@ def safe_segment(world, start, end, opponent=None, clearance=0.0,
     return True
 
 
-def smooth_control_route(world, route, opponent=None, clearance=0.0,
-                         safety_margin=0.12, max_shortcut=2.0):
-    """Make a long, traversable spatial path for Lat-MPC from grid A*."""
-    if len(route) < 3:
-        return list(route)
-    anchors = [route[0]]
-    index = 0
-    while index < len(route) - 1:
-        chosen = index + 1
-        for candidate in range(index + 2, len(route)):
-            if hypot(route[candidate].x - route[index].x,
-                     route[candidate].y - route[index].y) > max_shortcut:
-                break
-            if safe_segment(world, route[index], route[candidate], opponent,
-                            clearance, safety_margin):
-                chosen = candidate
-        anchors.append(route[chosen])
-        index = chosen
-
-    rounded = [anchors[0]]
-    for index in range(1, len(anchors) - 1):
-        before, corner, after = anchors[index - 1:index + 2]
-        incoming = hypot(corner.x - before.x, corner.y - before.y)
-        outgoing = hypot(after.x - corner.x, after.y - corner.y)
-        if min(incoming, outgoing) < 0.2:
-            rounded.append(corner)
-            continue
-        length = min(0.45, 0.38 * incoming, 0.38 * outgoing)
-        entry = Pose2(corner.x - length * (corner.x - before.x) / incoming,
-                      corner.y - length * (corner.y - before.y) / incoming)
-        exit_point = Pose2(corner.x + length * (after.x - corner.x) / outgoing,
-                           corner.y + length * (after.y - corner.y) / outgoing)
-        curve = [Pose2((1 - t) ** 2 * entry.x + 2 * t * (1 - t) * corner.x +
-                       t ** 2 * exit_point.x,
-                       (1 - t) ** 2 * entry.y + 2 * t * (1 - t) * corner.y +
-                       t ** 2 * exit_point.y)
-                 for t in (0.0, 0.25, 0.5, 0.75, 1.0)]
-        chain = [rounded[-1]] + curve + [after]
-        if all(safe_segment(world, a, b, opponent, clearance, safety_margin)
-               for a, b in zip(chain, chain[1:])):
-            rounded.extend(curve)
-        else:
-            rounded.append(corner)
-    rounded.append(anchors[-1])
-
-    result = [rounded[0]]
-    for start, end in zip(rounded, rounded[1:]):
-        length = hypot(end.x - start.x, end.y - start.y)
-        if length < 0.001:
-            continue
-        yaw = atan2(end.y - start.y, end.x - start.x)
-        count = max(1, ceil(length / 0.10))
-        result.extend(Pose2(start.x + (end.x - start.x) * step / count,
-                            start.y + (end.y - start.y) * step / count, yaw)
-                      for step in range(1, count + 1))
-    return result
-
-
 def local_guidance(world, own, route, opponent=None, clearance=0.0,
                    max_lookahead=1.6, min_step=0.12, safety_margin=0.12):
-    """Give MPC a straight, collision-checked corridor instead of a new arc each tick."""
+    """Build a straight, collision-checked corridor instead of a new arc each tick."""
     if not route:
         return []
     candidates = [point for point in route

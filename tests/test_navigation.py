@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1] / "src"
 for package in ("hsl_decision", "hsl_planning", "hsl_debug_control", "hsl_sim_adapter"):
     sys.path.insert(0, str(ROOT / package))
 
-from hsl_debug_control.core import (follow, path_turning_decision, safe_follow,
-                                    safe_mpc_command, select_control_command, match_is_active)
+from hsl_debug_control.core import (follow, safe_follow,
+                                    safe_motion_command, select_control_command, match_is_active)
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
                                distance_to_polygon, intercept_point)
@@ -20,7 +20,7 @@ from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, moving_ca
                                local_guidance, reachable_target, navigation_obstacles, evade_target, evade_objective_route,
                                reachable_intercept, path_heading_error,
                                recovery_step, checked_recovery_target, turn_alignment_is_progress,
-                               reusable_route, safe_segment, smooth_control_route,
+                               reusable_route, safe_segment,
                                smooth_intercept_target)
 from hsl_planning.mppi import (_initial_path_angle_errors, _project_batch,
                                _pruned_route,
@@ -166,21 +166,7 @@ class DecisionTests(unittest.TestCase):
 
 
 class PlanningTests(unittest.TestCase):
-    def test_smoothed_long_mpc_route_checks_every_segment(self):
-        world = VoxelWorld(0.1, 0.22)
-        world.update([(1.0, 0.0, 0.2)], [], None,
-                     map_bounds=(-1.0, -1.0, 3.0, 2.0))
-        route = [Pose2(0.0, 0.0), Pose2(0.0, 0.6),
-                 Pose2(0.5, 0.6), Pose2(1.0, 0.6),
-                 Pose2(1.5, 0.6), Pose2(2.0, 0.6), Pose2(2.0, 0.0)]
-        result = smooth_control_route(world, route, safety_margin=0.12)
-        self.assertEqual((result[0].x, result[0].y), (0.0, 0.0))
-        self.assertEqual((result[-1].x, result[-1].y), (2.0, 0.0))
-        self.assertGreater(len(result), len(route))
-        self.assertTrue(all(safe_segment(world, a, b, safety_margin=0.12)
-                            for a, b in zip(result, result[1:])))
-
-    def test_direct_mppi_commands_respect_stock_mpc_actuator_rates(self):
+    def test_python_mppi_commands_respect_model_acceleration_limits(self):
         world = VoxelWorld(0.1, 0.22)
         world.update([], [], None, map_bounds=(-2, -2, 5, 2))
         route = [Pose2(index * 0.15, 0) for index in range(21)]
@@ -653,35 +639,6 @@ class PlanningTests(unittest.TestCase):
                                        pose_timeout=1.2, path_timeout=1.0,
                                        intent_timeout=1.0)[0], 0)
 
-    def test_straight_path_moves_while_aligning_at_moderate_heading_error(self):
-        straight = [(0.0, 0.0), (0.1, 0.0), (0.2, 0.0), (0.3, 0.0)]
-        rotation, turning, is_curve = path_turning_decision(
-            straight, (0.0, 0.0), 0.8, False)
-        self.assertIsNone(rotation)
-        self.assertFalse(turning)
-        self.assertFalse(is_curve)
-        rotation, turning, _ = path_turning_decision(
-            straight, (0.0, 0.0), 0.8, True)
-        self.assertAlmostEqual(rotation, -0.8)
-        self.assertTrue(turning)
-
-    def test_straight_path_still_turns_in_place_for_a_large_heading_error(self):
-        straight = [(0.0, 0.0), (0.1, 0.0), (0.2, 0.0), (0.3, 0.0)]
-        rotation, turning, is_curve = path_turning_decision(
-            straight, (0.0, 0.0), 1.2, False)
-        self.assertAlmostEqual(rotation, -1.2)
-        self.assertTrue(turning)
-        self.assertFalse(is_curve)
-
-    def test_short_local_arc_uses_initial_tangent_instead_of_chord(self):
-        arc = [(0.0, 0.0), (0.02, 0.0), (0.04, 0.005),
-               (0.05, 0.03), (0.05, 0.10)]
-        rotation, turning, is_curve = path_turning_decision(
-            arc, (0.0, 0.0), 0.0, False)
-        self.assertIsNone(rotation)
-        self.assertFalse(turning)
-        self.assertFalse(is_curve)
-
     def test_common_match_permission_is_required_and_expires(self):
         self.assertFalse(match_is_active(10.0, None))
         self.assertFalse(match_is_active(10.0, (False, 10.0)))
@@ -690,38 +647,34 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(match_is_active(9.0, (True, 10.0)))
         self.assertFalse(match_is_active(10.2, (False, 10.1)))
 
-    def test_mpc_gate_preserves_controller_angular_range(self):
+    def test_motion_gate_preserves_controller_angular_range(self):
         for angular in (-1.5, 1.5):
-            self.assertEqual(safe_mpc_command(
+            self.assertEqual(safe_motion_command(
                 10.0, 10.0, 10.0, ([object()], 10.0),
                 (GOAL, 1.0, 10.0), (0.5, angular, 10.0)),
                 (0.5, angular))
 
     def test_direct_mppi_command_is_selected_only_for_checked_path(self):
-        mpc = (0.2, 0.1, 10.0)
         mppi = (0.3, -0.2, 10.0)
-        self.assertEqual(select_control_command("mppi", "OK", mpc, mppi), mppi)
-        self.assertEqual(select_control_command("mppi", "RECOVERY_MPPI", mpc, mppi),
-                         mppi)
-        self.assertEqual(select_control_command("mppi", "RECOVERY_ESCAPE", mpc, mppi), mpc)
-        self.assertEqual(select_control_command("mppi", "RECOVERY_FALLBACK", mpc, mppi), mpc)
-        self.assertIsNone(select_control_command("mppi", "OK", mpc, None))
-        self.assertEqual(select_control_command("mpc", "OK", mpc, mppi), mpc)
+        self.assertEqual(select_control_command("OK", mppi), mppi)
+        self.assertEqual(select_control_command("RECOVERY_MPPI", mppi), mppi)
+        for status in ("RECOVERY_ESCAPE", "RECOVERY_FALLBACK", "NO_LOCAL_PATH"):
+            self.assertIsNone(select_control_command(status, mppi))
+        self.assertIsNone(select_control_command("OK", None))
 
-    def test_mpc_gate_stops_for_wait_empty_path_or_stale_scan(self):
+    def test_motion_gate_stops_for_wait_empty_path_or_stale_scan(self):
         path = ([object()], 10.0)
         command = (0.4, 0.2, 10.0)
-        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, path,
+        self.assertEqual(safe_motion_command(10.0, 10.0, 10.0, path,
                                           (WAIT, 0.3, 10.0), command), (0, 0))
-        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, ([], 10.0),
+        self.assertEqual(safe_motion_command(10.0, 10.0, 10.0, ([], 10.0),
                                           (GOAL, 0.3, 10.0), command), (0, 0))
-        self.assertEqual(safe_mpc_command(12.0, 12.0, 10.0, path,
+        self.assertEqual(safe_motion_command(12.0, 12.0, 10.0, path,
                                           (GOAL, 0.3, 12.0), (0.4, 0.2, 12.0)), (0, 0))
-        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, path,
+        self.assertEqual(safe_motion_command(10.0, 10.0, 10.0, path,
                                           (GOAL, 0.3, 10.0), command), (0.3, 0.2))
-        self.assertEqual(safe_mpc_command(10.0, 10.0, 10.0, path,
-                                          (CAPTURE, 0.3, 10.0), None,
-                                          rotation_error=0.5), (0.0, 1.0))
+        self.assertEqual(safe_motion_command(10.0, 10.0, 10.0, path,
+                                          (CAPTURE, 0.3, 10.0), None), (0.0, 0.0))
 
     def test_quaternion_transform(self):
         self.assertEqual(transform((1, 2, 3), (4, 5, 6), (0, 0, 0, 1)),
@@ -947,14 +900,13 @@ class KnownWallPreservationTests(unittest.TestCase):
 
 
 class BackendReserveTests(unittest.TestCase):
-    def test_switching_to_stock_mpc_does_not_select_incompatible_native_backend(self):
-        self.assertEqual(resolve_backend("mppi"), "nav2_cpp")
-        self.assertEqual(resolve_backend("mpc"), "python")
+    def test_backend_selection_rejects_removed_controllers(self):
+        self.assertEqual(resolve_backend(), "nav2_cpp")
         with self.assertRaises(ValueError):
-            resolve_backend("mpc", "nav2_cpp")
+            resolve_backend("mpc")
 
     def test_explicit_python_checkpoint_remains_available(self):
-        self.assertEqual(resolve_backend("mppi", "python"), "python")
+        self.assertEqual(resolve_backend("python"), "python")
 
 
 class EncounterRegressionTests(unittest.TestCase):

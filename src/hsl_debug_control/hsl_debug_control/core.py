@@ -8,43 +8,9 @@ def angle_error(a, b):
     return (a - b + pi) % (2 * pi) - pi
 
 
-def select_control_command(mode, planner_status, mpc_command, mppi_command):
-    """Use MPPI for its checked path, keeping MPC for recovery paths."""
-    if mode == "mppi" and planner_status in DIRECT_MPPI_STATUSES:
-        return mppi_command
-    return mpc_command
-
-
-def path_turning_decision(points, own, yaw, already_turning,
-                          curve_forward_error=1.0):
-    """Rotate in place for straight paths, but track checked curves jointly."""
-    if len(points) < 2:
-        return None, False, False
-    start, end = points[0], points[-1]
-    dx, dy = end[0] - start[0], end[1] - start[1]
-    span = hypot(dx, dy)
-    if span < 0.02:
-        return None, False, False
-    deviation = max(abs((x - start[0]) * dy - (y - start[1]) * dx) / span
-                    for x, y in points)
-    is_curve = deviation > 0.035
-    # A short MPPI arc can have a nearly straight chord even though its first
-    # few poses point somewhere else. Check the tangent that MPC will follow
-    # next, rather than requiring the robot to face the far endpoint first.
-    nearest = min(range(len(points)),
-                  key=lambda i: hypot(points[i][0] - own[0],
-                                      points[i][1] - own[1]))
-    before = points[max(0, nearest - 2)]
-    after = points[min(len(points) - 1, nearest + 3)]
-    tangent_dx, tangent_dy = after[0] - before[0], after[1] - before[1]
-    desired = (atan2(tangent_dy, tangent_dx)
-               if hypot(tangent_dx, tangent_dy) >= 0.02 else atan2(dy, dx))
-    error = angle_error(desired, yaw)
-    threshold = (curve_forward_error if is_curve else
-                 (0.75 if already_turning else 1.0))
-    if abs(error) > threshold:
-        return error, True, is_curve
-    return None, False, is_curve
+def select_control_command(planner_status, mppi_command):
+    """Accept only the direct command of a checked MPPI trajectory."""
+    return mppi_command if planner_status in DIRECT_MPPI_STATUSES else None
 
 
 def follow(own, points, max_speed):
@@ -82,11 +48,11 @@ def safe_follow(now, own, path, intent, pose_timeout=0.5, path_timeout=0.5,
     return follow(pose, points, max_speed)
 
 
-def safe_mpc_command(now, pose_stamp, scan_stamp, path, intent, command,
+def safe_motion_command(now, pose_stamp, scan_stamp, path, intent, command,
                      pose_timeout=1.2, scan_timeout=1.8,
                      path_timeout=1.0, intent_timeout=1.0,
-                     command_timeout=0.5, rotation_error=None):
-    """Stop the MPC output when the navigation contract is not current."""
+                     command_timeout=0.5):
+    """Stop the command when the navigation contract is not current."""
     if not path or not intent:
         return 0.0, 0.0
     points, path_stamp = path
@@ -97,8 +63,6 @@ def safe_mpc_command(now, pose_stamp, scan_stamp, path, intent, command,
             or now - path_stamp > path_timeout
             or now - intent_stamp > intent_timeout):
         return 0.0, 0.0
-    if rotation_error is not None:
-        return 0.0, max(-1.0, min(1.0, 2.0 * rotation_error)) if abs(rotation_error) > 0.1 else 0.0
     if not command:
         return 0.0, 0.0
     linear, angular, command_stamp = command

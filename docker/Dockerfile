@@ -118,25 +118,6 @@ COPY src ${WORKDIR}/src
 
 RUN source ${SOURCE} && colcon build --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release
 
-# lio_sam пока не собирается: локализация берётся из симулятора (плагин p3d).
-# Чтобы включить LIO-SAM, допишите сюда
-# src/lio_sam_src/workspace/src/lio_sam
-ARG SUBMODULE_PACKAGES="src/mpc_motion_control/workspace/src/swarm_msgs src/mpc_motion_control/workspace/src/swarm_controller"
-RUN base_paths="" && \
-    for package in ${SUBMODULE_PACKAGES}; do \
-      if [[ -f "${WORKDIR}/${package}/package.xml" ]]; then \
-        base_paths="${base_paths} ${WORKDIR}/${package}"; \
-      else \
-        echo "SKIP ${package}: подмодуль не подключен (helm submodules)"; \
-      fi; \
-    done && \
-    if [[ -n "${base_paths}" ]]; then \
-      python3 -m pip install --no-cache-dir osqp scipy && \
-      source ${SOURCE} && \
-      source ${WORKDIR}/install/setup.bash && \
-      colcon build --symlink-install --base-paths ${base_paths} \
-        --cmake-args -DCMAKE_BUILD_TYPE=Release; \
-    fi
 
 RUN echo "source ${SOURCE}" >> /root/.bashrc && \
     echo "source ${WORKDIR}/install/setup.bash" >> /root/.bashrc

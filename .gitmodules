@@ -1,7 +1,3 @@
-[submodule "src/mpc_motion_control"]
-	path = src/mpc_motion_control
-	url = https://github.com/artem-kondratew/mpc_motion_control.git
-	branch = hackathon2026
 [submodule "src/lio_sam_src"]
 	path = src/lio_sam_src
 	url = https://github.com/artem-kondratew/mpc_motion_control.git

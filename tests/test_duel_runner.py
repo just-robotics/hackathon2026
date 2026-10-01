@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 import json
 import pytest
 from run_duel_series import classify_runtime, validate_runtime_metadata, roles_for_run
-from scenarios import scenario_environment
+from match_config import load_config, configuration_environment
 
 
 def test_stopped_evaluation_is_terminal():
@@ -31,24 +31,29 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
     env = {"DUEL_RUN_ID": "evaluation-20", "DUEL_SEED": "20", "DUEL_REVISION": "abc",
            "DUEL_MAX_ACTIVE_S": "90", "HSL_ROLE": "explorer", "HSL_OPPONENT_ROLE": "guardian",
            "DUEL_OPPONENT_SEED": "1000023", "HSL_LOCAL_BACKEND": "nav2_cpp"}
-    env.update(scenario_environment(3))
+    settings = configuration_environment(load_config())
+    settings.update(env)
+    env = settings
     referee = {"run_id": "evaluation-20", "seed": 20, "code_revision": "abc",
                "max_active_s": 90.0, "first_role": "explorer", "second_role": "guardian",
                "spawn_x": float(env["SPAWN_X"]), "spawn_y": float(env["DUEL_SPAWN_Y"]),
-               "second_start": json.loads(env["DUEL_SECOND_START"])}
+               "second_start": json.loads(env["DUEL_SECOND_START"]),
+               "first_start": json.loads(env["DUEL_FIRST_START"])}
     params = {"/duel_referee": referee}
     for prefix, role, seed in (("/", "explorer", 20), ("/opponent/", "guardian", 1000023)):
         params[prefix + "trajectory_planner"] = {
             "role": role, "random_seed": seed, "local_backend": "nav2_cpp",
             "arena_bounds": json.loads(env["DUEL_ARENA_BOUNDS"]), "require_match_active": True}
-        params[prefix + "decision_manager"] = {"role": role}
-        params[prefix + "hsl_mpc_gate"] = {"require_match_active": True}
+        params[prefix + "decision_manager"] = {"role": role,
+            "own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
+            "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])}
+        params[prefix + "hsl_motion_gate"] = {"require_match_active": True}
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,
             "MPPI": {"PathAngleCritic": {"forward_preference": False},
                      "PreferForwardCritic": {"enabled": False},
                      "GoalAngleCritic": {"enabled": False},
-                     "vx_max": 0.5, "vx_min": -0.5}}
+                     "wz_max": 1.5, "vx_max": 0.5, "vx_min": -0.5}}
     runtime = {"effective_parameters": params}
     validate_runtime_metadata(runtime, env)
     params["/native_mppi"]["MPPI"]["PreferForwardCritic"]["enabled"] = True

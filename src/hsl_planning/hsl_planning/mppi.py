@@ -4,7 +4,7 @@ Nav2's MPPI controller samples noisy velocity sequences, forward-simulates
 their trajectories, scores them with path and obstacle critics, and updates
 the nominal sequence with a temperature-weighted average. This module keeps
 that local-planning core but returns the selected trajectory as a ``Path``
-reference for this project's existing MPC controller.
+visualization of the velocity rollout; direct commands drive the motion gate.
 
 Algorithm reference (ROS 2 Humble):
 https://github.com/ros-navigation/navigation2/tree/humble/nav2_mppi_controller
@@ -97,7 +97,7 @@ def _point_at_progress(route, progress):
 
 
 def _initial_path_angle_errors(own, xs, ys, lookahead_steps=3):
-    """Estimate the published Path's initial tangent error seen by the MPC gate."""
+    """Estimate the published Path's initial tangent error relative to the robot heading."""
     lookahead = min(max(1, int(lookahead_steps)), xs.shape[1] - 1)
     dx = xs[:, lookahead] - own.x
     dy = ys[:, lookahead] - own.y
@@ -280,7 +280,7 @@ def _evaluate(world, own, route, velocities, omegas, dt, safety_margin,
 
     # Match Nav2's PathAlign/PathFollow/PathAngle critics and MPPI's control
     # perturbation term. Add a small sequence smoothness cost for this planner's
-    # Path output, which is followed downstream by a separate MPC controller.
+    # Path output, which visualizes the same rollout as the direct velocity command.
     align_weight = 6.0 if path_alignment_enabled else 1.5
     follow_weight = 6.0 if path_alignment_enabled else 2.0
     progress_weight = 4.0 if path_alignment_enabled else 8.0
@@ -363,7 +363,7 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
     """Optimise a safe local differential-drive trajectory along a global path.
 
     Returns ``(path, controls, diagnostics)``. ``path`` is the smoothed,
-    collision-checked trajectory sent to the existing MPC. Empty paths indicate
+    collision-checked trajectory published for visualization. Empty paths indicate
     that every sampled sequence failed hard safety checks; callers should then
     enter their bounded recovery behavior.
     """
@@ -397,9 +397,9 @@ def mppi_local_guidance(world, own, global_path, *, max_speed=1.0,
         velocities[0] = measured_speed
         omegas[0] = measured_omega
     else:
-        # Seed the first batch around the existing MPC's configured nominal
+        # Seed the first batch around the motion model's nominal
         # speed. This is a warm-start only; samples remain bounded by the
-        # behavior request and the MPC still owns the published speed limits.
+        # behavior request and the configured motion model owns speed limits.
         velocities = np.full(steps, min(0.3, max_speed), dtype=np.float64)
         omegas = np.zeros(steps, dtype=np.float64)
 
