@@ -34,11 +34,9 @@ def nodes(context):
                                # explorer evasion can follow a route in reverse.
                                "MPPI.PathAngleCritic.forward_preference":
                                    values["role"] == "guardian",
-                               # A reverse escape must not pay an unrelated
-                               # forward-only preference while angle scoring
-                               # explicitly permits backwards travel.
-                               "MPPI.PreferForwardCritic.enabled":
-                                   values["role"] == "guardian",
+                               # Prefer sustained forward travel without banning
+                               # a reverse escape when its other costs are lower.
+                               "MPPI.PreferForwardCritic.enabled": True,
                                # Explorer goals specify position/contact only;
                                # a reverse departure has no required terminal yaw.
                                "MPPI.GoalAngleCritic.enabled":
