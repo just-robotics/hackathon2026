@@ -2,6 +2,44 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — короткая цель физически проверена; готовится полная20
+
+Изменение813b515 собрано terminal0 (exec45561), image
+44ef99557ed5dfe7cc875222d9fff465489b90ce487362d0c36afe08839e82fa.
+Matched series-20261001T223730Z завершена terminal0(exec66724),3/3 без
+технических ошибок. Команда: `python3 benchmarks/run_duel_series.py
+--isolated-project hsl-eval --ros-domain-id 73 --gazebo-port 11418
+--runs 3 --start-seed 0 --active-s 360 --trace --audit-start`.
+Конфиг/default фиксированные роли и старты прежние.
+
+| Seed | Исход | Время s | Speed E/G m/s | Lateral RMS E/G m | Angular accel RMS E/G rad/s² | Контакты | RTF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | explorer_goal | 17.8 | .362/.428 | .055/.043 | .844/.944 | 0/0 | .627 |
+| 1 | explorer_goal | 19.3 | .376/.381 | .086/.041 | .903/1.300 | 0/0 | .588 |
+| 2 | guardian_capture | 8.1 | .233/.345 | .077/.043 | 1.355/.615 | 0/0 | .589 |
+
+Speedmean .324/.385; minimum .233/.345. Below.2:0/3 обеих; below.3:
+E1/3 G0/3. Lateral mean .072/.043 против предыдущих .085/.038;
+angular mean1.034/.953 против .920/1.124. Stop-go2.3/0 против1.7/.3.
+Разные исходы/длительности и асинхронность запрещают приписать всю разницу
+этому исправлению. Предыдущая серия:3 цели, теперь2 цели/1 поимка.
+Все9 gate-аудитов (две роли каждый) прошли;3 owned cleanup logs.
+
+В guardian trace seed2 sim670.607 PURSUE reuse: own(.773,1.829),
+continuous target(.554,1.738), старая raster end(.75,1.95).
+Новый route_cells2/route_end=actual target, native resultok/statusOK.
+Это фактическая проверка исправленного случая; во всех трёх NO_GLOBAL_PATH0.
+final-capture-comparison.json сохранён: seed2 ближайший trace sample .458m,
+heading6.14°; дискретная трасса не покрывает сам момент пересечения .45,
+поимку подтверждает referee с LOS, без телепортов.
+
+Решение: сохранить безопасную continuous short-goal поправку; не заявлять
+устойчивость на3 матчах или выполненный порог.3. Следующий шаг — заранее
+заданные seeds0–19, fixed explorer first, active360, trace/audit-start,
+на этом же образе; собрать таблицу индивидуальных отчётов, выяснить низкую
+скорость/исправительные манёвры и остаточные false LiDAR tracks. Не менять
+навигационные исходники во время серии, оставить цель активной.
+
 ## 02.10.2026 — own-speed3 завершена; исправление одноточечного перехвата
 
 Последний ответ о расположении детектора не изменял состояние цели (no progress).
