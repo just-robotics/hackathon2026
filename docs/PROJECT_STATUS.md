@@ -38,8 +38,13 @@ meetingtime1.818s при own0.3 против1.333s при own0.5. Unit test пр
 аналитический target и отказ NaN/Inf/zero; metadata regression отвергает
 old0.3 в opponent decision manager.136 Python/helm тестов и Compose config
 прошли. README/AGENTS обновлены. Польза для реальных исходов пока не
-проверена; после сборки прогнать те же ordinary seeds0–2, затем оценить
-следующий цикл. Остаточные ложные box tracks остаются отдельным дефектом.
+проверена. Сборка запущена: PID3234805/exec11716, process подтверждён
+живым pgrep; лог /tmp/intercept-own-speed-build.log. Не запускать build
+повторно по timeout ожидания: возобновить тот же handle и проверить terminal.
+После успешной сборки прогнать те же ordinary seeds0–2 командой
+`python3 benchmarks/run_duel_series.py --isolated-project hsl-eval
+--ros-domain-id 73 --gazebo-port 11418 --runs 3 --start-seed 0
+--active-s 360 --trace --audit-start`, затем оценить следующий цикл. Остаточные ложные box tracks остаются отдельным дефектом.
 
 ## 02.10.2026 — diameter filter подтверждён двумя low-fixture матчами
 
