@@ -10,3 +10,4 @@ results/**/*.json
 results/series-*/
 results/isolated/
 results/manual-*/
+results/real-bringup-*/

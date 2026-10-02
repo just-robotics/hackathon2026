@@ -1,0 +1,22 @@
+services:
+  real:
+    image: ${REAL_IMAGE:-jr_real_image:latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.real
+      args:
+        BASE_IMAGE: ${IMAGE:-jr_image:latest}
+    network_mode: host
+    ipc: host
+    privileged: true
+    init: true
+    environment:
+      ROS_DOMAIN_ID: ${HSL_REAL_DOMAIN_ID:-26}
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      DISPLAY: ${DISPLAY:-}
+    volumes:
+      - /dev:/dev
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${HSL_REAL_CONFIG_DIR:-../config}:/config:ro
+    command: [bash, -lc, 'source /autoware/install/setup.bash && source /drivers/install/setup.bash && exec ros2 launch hsl_real robot.launch.py config_file:=/config/${HSL_REAL_CONFIG_NAME:-real.yaml}']
+    stop_grace_period: 5s

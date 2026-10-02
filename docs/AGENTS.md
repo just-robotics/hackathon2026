@@ -72,7 +72,15 @@ Python-адаптация MPPI и debug follower удалены; единств�
 Benchmark читает тот же YAML, сохраняет его и эффективные overrides;
 разрешает движение напрямую, не вызывает пересоздающий мир start_match.
 На реальном роботе миссионные секции конфигурации сохраняют ту же семантику
-map; реальные источники данных и запуск пока не подключены.
+map. Real bringup — src/hsl_real + drivers/src (HSL25), отдельный
+Compose hsl-real/domain26, CPU runtime. helm build_real/start_real/enable_real/
+pause_real/stop_real/logs_real/status_real/enter_real. start_real оставляет движение
+закрытым; enable проверяет pose/scan/native readiness и одного cmd_vel publisher.
+Конфиг real.yaml + Livox JSON, mission_file ссылается на match YAML. Wheel odom
+привязан к robot.start; без карты static layer выключен и detector не работает.
+Не использовать симуляционный truth/map/referee в real. Детали и ограничения —
+REAL_ROBOT.md. Driver build отдельный /drivers overlay; основной src/ не
+содержит дублированный Livox пакет. Исходная hsl25-master убрана из корня.
 
 ## Правила работы
 

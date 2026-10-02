@@ -112,3 +112,44 @@ exec:
   long_command: true
   commands:
     - "docker compose exec __placeholder_1__ bash -c 'source /autoware/install/setup.bash && __placeholder_2__'"
+
+# Real robot uses its own Compose project, without Gazebo or GPU runtime.
+build_real:
+  desc: "Собрать стек и драйверы реального робота"
+  commands:
+    - "python3 ../tools/real_robot.py build"
+
+start_real:
+  desc: "Запустить драйверы и навигацию, движение закрыто"
+  commands:
+    - "python3 ../tools/real_robot.py start"
+
+enable_real:
+  desc: "Разрешить движение после проверки готовности"
+  commands:
+    - "python3 ../tools/real_robot.py enable"
+
+pause_real:
+  desc: "Остановить движение, оставить драйверы"
+  commands:
+    - "python3 ../tools/real_robot.py pause"
+
+stop_real:
+  desc: "Остановить движение и контейнер робота"
+  commands:
+    - "python3 ../tools/real_robot.py stop"
+
+status_real:
+  desc: "Состояние реального робота"
+  commands:
+    - "python3 ../tools/real_robot.py status"
+
+logs_real:
+  desc: "Логи реального робота"
+  commands:
+    - "python3 ../tools/real_robot.py logs"
+
+enter_real:
+  desc: "Терминал реального робота"
+  commands:
+    - "python3 ../tools/real_robot.py shell"

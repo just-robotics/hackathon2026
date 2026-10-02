@@ -1,0 +1,14 @@
+ARG BASE_IMAGE=jr_image:latest
+FROM ${BASE_IMAGE}
+SHELL ["/bin/bash", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-ecl-core ros-humble-ecl-tools ros-humble-ecl-console ros-humble-ecl-mobile-robot ros-humble-diagnostic-updater \
+    ros-humble-robot-state-publisher ros-humble-joint-state-publisher \
+    ros-humble-nav2-map-server ros-humble-nav2-lifecycle-manager libapr1-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY drivers/src /drivers/src
+WORKDIR /drivers
+RUN source /autoware/install/setup.bash && colcon build --symlink-install \
+    --cmake-args -DCMAKE_BUILD_TYPE=Release
+RUN echo 'source /drivers/install/setup.bash' >> /root/.bashrc
+WORKDIR /autoware

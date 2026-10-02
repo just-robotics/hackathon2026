@@ -1,0 +1,14 @@
+# Paths relative to this file, re-read when start_real recreates the container.
+mission_file: match.yaml
+kobuki_port: /dev/kobuki
+livox_config: livox_mid360.json
+localization: odometry  # or external_tf (external map -> odom publisher)
+odom_topic: /odom
+lidar_topic: /livox/lidar
+# HSL25 mount: base_link -> livox [x,y,z,roll,pitch,yaw], radians.
+lidar_mount: [0.0, 0.0, 0.3, 0.0, 3.141592653589793, 1.5707963267948966]
+# Empty: no map, Nav2 obstacle/inflation layers only. Later: maps/arena.yaml
+map_file: ''
+arena_bounds: [-10.0, -10.0, 10.0, 10.0]
+ros_domain_id: 26
+rviz: false

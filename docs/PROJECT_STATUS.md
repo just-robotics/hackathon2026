@@ -2,6 +2,61 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — отдельный запуск реального Kobuki/Mid-360
+
+По запросу пользователя перенос HSL25 выполнен: пять нужных пакетов в
+`drivers/src` (kobuki_core, kobuki_ros_interfaces, kobuki_node,
+kobuki_description, livox_ros_driver2), USB-правило в drivers/udev,
+сетевой JSON в config/livox_mid360.json. Исходной hsl25-master в корне нет;
+неиспользованные материалы сохранены вне репозитория в /tmp/hsl25-unused-20261002.
+Лицензии/авторство исходных пакетов сохранены. Старые mux/teleop/docking и
+Docker-скрипты HSL25 не вошли в запуск. Основной симуляционный контур не менялся.
+
+`hsl_real` адаптирует собственную одометрию и PointCloud2 к navigation/self,
+scan и known_grid, использует прежние decision/planner/native MPPI/gate.
+Отдельный Dockerfile.real собирает driver overlay /drivers поверх основного
+образа. Добавлены явные apt dependencies ECL console/mobile robot: исходный
+build без них падал, после исправления все пять driver packages собираются.
+Для реального контейнера нет требования NVIDIA runtime, Gazebo/truth/referee.
+Все узлы wall time; driver commands/velocity remapped на единственный cmd_vel.
+Локализация по уточнению пользователя пока wheel odom + static map→odom от
+robot.start. Облако преобразуется по timestamp с ожиданием TF, не latest.
+Конфиг real.yaml/JSON читается без rebuild, параметры миссии из mission_file.
+
+Команды: helm build_real/start_real/enable_real/pause_real/stop_real,
+status_real/logs_real/enter_real. start_real пересоздаёт свой Compose hsl-real,
+проверяет USB-порт и оставляет движение закрытым. enable требует свежих
+pose/scan, native ready, незавершённый этап и одного final publisher.
+Pause не расходует активное время. Supervisor закрывает этап по таймеру/центру
+исследователя; guardian capture оценивается внешним судьёй, не фиктивным truth.
+Stop работает при испорченном конфиге и ограничивает ожидание pause-service3s.
+После завершения enable отвергается; новая одометрическая привязка требует
+фактической стартовой позиции. Подробная инструкция: REAL_ROBOT.md; README и
+AGENTS синхронизированы. Для real добавлен RViz с одним роботом/scan/путями.
+
+Проверено:164 Python/helm tests, обе Compose config, compileall. Два полных helm build_real успешно собрали оба образа, включая финальный
+повтор с отдельным RViz (/tmp/real-final-build.log, terminal0). Final image
+smoke: installed robot.launch --show-args и наличие robot.rviz проходят;
+SHA всех hsl_real Python modules в образе совпадают с текущим деревом.
+ROS transport test: drivers_enabled=false, standalone container без /dev,
+domain94, синтетические odom/cloud, active_seconds8. Все8checks pass:
+pose/scan в map, native ready, нули до grant, ненулевые команды MPPI после
+разрешения, stale scan stop, stage stop и один publisher. Pause/resume CLI
+успешны, pause наблюдалась, повтор enable после finish отвергнут.
+Все use_sim_time=false (native param query). ldd обоих driver executables не
+содержит not found. Контейнер проверки остановлен; ROS input не поступает на
+реальное железо. Артефакты results/real-bringup-20261002 (ignored), включая
+fixture, source audit, результаты, runtime ID, CLI/launch/ldd logs.
+
+Ограничения: USB-база здесь отсутствует, аппаратное подключение и физическая
+езда НЕ проверены. Нет карты по текущему запросу: static layer выключен,
+planner использует текущий scan/free frontier, накопленной карты/SLAM нет.
+Текущий CPP detector требует known_grid, поэтому без карты распознавание
+соперника/EVADE/PURSUE не работают. Не подставлялась свободная или Gazebo-карта.
+Дрейф одометрии и mounting требуют проверки на базе. Следующее: подключить
+робота, проверить USB/network/TF/scan, позже добавить реальную карту/локализацию
+и провести аппаратные заезды. Общая автономная цель остаётся незавершённой.
+
 ## 02.10.2026 — центр цели и проверенный ручной start_match
 
 По запросу пользователя explorer_goal теперь требует центр площадки с
