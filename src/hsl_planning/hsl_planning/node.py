@@ -476,7 +476,19 @@ class TrajectoryPlanner(Node):
             if objective_route:
                 self.global_target = target
                 self.route_behavior = intent.behavior
-        if intent.behavior in (6, 7):
+        # Keep the explorer objective continuous too: the raster endpoint can
+        # lie outside the 8 cm center tolerance. Never extend a frontier route
+        # across an unchecked segment or replace a temporary escape waypoint.
+        explorer_center_route = (intent.behavior in (2, 4) and target is not None
+            and hypot(target.x - intent.target.position.x,
+                      target.y - intent.target.position.y) < 1e-6
+            and self.global_path and hypot(self.global_path[-1].x - target.x,
+                self.global_path[-1].y - target.y) <= self.world.resolution * 1.5)
+        if explorer_center_route and len(self.global_path) >= 2 and safe_segment(
+                self.world, self.global_path[-2], target,
+                safety_margin=self.local_safety_margin):
+            self.global_path[-1] = target
+        if intent.behavior in (6, 7) or explorer_center_route:
             self.global_path = continuous_short_goal_route(
                 self.world, own, self.global_path, target,
                 safety_margin=self.local_safety_margin)

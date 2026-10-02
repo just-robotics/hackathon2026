@@ -118,6 +118,7 @@ class DuelReferee(Node):
             "winner": "guardian" if event == "guardian_capture" else "explorer",
             "guardian_captured": event == "guardian_capture",
             "explorer_reached_goal": event == "explorer_goal",
+            "explorer_goal_criterion": "start_center_0.08m",
             "duration_s": round(now - self.started_at, 2),
             "started_at_sim_s": self.started_at,
             "finished_at_sim_s": now,

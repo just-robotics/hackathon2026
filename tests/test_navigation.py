@@ -42,6 +42,16 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(policy.step(self.observation(own_stamp=7)).behavior, STOP)
         self.assertEqual(policy.step(self.observation()).behavior, GOAL)
 
+    def test_explorer_stops_only_near_start_center(self):
+        policy = DecisionPolicy("explorer", self.area)
+        from dataclasses import replace
+        center = policy.goal
+        for offset in (0.4, 0.09):
+            observation = replace(self.observation(), own=DecisionPose(center.x + offset, center.y))
+            self.assertEqual(policy.step(observation).behavior, GOAL)
+        observation = replace(self.observation(), own=DecisionPose(center.x + 0.07, center.y))
+        self.assertEqual(policy.step(observation).behavior, STOP)
+
     def test_explorer_evades_close_opponent_and_goes_to_goal_otherwise(self):
         policy = DecisionPolicy("explorer", self.area)
         close = self.observation(opponent=DecisionPose(0.3, 0))
@@ -167,9 +177,9 @@ class DecisionTests(unittest.TestCase):
         result = policy.step(self.observation(now=10.1, opponent=DecisionPose(1.0, 0)))
         self.assertEqual(result.behavior, EVADE)
 
-    def test_reaching_guardian_area_stops_explorer(self):
+    def test_reaching_guardian_center_stops_explorer(self):
         policy = DecisionPolicy("explorer", self.area)
-        reached = Observation(10, DecisionPose(3.4, -2), 10, None, 0, 10, 10, True)
+        reached = Observation(10, DecisionPose(4.0, -2), 10, None, 0, 10, 10, True)
         self.assertEqual(policy.step(reached).behavior, STOP)
         self.assertAlmostEqual(distance_to_polygon(DecisionPose(4, -2), self.area), 0)
 
@@ -708,9 +718,15 @@ class PlanningTests(unittest.TestCase):
         grid = StaticGrid(0.1, 60, 30, 0, 0, [0] * (60 * 30))
         first_start = [0.2, 0.7, 0.8, 0.7, 0.8, 1.3, 0.2, 1.3]
         second_start = [3.2, 0.7, 3.8, 0.7, 3.8, 1.3, 3.2, 1.3]
-        self.assertEqual(duel_outcome("explorer", (3.05, 1.0, 0),
+        self.assertEqual(duel_outcome("explorer", (3.5, 1.0, 0),
                                       (4.5, 1.0, 0), first_start,
                                       second_start, grid), "explorer_goal")
+        # Touching the boundary, or being inside away from the center, is not enough.
+        for x in (3.05, 3.2, 3.35):
+            self.assertIsNone(duel_outcome("explorer", (x, 1.0, 0),
+                (4.5, 1.0, 0), first_start, second_start, grid))
+        self.assertEqual(duel_outcome("guardian", (4.5, 1.0, 0),
+            (0.5, 1.0, 0), first_start, second_start, grid), "explorer_goal")
         self.assertEqual(duel_outcome("guardian", (4.0, 1.0, 3.14),
                                       (3.6, 1.0, 0), first_start,
                                       second_start, grid), "guardian_capture")

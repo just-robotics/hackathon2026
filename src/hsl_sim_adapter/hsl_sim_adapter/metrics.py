@@ -2,7 +2,7 @@
 
 from math import atan2, hypot, isfinite, pi, sqrt
 
-from hsl_decision.core import Pose2, distance_to_polygon
+from hsl_decision.core import Pose2, start_center_reached
 
 
 def timing_summary(values, budget_ms=None):
@@ -43,8 +43,8 @@ def duel_outcome(first_role, first_pose, second_pose, first_start, second_start,
         raise ValueError("first_role must be explorer or guardian")
     if capture_possible(guardian, explorer, grid):
         return "guardian_capture"
-    if explorer is not None and distance_to_polygon(
-            Pose2(explorer[0], explorer[1]), goal_area) <= 0.178:
+    if explorer is not None and start_center_reached(
+            Pose2(explorer[0], explorer[1]), goal_area):
         return "explorer_goal"
     return None
 

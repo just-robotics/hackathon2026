@@ -2,6 +2,67 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — центр цели и проверенный ручной start_match
+
+По запросу пользователя explorer_goal теперь требует центр площадки с
+допуском0,08м (как native MPPI xy_goal_tolerance), вместо касания контура
+корпусом. Один общий helper используют decision и referee, observer узнаёт
+новую причину STOP; outcome помечает explorer_goal_criterion=start_center_0.08m.
+Цель decision и прежде была в центре, но прежние stop/referee обрывали путь.
+Planner сохраняет точный endpoint вместо raster-center, только для настоящей
+GOAL/EVADE цели, с проверкой последнего сегмента; frontier/recovery не
+продлеваются через непроверенное пространство. Исторические цели не считать
+доказательством нового условия. Тесты boundary/inside/center и смены ролей
+добавлены. Финальные154 Python/helm tests pass, Compose config pass;
+helm build duel terminal0 (/tmp/center-start-build.log). Два настоящих
+helm start_match с config/match.yaml/seed0 прошли, новый критерий подтверждён:
+
+| run_id suffix | готовность, wall s | snapshot, wall s | grant завершён, wall s | исход / sim s | финальная дистанция до центра |
+| --- | ---: | ---: | ---: | --- | ---: |
+| 035700522851Z | 53,6 | 17,3 | 77,5 | explorer_goal / 20,5 | 0,0369м |
+| 040040307882Z | 59,4 | 2,6 | 66,7 | explorer_goal / 22,7 | 0,0267м |
+
+Первый прогон использовал max4 параллельных CLI, второй — общий ROS-клиент.
+Окончательный benchmarks/ros_parameter_snapshot.py читает list/get services
+всех14 узлов без ros2 subprocess на каждый; timeout20s, типы и nested names
+сохраняются, incomplete response отвергается. Read-only prototype сравнён
+с прежним snapshot: единственное различие — штатное динамическое включение
+guardian GoalAngle после начала матча. Метаданные и source SHA validation
+по-прежнему выполняются до выдачи permissions, не отключались.
+
+Во втором прогоне E/G mean .337/.375м/с,0contacts. Первый live-audit видел
+обе allowed=true и common active=true, после outcome обе allowed=false,
+все записанные final cmds0, единственный publisher hsl_motion_gate у каждого.
+Во втором post-finish gate audit обе стороны pass. Артефакты frozen в
+results/manual-20261002T035700522851Z/{startup-timing.json,live-audit.json,launch.log}
+и results/manual-20261002T040040307882Z/{startup-timing.json,runtime.json,
+outcome.json,first-metrics.json,second-metrics.json,center-check.json,
+final-pose-world.yaml,gate-after-finish.json,launch.log}. Оставлен завершённый
+мир с обоими stopped. GUI запускается по обычному config, визуальный RViz
+layout этой проверкой не оценивался.
+
+Готовность сенсоров/costmap/MPPI всё ещё занимает~54–59wall s в этой среде;
+сокращение общего времени85→66,7 не считать чистым экспериментом по startup
+из-за разной readiness duration. Выдача разрешений работает, CLI показывает
+текущий этап. Два ручных прогона с одинаковым seed не заменяют новую20-серию;
+старые20 boundary-goal результаты сохраняются отдельно. Следующий шаг общей
+цели: повторная серия с center criterion и улучшение поимки слабого стража.
+
+Ручной manual-20261002T033632989662Z уже завершён: обе permissions были
+успешны, referee explorer_goal18,5sim s. От создания Gazebo03:36:38UTC до
+первого SetBool ответа03:38:03UTC около85wall s; «не приходит» для этого
+заезда не подтвердилось, задержка реальна. Runtime snapshot последовательно
+читает14 ROS узлов до grant. Сначала dumps распараллелены(max4), затем заменены общим ROS-клиентом;
+readiness/проверки сохранены. CLI печатает фазы+время, сохраняет startup timing.
+Завершённый ручной мир пересоздан; два настоящих helm start_match проверены выше.
+
+Предыдущий кандидат367f719/image80c72706 физически проверен в matched3
+series-20261001T234503Z:3completed/0failed, seeds0–2,2 старых boundary goals/
+1capture(seed1). Время19,1/8,9/18,0s; speeds E .376/.302/.343,
+G .394/.272/.401;0contacts. Ближний lead не доказал преимущество:
+та же частота1/3, guardian seed1 ниже.3. Полной20 нового lead ещё нет.
+Baseline26f9017/checkpoint сохранён, общая цель остаётся открытой.
+
 ## 02.10.2026 — кандидат непрерывного ближнего упреждения
 
 Baseline full20 сохранён26f9017/tag checkpoint/continuous-pursuit-baseline20-20261002.

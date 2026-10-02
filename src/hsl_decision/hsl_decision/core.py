@@ -45,6 +45,14 @@ def polygon_center(flat_vertices):
     return Pose2(sum(flat_vertices[::2]) / count, sum(flat_vertices[1::2]) / count)
 
 
+GOAL_CENTER_TOLERANCE = 0.08  # Matches the native MPPI XY goal tolerance.
+
+
+def start_center_reached(point, flat_vertices):
+    center = polygon_center(flat_vertices)
+    return hypot(point.x - center.x, point.y - center.y) <= GOAL_CENTER_TOLERANCE
+
+
 def distance_to_polygon(point, flat_vertices):
     """Zero inside a polygon; shortest distance to its boundary outside."""
     vertices = list(zip(flat_vertices[::2], flat_vertices[1::2]))
@@ -143,10 +151,10 @@ class DecisionPolicy:
                          obs.opponent.y - obs.own.y) if opponent_fresh else float("inf")
 
         if self.role == "explorer":
-            if distance_to_polygon(obs.own, self.goal_polygon) <= 0.178:
+            if start_center_reached(obs.own, self.goal_polygon):
                 self.previous = STOP
                 return Decision(STOP, None, 0, 0, 0, 0,
-                                "guardian start area reached")
+                                "guardian start center reached")
             threat_age = obs.now - obs.opponent_stamp
             threat_pose = obs.opponent if obs.opponent is not None and threat_age <= 2.0 else None
             threat_distance = (hypot(threat_pose.x - obs.own.x,

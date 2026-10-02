@@ -145,7 +145,7 @@ class MatchMetrics(Node):
         self.metrics.observe_stream("decision", monotonic(), self.now())
         self.behavior = msg.behavior
         if (self.metrics.active and self.role == "explorer"
-                and msg.reason == "guardian start area reached"
+                and msg.reason == "guardian start center reached"
                 and self.metrics.goal_at is None):
             self.metrics.goal_at = self.now()
 

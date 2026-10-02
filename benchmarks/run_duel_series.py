@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import shlex
 import subprocess
 import time
 from collections import Counter
@@ -251,23 +252,11 @@ def runtime_snapshot(env, config):
     nodes.extend(prefix + name for prefix in ("/", "/opponent/")
                  for name in ("native_mppi", "native_mppi/native_costmap"))
     # Read only parameter services, before movement or trace collection begins.
-    script = """import json, subprocess, yaml
-nodes = %r
-result = {}
-for node in nodes:
-    output = subprocess.run(['ros2', 'param', 'dump', node, '--no-daemon'],
-                            text=True, capture_output=True, timeout=15, check=True)
-    parsed = yaml.safe_load(output.stdout)
-    params = next((value.get('ros__parameters') for value in (parsed or {}).values()
-                   if isinstance(value, dict)), None)
-    if not isinstance(params, dict):
-        raise RuntimeError('No parameter snapshot for ' + node)
-    result[node] = params
-print(json.dumps(result))
-""" % nodes
+    script = (ROOT / "benchmarks/ros_parameter_snapshot.py").read_text()
     output = command(["docker", "exec", "docker-hsl-control-1", "bash", "-lc",
-                      "source /autoware/install/setup.bash && python3 - <<'PY'\n" + script + "PY"],
-                     env, timeout=180)
+                      "source /autoware/install/setup.bash && python3 - " +
+                      shlex.quote(json.dumps(nodes)) + " <<'PY'\n" + script + "\nPY"],
+                     env, timeout=30)
     runtime["effective_parameters"] = json.loads(output)
     validate_runtime_metadata(runtime, env)
     runtime["nav2_package_versions"] = command(["docker", "exec",
