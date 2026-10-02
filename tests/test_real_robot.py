@@ -28,7 +28,7 @@ def test_real_config_uses_no_simulation_map_or_opponent_truth(tmp_path):
     assert 'simulation' not in mission
     assert cfg['ros_domain_id']==26
     assert mission['motion']['max_speed']==.5
-    assert start_polygon(mission['opponent'])==pytest.approx([2.59,1.85,3.09,1.85,3.09,2.35,2.59,2.35])
+    assert start_polygon(mission['opponent'])==pytest.approx([2.74,2.0,3.24,2.0,3.24,2.5,2.74,2.5])
 
 
 @pytest.mark.parametrize('key,value', [('localization','gazebo'),('ros_domain_id',True),

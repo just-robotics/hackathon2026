@@ -3,10 +3,10 @@
 # All mission coordinates are in map; angles are radians.
 robot:
   role: explorer
-  start: [0.0, 0.0, 0.03141592653589794]
+  start: [0.15, 0.15, 0.03141592653589794]
   start_area_half_size: 0.5
 opponent:
-  start: [2.84, 2.1, 3.141592653589793]
+  start: [2.99, 2.25, 3.141592653589793]
   start_area_half_size: 0.25
 motion:
   # Applies only to explorer; guardian always translates forward.

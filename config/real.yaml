@@ -10,6 +10,6 @@ lidar_topic: /livox/lidar
 # Approximate HSL25 mounting; verify on hardware. [x,y,z,roll,pitch,yaw].
 lidar_mount: [0.0, 0.0, 0.3, 0.0, 3.141592653589793, 1.5707963267948966]
 map_file: maps/maze_bag_v1.yaml
-arena_bounds: [-0.50, -0.65, 3.20, 4.15]
+arena_bounds: [-0.35, -0.50, 3.35, 4.30]
 ros_domain_id: 26
 rviz: false

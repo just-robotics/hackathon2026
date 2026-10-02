@@ -55,6 +55,8 @@ def main():
     p.add_argument('--scan-step',type=int,default=2)
     p.add_argument('--crop-to-walls',action='store_true',help='Crop output bounds to the largest observed wall component')
     p.add_argument('--align-walls',action='store_true',help='Align dominant near-axis walls using registered points before rasterization')
+    p.add_argument('--map-zero',type=float,nargs=2,default=[0.,0.],metavar=('X','Y'),
+                   help='New coordinate zero in the aligned recording-start frame, metres')
     p.add_argument('--crop-margin',type=float,default=.25)
     args=p.parse_args()
     if args.resolution<=0 or args.scan_step<1 or args.min_height>=args.max_height:raise ValueError('Invalid projection parameters')
@@ -96,6 +98,8 @@ def main():
         alignment_degrees=float(angles[np.argmax(scores)])
         if abs(alignment_degrees)>=5.:raise ValueError('Wall alignment reached search boundary; inspect map')
         rot=Rotation.from_euler('z',alignment_degrees,degrees=True).as_matrix()@rot
+    if not np.isfinite(args.map_zero).all():raise ValueError("map-zero must be finite")
+    shift=shift+rot.T@np.array([*args.map_zero,0.])
     def project(q):
         q=np.asarray(q);v=(q-shift)@rot.T
         v[...,2]=(q@rot[2])-coeff[2]/np.sqrt(1+coeff[0]**2+coeff[1]**2)
@@ -182,7 +186,7 @@ def main():
     np.savez_compressed(out/'occupancy_evidence.npz',log_odds=odds.reshape(height,width),hit_scans=hits.reshape(height,width),free_scans=free.reshape(height,width))
     np.savetxt(out/'trajectory.csv',np.column_stack([trajectory[:,0],tr,yaw]),delimiter=',',header='timestamp,x,y,z,yaw',comments='')
     distance=float(np.linalg.norm(np.diff(tr,axis=0),axis=1).sum())
-    report={'wall_alignment_degrees':alignment_degrees,'registered_scans':len(files),'crop_to_walls':args.crop_to_walls,'crop_margin_m':args.crop_margin,'crop_policy':'largest observed occupied component bounds; preserve every cell inside crop','full_size_cells':full_size,'projection_scans':len(frames),'cloud_voxels':len(points),'floor_plane_raw':coeff.tolist(),
+    report={'map_zero_in_recording_frame':args.map_zero,'wall_alignment_degrees':alignment_degrees,'registered_scans':len(files),'crop_to_walls':args.crop_to_walls,'crop_margin_m':args.crop_margin,'crop_policy':'largest observed occupied component bounds; preserve every cell inside crop','full_size_cells':full_size,'projection_scans':len(frames),'cloud_voxels':len(points),'floor_plane_raw':coeff.tolist(),
             'floor_residual_median_abs_m':floor_mad,'raw_to_map_rotation':rot.tolist(),'raw_xy_shift':shift.tolist(),
             'resolution_m':args.resolution,'size_cells':[int(width),int(height)],'origin':yaml_map['origin'],
             'height_band_m':[args.min_height,args.max_height],'range_m':args.max_range,

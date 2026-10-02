@@ -33,9 +33,9 @@
     ]
   ],
   "raw_xy_shift": [
-    0.02008944048123392,
-    0.0085505314415053,
-    -0.015672186228689582
+    -0.13451930406459453,
+    -0.1366792839559655,
+    -0.013565807920003798
   ],
   "resolution_m": 0.05,
   "size_cells": [
@@ -43,8 +43,8 @@
     96
   ],
   "origin": [
+    -0.35,
     -0.5,
-    -0.6500000000000004,
     0.0
   ],
   "height_band_m": [
@@ -128,23 +128,37 @@
       0.0,
       0.0
     ],
-    "reference": "LIO from the same bag as map, not independent ground truth"
+    "reference": "LIO from the same bag as map, not independent ground truth",
+    "coordinate_rebase_note": "Replay performed before pure XY translation; navigation accuracy invariant under common translation, no new replay claimed"
   },
   "map_server_validation": {
     "frame": "map",
     "width": 74,
     "height": 96,
-    "resolution": 0.05,
+    "resolution": 0.05000000074505806,
     "origin": [
-      -0.5,
-      -0.65
+      -0.35,
+      -0.5
     ],
     "cells": {
-      "100": 482,
+      "-1": 1785,
       "0": 4837,
-      "-1": 1785
+      "100": 482
     },
-    "loaded": true,
-    "verification": "Full robot.launch replay: map_server loaded 74x96, AMCL received map; counts from exported trinary grid"
+    "loaded": true
+  },
+  "map_zero_in_recording_frame": [
+    -0.15,
+    -0.15
+  ],
+  "coordinate_convention": "zero at observed inner lower-left wall corner; +X right, +Y up; yaw=0 along +X",
+  "coordinate_rebase": {
+    "translation_from_previous_map_m": [
+      0.15,
+      0.15
+    ],
+    "previous_map_zero": "recording-start LiDAR position",
+    "corner_selection": "inner edges of dominant wall columns/rows: old x=-0.15,y=-0.15",
+    "grid_changed": false
   }
 }
