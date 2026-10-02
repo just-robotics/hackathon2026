@@ -15,9 +15,7 @@ from typing import Callable, List, Dict
 # Скрипты helm_launch, которые можно вызывать из команд в launch.yaml.
 # В .yaml они пишутся как __<имя>_script__ и подменяются на реальный путь --
 # он зависит от способа установки (локально или глобально через pip).
-SCRIPTS = {
-    "__submodules_script__": "submodules.py",
-}
+SCRIPTS = {}
 
 
 def resolve_scripts(shell_command: str) -> str:

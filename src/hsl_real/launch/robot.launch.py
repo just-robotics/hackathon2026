@@ -4,10 +4,11 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, EmitEvent
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from hsl_real.config import load_config, start_polygon
+from hsl_real.hardware import hardware_nodes
 
 
 def nodes(context):
@@ -22,28 +23,7 @@ def nodes(context):
         node = Node(package=package, executable=executable, output='screen',
                     parameters=[{'use_sim_time': False}] + (parameters or []), **kwargs)
         processes.append(node)
-    def static(parent, child, pose):
-        x,y,z,roll,pitch,yaw = pose
-        add('tf2_ros','static_transform_publisher', arguments=[
-            '--x',str(x),'--y',str(y),'--z',str(z),'--roll',str(roll),
-            '--pitch',str(pitch),'--yaw',str(yaw),'--frame-id',parent,'--child-frame-id',child])
-    if drivers:
-        add('kobuki_node','kobuki_ros_node', parameters=[{
-            'device_port':cfg['kobuki_port'], 'odom_frame':'odom', 'base_frame':'base_footprint',
-            'publish_tf':True, 'use_imu_heading':True, 'acceleration_limiter':False,
-            'cmd_vel_timeout_sec':.6}], remappings=[('commands/velocity','/cmd_vel'),('odom',cfg['odom_topic'])])
-        add('livox_ros_driver2','livox_ros_driver2_node', name='livox_lidar_publisher',
-            parameters=[{'xfer_format':0, 'multi_topic':0, 'data_src':0, 'publish_freq':10.,
-                         'output_data_type':0, 'frame_id':'livox', 'user_config_path':cfg['livox_config'],
-                         'lvx_file_path':'', 'cmdline_input_bd_code':'livox0000000001'}],
-            remappings=[('/livox/lidar',cfg['lidar_topic'])])
-    description = Path(get_package_share_directory('kobuki_description'))/'urdf/kobuki_standalone.urdf.xacro'
-    add('robot_state_publisher','robot_state_publisher', parameters=[{'robot_description':Command(['xacro ',str(description)])}],
-        remappings=[('joint_states','/joint_states')])
-    static('base_link','livox',cfg['lidar_mount'])
-    if cfg['localization'] == 'odometry':
-        x,y,yaw = mission['robot']['start']
-        static('map','odom',[x,y,0.,0.,0.,yaw])
+    processes.extend(hardware_nodes(cfg,mission,drivers=drivers))
     add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':cfg['lidar_topic']}])
     add('hsl_perception','opponent_detector', parameters=[{'opponent_max_height':float(mission['perception']['opponent_max_height'])}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,

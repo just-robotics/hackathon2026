@@ -5,7 +5,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.real
       args:
-        BASE_IMAGE: ${IMAGE:-jr_image:latest}
+        BASE_IMAGE: ${REAL_BASE_IMAGE:-nickodema/kobuki:humble-22.04-100625@sha256:2034fe21fbe8aae8677191967ec9c4fc168a1337ada7bb1913a642b92f2b8619}
     network_mode: host
     ipc: host
     privileged: true
@@ -14,9 +14,15 @@ services:
       ROS_DOMAIN_ID: ${HSL_REAL_DOMAIN_ID:-26}
       RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
       DISPLAY: ${DISPLAY:-}
+    labels:
+      org.hsl.real.mode: ${HSL_REAL_MODE:-autonomous}
+      org.hsl.real.data_dir: ${HSL_REAL_DATA_DIR:-../recordings}
+      org.hsl.real.session: ${HSL_REAL_SESSION:-}
     volumes:
       - /dev:/dev
+      - ${HSL_REAL_DATA_DIR:-../recordings}:/records
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${HSL_REAL_CONFIG_DIR:-../config}:/config:ro
-    command: [bash, -lc, 'source /autoware/install/setup.bash && source /drivers/install/setup.bash && exec ros2 launch hsl_real robot.launch.py config_file:=/config/${HSL_REAL_CONFIG_NAME:-real.yaml}']
-    stop_grace_period: 5s
+    command: [bash, -lc, 'source /solution/install/setup.bash && exec ros2 launch hsl_real ${HSL_REAL_LAUNCH:-robot.launch.py} config_file:=/config/${HSL_REAL_CONFIG_NAME:-real.yaml} ${HSL_REAL_LAUNCH_ARGS:-}']
+    stop_signal: SIGINT
+    stop_grace_period: 90s

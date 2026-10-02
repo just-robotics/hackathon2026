@@ -1,4 +1,0 @@
-[submodule "src/lio_sam_src"]
-	path = src/lio_sam_src
-	url = https://github.com/artem-kondratew/mpc_motion_control.git
-	branch = main

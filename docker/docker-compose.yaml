@@ -19,8 +19,7 @@ services:
 
     # Локализация идёт из симулятора: плагин gazebo_ros_p3d в URDF публикует
     # точную позу модели в /localization/pose и TF map -> base_footprint.
-    # Отдельный сервис для этого не нужен; здесь останется место под LIO-SAM,
-    # когда он будет включён (jr_localization.launch.xml уже готов).
+    # Отдельный сервис для этого не нужен; localization — резервный профиль.
     localization:
         command: $CMD "sleep infinity"
         extends:

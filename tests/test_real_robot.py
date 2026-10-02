@@ -60,3 +60,39 @@ def test_selected_driver_workspace_has_unique_ros_packages():
     packages=[ET.parse(p).getroot().findtext('name') for p in (ROOT/'drivers/src').rglob('package.xml')]
     assert len(packages)==len(set(packages))==5
     assert 'kobuki_node' in packages and 'livox_ros_driver2' in packages
+
+
+def test_record_config_keeps_raw_sensor_topics(tmp_path):
+    from hsl_real.config import load_recording
+    path=tmp_path/'recording.yaml'
+    path.write_text((ROOT/'config/recording.yaml').read_text())
+    cfg=load_recording(path)
+    assert {'/livox/lidar','/livox/imu','/odom','/tf_static'}<=set(cfg['bag_topics'])
+
+
+@pytest.mark.parametrize('key,value',[('keyboard_timeout_s',0),('keyboard_timeout_s',float('nan')),
+    ('bag_topics',['/odom','/odom']),('bag_topics',['relative'])])
+def test_record_config_rejects_bad_contract(tmp_path,key,value):
+    from hsl_real.config import load_recording
+    cfg=yaml.safe_load((ROOT/'config/recording.yaml').read_text())
+    cfg[key]=value
+    path=tmp_path/'recording.yaml';path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError):load_recording(path)
+
+
+def test_stop_bag_uses_running_session_without_reading_config(monkeypatch,tmp_path):
+    import importlib.util
+    from types import SimpleNamespace
+    spec=importlib.util.spec_from_file_location('real_robot_record',ROOT/'tools/real_robot.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    monkeypatch.setattr(sys,'argv',['real_robot','stop','--config',str(tmp_path/'missing.yaml')])
+    calls=[]
+    def run(args,**kw):
+        calls.append((args,kw))
+        if 'ps' in args:return SimpleNamespace(stdout='example-container\n')
+        if 'inspect' in args:return SimpleNamespace(stdout='[{"Config":{"Labels":{"org.hsl.real.mode":"bag","org.hsl.real.session":"test"}}}]')
+        return SimpleNamespace(stdout='')
+    monkeypatch.setattr(module.subprocess,'run',run)
+    with pytest.raises(SystemExit):module.main()  # mock service success cannot replace an actual output file
+    assert any('python3 - pause' in ' '.join(command) for command,_ in calls)
+    assert any('stop' in command and '90' in command for command,_ in calls)

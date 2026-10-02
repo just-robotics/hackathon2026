@@ -1,14 +1,35 @@
-ARG BASE_IMAGE=jr_image:latest
+# HSL25 organizer container, from the provided kobuki/docker/Dockerfile.
+ARG BASE_IMAGE=nickodema/kobuki:humble-22.04-100625@sha256:2034fe21fbe8aae8677191967ec9c4fc168a1337ada7bb1913a642b92f2b8619
 FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-humble-ecl-core ros-humble-ecl-tools ros-humble-ecl-console ros-humble-ecl-mobile-robot ros-humble-diagnostic-updater \
-    ros-humble-robot-state-publisher ros-humble-joint-state-publisher \
-    ros-humble-nav2-map-server ros-humble-nav2-lifecycle-manager libapr1-dev \
+    build-essential cmake python3-colcon-common-extensions python3-yaml python3-numpy \
+    ros-humble-rmw-cyclonedds-cpp ros-humble-ecl-core ros-humble-ecl-tools \
+    ros-humble-ecl-console ros-humble-ecl-mobile-robot ros-humble-diagnostic-updater \
+    ros-humble-robot-state-publisher ros-humble-joint-state-publisher ros-humble-xacro \
+    ros-humble-nav2-mppi-controller ros-humble-nav2-controller \
+    ros-humble-nav2-map-server ros-humble-nav2-lifecycle-manager ros-humble-rviz2 \
+    ros-humble-teleop-twist-keyboard ros-humble-rosbag2-storage-mcap libapr1-dev \
     && rm -rf /var/lib/apt/lists/*
-COPY drivers/src /drivers/src
-WORKDIR /drivers
-RUN source /autoware/install/setup.bash && colcon build --symlink-install \
-    --cmake-args -DCMAKE_BUILD_TYPE=Release
-RUN echo 'source /drivers/install/setup.bash' >> /root/.bashrc
-WORKDIR /autoware
+# Provided hardware packages, with their original licenses. SDK2 is in the base.
+COPY drivers/src /workspace/src
+WORKDIR /workspace
+RUN source /opt/ros/humble/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
+    colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+# Build the same autonomous implementation, without Gazebo/Autoware or SLAM.
+COPY src/hsl_interfaces /solution/src/hsl_interfaces
+COPY src/hsl_decision /solution/src/hsl_decision
+COPY src/hsl_planning /solution/src/hsl_planning
+COPY src/hsl_perception /solution/src/hsl_perception
+COPY src/hsl_nav2_control /solution/src/hsl_nav2_control
+COPY src/hsl_debug_control /solution/src/hsl_debug_control
+# Shared cloud/grid utilities are imported by real_observations; no simulator nodes run.
+COPY src/hsl_sim_adapter /solution/src/hsl_sim_adapter
+COPY src/hsl_real /solution/src/hsl_real
+WORKDIR /solution
+RUN source /workspace/install/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
+    colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+RUN echo 'source /solution/install/setup.bash' >> /root/.bashrc
+CMD ["bash"]

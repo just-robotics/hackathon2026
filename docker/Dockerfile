@@ -80,19 +80,6 @@ RUN apt-get update -y && \
       unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# GTSAM -- зависимость lio_sam (факторный граф). В apt для jammy его нет,
-# ставим из PPA borglab. Сам lio_sam сейчас не собирается (локализация идёт из
-# симулятора), но GTSAM оставлен, чтобы включение LIO-SAM не требовало
-# пересборки половины образа.
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends software-properties-common && \
-    add-apt-repository -y ppa:borglab/gtsam-release-4.1 && \
-    apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-      libgtsam-dev \
-      libgtsam-unstable-dev && \
-    rm -rf /var/lib/apt/lists/*
-
 # sensing dependencies
 RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/livox_sdk && \
     mkdir /tmp/livox_sdk_build && \
@@ -116,7 +103,7 @@ RUN apt-get update -y && \
 
 COPY src ${WORKDIR}/src
 
-RUN source ${SOURCE} && colcon build --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release
+RUN source ${SOURCE} && CMAKE_BUILD_PARALLEL_LEVEL=1 colcon build --parallel-workers 2 --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release
 
 
 RUN echo "source ${SOURCE}" >> /root/.bashrc && \

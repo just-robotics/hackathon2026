@@ -11,3 +11,7 @@ results/series-*/
 results/isolated/
 results/manual-*/
 results/real-bringup-*/
+results/real-bag-check-*/
+recordings/
+
+results/real-record-check-*/

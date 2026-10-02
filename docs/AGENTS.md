@@ -79,8 +79,10 @@ pause_real/stop_real/logs_real/status_real/enter_real. start_real оставля
 Конфиг real.yaml + Livox JSON, mission_file ссылается на match YAML. Wheel odom
 привязан к robot.start; без карты static layer выключен и detector не работает.
 Не использовать симуляционный truth/map/referee в real. Детали и ограничения —
-REAL_ROBOT.md. Driver build отдельный /drivers overlay; основной src/ не
-содержит дублированный Livox пакет. Исходная hsl25-master убрана из корня.
+REAL_ROBOT.md. Real образ основан на nickodema/kobuki:humble-22.04-100625
+из HSL25, независимо от jr_image/Autoware. Драйверы в /workspace, решение
+в /solution; build_real не собирает симуляцию. Основной src/ не содержит
+дублированный Livox пакет. Исходный комплект сохранён вне рабочего дерева.
 
 ## Правила работы
 
@@ -222,3 +224,14 @@ DecisionPolicy/PURSUE теперь принимает own_max_speed из motion.
 возможность движения, не cap наблюдаемой скорости соперника и не обещание
 фактической постоянной скорости. Intent speed fields/controller tuning
 в этом цикле не изменены; физический эффект нужно проверить отдельно.
+
+## Ручная запись real bag
+
+start_real_bag_record использует тот же Compose hsl-real/real,
+без автономных command publishers. Источник cmd_vel — real_manual_gate,
+teleop remapped в real/keyboard_cmd_vel и ограничен watchdog. stop_real
+определяет режим по labels работающего контейнера, сначала закрывает движение,
+затем SIGINT и штатное завершение bag с проверкой metadata.yaml.
+Результаты в уникальных recordings/. Сценарий карты, FAST-LIO, LIO-SAM,
+Git-подмодули и их launch/config удалены по запросу пользователя.
+Локализация real пока wheel odom; новая локализация не заявляется готовой.

@@ -67,3 +67,20 @@ def start_polygon(side):
     x, y, _ = side['start']
     h = float(side['start_area_half_size'])
     return [x-h, y-h, x+h, y-h, x+h, y+h, x-h, y+h]
+
+
+def load_recording(path):
+    path=Path(path).resolve()
+    cfg=yaml.safe_load(path.read_text())
+    fields={'bag_topics','keyboard_timeout_s'}
+    if not isinstance(cfg,dict) or set(cfg)!=fields:
+        raise ValueError('recording.yaml fields must be '+str(sorted(fields)))
+    topics=cfg['bag_topics']
+    if not isinstance(topics,list) or not topics or len(topics)!=len(set(topics)) or any(not isinstance(t,str) or not t.startswith('/') for t in topics):
+        raise ValueError('bag_topics must be unique absolute names')
+    for key in ('keyboard_timeout_s',):
+        value=cfg[key]
+        if type(value) not in (int,float) or not isfinite(value) or value<=0:
+            raise ValueError(key+' must be positive finite')
+        cfg[key]=float(value)
+    return cfg

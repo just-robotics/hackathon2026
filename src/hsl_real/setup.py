@@ -9,4 +9,5 @@ setup(name='hsl_real', version='0.1.0', packages=['hsl_real'],
       maintainer='Just Robotics', maintainer_email='dev@just-robotics.ru',
       description='Real robot integration', license='Apache-2.0',
       entry_points={'console_scripts': ['real_observations=hsl_real.observations:main',
-                                       'real_match=hsl_real.match:main']})
+                                       'real_match=hsl_real.match:main',
+                                       'real_manual_gate=hsl_real.manual:main']})

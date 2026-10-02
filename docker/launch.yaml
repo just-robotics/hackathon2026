@@ -13,14 +13,6 @@ build:
   commands:
     - "docker compose --profile __placeholder_1__ build"
 
-submodules:
-  desc: "Подключить/обновить подмодули с ROS-пакетами из submodules.yaml"
-  # без имен подключаются все подмодули, поэтому хвост необязательный
-  long_command: true
-  optional_tail: true
-  commands:
-    - "python3 __submodules_script__ __placeholder_1__"
-
 start:
   desc: "Свежий матч из config/match.yaml (алиас start_match)"
   commands:
@@ -153,3 +145,8 @@ enter_real:
   desc: "Терминал реального робота"
   commands:
     - "python3 ../tools/real_robot.py shell"
+
+start_real_bag_record:
+  desc: "Драйверы, запись MCAP и управление клавиатурой"
+  commands:
+    - "python3 ../tools/real_robot.py bag"

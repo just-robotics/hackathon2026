@@ -529,32 +529,32 @@ def test_argument_parser_1():
 
 
 def test_optional_tail_1():
-    """Пустой хвост разрешен, если команда это допускает (helm submodules)"""
+    """Пустой хвост разрешен, если команда это допускает (команда с optional_tail)"""
     c = command.Command()
-    c.name = "submodules"
+    c.name = "optional_example"
     c.long_command = True
     c.optional_tail = True
 
     parser = arguments.register_arguments([c])
-    args = parser.parse_args(["submodules"])
+    args = parser.parse_args(["optional_example"])
     placeholders = arguments.parse_placeholders(args, c.optional_tail)
 
-    assert args.cmd == "submodules"
+    assert args.cmd == "optional_example"
     assert placeholders == [""]
 
 
 def test_optional_tail_2():
     """Непустой хвост собирается в один параметр"""
     c = command.Command()
-    c.name = "submodules"
+    c.name = "optional_example"
     c.long_command = True
     c.optional_tail = True
 
     parser = arguments.register_arguments([c])
-    args = parser.parse_args(["submodules", "mpc_motion_control"])
+    args = parser.parse_args(["optional_example", "example"])
     placeholders = arguments.parse_placeholders(args, c.optional_tail)
 
-    assert placeholders == ["mpc_motion_control"]
+    assert placeholders == ["example"]
 
 
 def test_optional_tail_3():
@@ -574,14 +574,15 @@ def test_optional_tail_3():
         assert ex.code == 1
 
 
-def test_resolve_scripts_1():
+def test_resolve_scripts_1(monkeypatch):
     """Плейсхолдер скрипта заменяется на существующий путь"""
     import os
 
-    resolved = command.resolve_scripts("python3 __submodules_script__")
+    monkeypatch.setattr(command, "SCRIPTS", {"__example_script__": "misc.py"})
+    resolved = command.resolve_scripts("python3 __example_script__")
 
-    assert "__submodules_script__" not in resolved
-    assert resolved.endswith("submodules.py")
+    assert "__example_script__" not in resolved
+    assert resolved.endswith("misc.py")
     assert os.path.exists(resolved.split(" ", 1)[1])
 
 

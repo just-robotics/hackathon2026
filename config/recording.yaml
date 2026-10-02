@@ -1,0 +1,12 @@
+bag_topics:
+- /odom
+- /livox/lidar
+- /livox/imu
+- /tf
+- /tf_static
+- /joint_states
+- /cmd_vel
+- /sensors/imu_data
+- /sensors/core
+- /diagnostics
+keyboard_timeout_s: 0.6

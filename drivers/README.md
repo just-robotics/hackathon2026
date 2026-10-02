@@ -11,11 +11,12 @@
 | kobuki_description | URDF Kobuki и TF корпуса |
 | livox_ros_driver2 | Предоставленная версия драйвера Mid-360 |
 
-Собираются в отдельном `/drivers` workspace через `docker/Dockerfile.real`.
-Основной `src/` содержит наш автономный стек и `hsl_real` — интеграцию с ним.
-Livox из `/drivers/install` перекрывает версию из базового образа; в реальном
-launch запускается ровно один драйвер LiDAR. Команда `helm build_real`
-собирает оба образа. Подробная инструкция: [REAL_ROBOT.md](../docs/REAL_ROBOT.md).
+Собираются в `/workspace` через `docker/Dockerfile.real` на базе образа из
+предоставленного HSL25 Dockerfile: `nickodema/kobuki:humble-22.04-100625`.
+Livox SDK2 уже установлен в нём. Основной `src/` содержит наш автономный стек
+и `hsl_real`; они собираются отдельным overlay `/solution` в том же образе.
+Реальный launch запускает ровно один драйвер LiDAR. `helm build_real`
+собирает только реальный образ и не зависит от симуляционного Autoware. Подробная инструкция: [REAL_ROBOT.md](../docs/REAL_ROBOT.md).
 
 `udev/30-kobuki.rules` создаёт `/dev/kobuki`. IP и mounting из комплекта HSL25
 вынесены в `config/livox_mid360.json` и `config/real.yaml`, а не зашиты в launch.

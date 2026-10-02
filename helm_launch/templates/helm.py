@@ -76,7 +76,7 @@ def main():
         parser.print_help()
         return 1
 
-    # часть команд допускает пустой хвостовой placeholder (helm submodules)
+    # часть команд допускает пустой хвостовой placeholder (команда с optional_tail)
     optional_tail = any(c.name == args.cmd and c.optional_tail for c in commands)
     placeholders = arguments.parse_placeholders(args, optional_tail)
 

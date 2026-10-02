@@ -2,6 +2,133 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — разделение симуляционного и организационного real образов
+
+Последнее указание пользователя заменяет прежний план картографии:
+на роботе остаются только автономный start_real и start_real_bag_record.
+Сценарий карты и SLAM не требуются. Симуляционный start_match/duel сохранён.
+
+Добавленный комплект HSL25 содержит Dockerfile с базой
+nickodema/kobuki:humble-22.04-100625. Образ получен, digest
+2034fe21fbe8aae8677191967ec9c4fc168a1337ada7bb1913a642b92f2b8619
+закреплён. В базе есть ROS2 Humble и Livox SDK2, workspace отсутствует:
+нужно собрать предоставленные драйверы. Сравнение kobuki_core/kobuki_node/
+livox_ros_driver2 из нового архива с drivers/src не выявило различий.
+Полный исходный архив сохранён вне дерева в
+/tmp/hsl25-provided-20261002-container; лицензии нужных пакетов в drivers/src.
+
+Dockerfile.real теперь собирает drivers/src в /workspace и наше решение
+в /solution на организационной базе, без зависимости от jr_image/Autoware.
+build_real собирает только real образ. Compose и control/teleop используют
+/solution/install/setup.bash. hsl_sim_adapter включён ради общих cloud/grid
+утилит; симуляционные узлы не запускаются. В start_real сохранены MPPI,
+wheel odom, запрет до enable, проверки готовности и остановка по таймауту.
+
+Удалены LIO-SAM gitlink/.gitmodules, команда и скрипт submodules, конфиг
+подмодулей, GTSAM/PPA из симуляционного Dockerfile, старые LIO launch/config,
+FAST-LIO, map_session, map_record и их настройки. recording.yaml теперь
+содержит только bag_topics и keyboard_timeout_s. История ниже описывает
+прежние версии и не является инструкцией текущего запуска.
+
+Проверки на новой базе (domain95, drivers_disabled=true, без оборудования):
+- финальный jr_real_image:latest — sha256:abc55856e4bb0d3b163e0a18919cc8f1dea190d19fad7d57b1fa998db4505c15 (~4.29GB);
+  runtime-проверки выполнены на предшествующем образе7f166149 с тем же кодом
+  (финальная пересборка меняет только docstring record.launch); автономный transport audit подтвердил все8 проверок:
+  native_ready, pose/scan в map, нулевые команды до enable, команды после
+  enable, стоп на stale scan, стоп после12с активного этапа, один final publisher;
+- manual audit: один real_manual_gate, cap0.5м/с и1.5рад/с, нули после watchdog;
+- настоящая PTY teleop запущена, приняла i/k/Ctrl+C;
+- replay static_1m из HSL26-ros2_bags: сохранены все99 облаков/1992 IMU,
+  1922 cmd_vel и3 staticTF. MCAP50MiB,4016 сообщений,96.035с wall записи;
+- stop_real закрывает шлюз, все5 процессов завершены cleanly, контейнер exit0,
+  metadata.yaml создан штатно, session.final_export_confirmed=true,
+  ros2 bag info читает запись; библиотеки обоих драйверов найдены;
+-172 теста прошли, оба Compose config валидны, compileall/diff-check успешны;
+  helm help содержит оба real режима, без map_record/submodules.
+
+Команды проверки: tools/real_robot.py start|bag --drivers-disabled
+(--no-keyboard для фонового replay); tools/real_robot.py enable|stop.
+HSL_REAL_CONFIG=/tmp/hsl-organizer-config/real.yaml; ROS domain95,
+HSL_REAL_DATA_DIR=results/real-record-check-20261002/organizer/sessions.
+Артефакты: results/real-record-check-20261002/organizer/ (ignored).
+Физическая база и LiDAR не подключены: hardware IO, wheel odom запись и
+реальная езда не подтверждены. Следующий шаг — подключить оборудование,
+проверить /odom, /livox/lidar, /livox/imu и TF, снять bag через штатные команды.
+Без статической карты detector соперника остаётся неработоспособным;
+новая локализация не добавлена. Симуляционный образ не пересобирался в этом
+цикле; алгоритмы дуэли не менялись.
+
+## 02.10.2026 — приоритет записи bag; картография отложена пользователем
+
+Последнее указание: довести только start_real_bag_record, сценарий карты
+дальше не менять. Локализация по будущей карте нужна внутри start_real позже.
+Добавлены ручной шлюз (один final cmd_vel publisher), MCAP recorder,
+внешний recording.yaml, уникальные recordings/<UTC>-bag, копии конфигов,
+manifest и остановка по режиму работающего контейнера. Автономные decision,
+planner, MPPI в записи не запускаются. Пределы ручной скорости — из mission
+motion; клавиатура remapped в real/keyboard_cmd_vel, timeout0.6с.
+
+Выявлен реальным тестом дефект остановки: Docker SIGTERM завершал launch
+без metadata.yaml. Первый MCAP сохранён и восстановлен ros2 bag reindex,
+этот тест не считается доказательством штатного сохранения. Исправление:
+Compose stop_signal=SIGINT, grace90с; сначала manual_allow_motion=false,
+после выхода проверяется фактическое наличие metadata.yaml. Во втором тесте
+metadata создан штатно, ros2 bag info прочитал MCAP50MiB,99 облаков/1992 IMU
+(весь static_1m источник),2025 cmd_vel/3 static TF. Проверка replay/domain94,
+drivers_disabled=true: USB/физический проезд не проверены. Wheel odom/dynamic
+TF в исходном bag отсутствуют, их запись настоящими драйверами пока не доказана.
+
+PTY teleop стартовал и принял i/k/Ctrl+C. Отдельный ROS audit подтвердил
+единственный final publisher real_manual_gate, cap0.5м/с и1.5рад/с,
+последующие нулевые команды после прекращения входа. Исправлена попытка
+publish после закрытия контекста при SIGINT; исправленный console executable
+проверен SIGINT и завершился exit0 без traceback. Ранее проверка через
+standalone ros2 run wrapper не передала сигнал дочернему узлу и закончилась
+SIGKILL; она не считается проверкой шлюза. Рабочий сценарий запускается через
+ROS launch, его штатное закрытие recorder подтверждено вторым bag тестом.
+Модульные/CLI проверки:172 passed; Compose config/compileall/diff-check успешны.
+Артефакты results/real-record-check-20261002/, не коммитятся.
+
+Карта: до последнего уточнения добавлены FAST-LIO2 исходники src/fast_lio,
+точные Livox timestamps, scaffold map launch/session. Static replay ранее
+дал96 поз,spanXYZ2.83/5.04/2.29мм. Первый export оказался пустым из-за
+закомментированного upstream накопления; накопление исправлено, но финальное
+построение/экспорт карты ещё НЕ подтверждены. Не объявлять map сценарий готовым.
+Дальнейшая его отладка остановлена пользователем. Сохранённый LIO-SAM
+подмодуль остаётся optional; основная автономная локализация остаётся wheel odom.
+
+## 02.10.2026 — смена кандидата картографии по уточнению пользователя
+
+Пользователь остановил подключение LIO-SAM и разрешил выбрать более подходящую
+систему. Выбран кандидат FAST-LIO2 (Ericsii ROS2/2fffc570), изучены IMU init,
+Mid360 PointCloud2 preprocessing и map_save. Готовый quaternion не требуется,
+но upstream mid360 handler вычисляет время по азимуту вместо нашего timestamp:
+это нужно исправить до replay. Нет встроенной relocalization по сохранённой
+карте и loop closure; эти задачи остаются явно отдельными. Сравнение, источники
+и следующий цикл — историческое сравнение SLAM (кандидаты позже удалены).
+Начатая LIO-SAM сборка остановлена, непроверенные LIO файлы/настройки убраны
+из launch/сборки и сохранены в /tmp/hsl-lio-attempt-20261002. Старый подмодуль
+src/lio_sam_src и helm submodules lio_sam сохранены. FAST-LIO пока не добавлен
+в образ; команды bag/map записи ещё в работе. Основной real режим не менялся.
+
+## 02.10.2026 — проверка реального bag для LIO-SAM
+
+По запросу пользователя полностью прочитан static_1m из HSL26-ros2_bags:
+99 PointCloud2 (10Гц),1992 IMU (200Гц),один static TF,17 rosout; нет wheel
+odom/dynamic TF. Проверка read-only, без запуска робота/SLAM. Сравнение с
+LIO-SAM из mpc_motion_control main/ac4ec563 выявило несовместимые line/timestamp
+против ring/time, абсолютные наносекунды, line0..3 против N_SCAN1, IMU масштаб
+около1g против gravity9.80665 старого YAML, livox против livox_frame без связи.
+В этом bag quaternion всех IMU единичный, не нулевой; прежнее предположение
+о нулевом quaternion к данной записи неприменимо. Статика не доказывает
+корректную ориентацию при движении. Файл полностью читается несмотря на
+предупреждение MCAP об отсутствии индексов. Исходные bags не изменены.
+Подробности, команда, артефакты и следующий шаг:
+аудит results/real-bag-check-20261002/static-1m-audit.json.
+LIO-SAM пока не подключён, качество карты не подтверждено. Незавершённая
+работа над bag/map recording остаётся в дереве: общий hardware.py/рефакторинг robot.launch.py; промежуточный recording.yaml
+сохранён вне дерева при смене SLAM. Команды записи пока не реализованы.
+
 ## 02.10.2026 — отдельный запуск реального Kobuki/Mid-360
 
 По запросу пользователя перенос HSL25 выполнен: пять нужных пакетов в
