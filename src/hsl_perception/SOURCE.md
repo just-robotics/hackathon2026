@@ -29,3 +29,8 @@ Additional simulation confidence checks in the adapter (not in source files):
   for a circular body is about 99%; 95% permits a few outliers.
 The real launch retains defaults 0/true/0 until hardware checks. These checks
 reduce initial detections under occlusion; they are not a semantic classifier.
+
+Real sensor_frame is configurable and set to livox to match hardware TF.
+A separate upstream real_lidar_filter removes measured near shadows of the
+four own rods and low-confidence Livox returns before AMCL/navigation.
+Source segmentation.py/tracker.py are unchanged.

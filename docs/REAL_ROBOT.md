@@ -11,7 +11,9 @@
 
 ```text
 Kobuki USB → /odom → map-поза → decision → global planner → Nav2 MPPI → gate → /cmd_vel → Kobuki
-Livox Ethernet → /livox/lidar → cloud в map → planner / MPPI / detector
+Livox → /livox/lidar → real_lidar_filter → /sensing/lidar/points_filtered
+                                            ├→ LaserScan → AMCL
+                                            └→ cloud в map → planner / MPPI / detector
 ```
 
 Все узлы работают по системному времени (`use_sim_time=false`). Gazebo,
@@ -82,6 +84,7 @@ LiDAR задаётся в `lidar_configs[].ip`. Host networking контейне
 | livox_config | JSON сетевых настроек LiDAR |
 | lidar_mount | `[x,y,z,roll,pitch,yaw]` от base_link до livox; метры/радианы |
 | localization | `amcl` по умолчанию; `odometry` без коррекции или `external_tf` |
+| lidar_filter_file | `lidar_filter.yaml`: фильтрация собственных штанг и низкой уверенности Livox |
 | localization_file | `localization.yaml`, параметры AMCL/среза/готовности |
 | odom_topic / lidar_topic | Входные топики драйверов |
 | map_file | `maps/maze_bag_v1.yaml`, статическая карта Nav2 |
@@ -174,7 +177,8 @@ ros2 topic info /cmd_vel --verbose
 helm enable_real
 ```
 
-Команда ждёт готовности MPPI, свежих pose/scan, незавершённого этапа и проверяет
+Команда ждёт готовности MPPI, свежих pose/scan и обработки облаков детектором,
+готовой локализации и незавершённого этапа; проверяет
 единственного publisher `/cmd_vel` (`hsl_motion_gate`). Затем выдаёт разрешение.
 Kobuki подписан на этот же `/cmd_vel` через remap `commands/velocity`.
 Сценарного патруля и teleop в этом запуске нет.
@@ -324,7 +328,10 @@ docker run --rm -v "$PWD/recordings:/records:ro" --entrypoint bash jr_real_image
 Каждый `helm start_real` создаёт `recordings/<UTC>-autonomous/`, сохраняет
 миссию, hardware/localization конфиги и карту, пишет MCAP с исходным Livox,
 odom/TF, AMCL, localization ready/status, собственным/чужим треком, intent,
-глобальной/локальной траекторией, MPPI/planning диагностикой, match и cmd_vel.
+глобальной/локальной траекторией, MPPI/planning/detector диагностикой, match и cmd_vel.
+После пересборки текущей версии записываются также navigation/scan,
+obstacle_scan, obstacle_grid и obstacle_filter_diagnostics: можно сравнивать
+сырой LiDAR с тем, что действительно использовал планировщик.
 После заезда используйте `helm stop_real`, чтобы завершить metadata.yaml.
 В консоли печатается каталог сессии. При следующем старте старая сессия
 сначала штатно останавливается. Это позволяет разбирать recovery/стены/финиш
@@ -346,3 +353,42 @@ permission; decision также запоминает достижение. Шу�
 В текущем `real_match.yaml` старты `[0.5,0.5,0]` и `[0.5,3.5,0]`,
 активное время 600 с. Перед запуском задайте фактические позы.
 Для просмотра с ноутбука есть `tools/laptop_rviz/view_robot.sh` (ROS domain 26).
+
+## Фильтр собственных возвратов Mid-360
+
+`start_real` запускает `real_lidar_filter` до локализации и навигации.
+Он работает в координатах LiDAR без TF, чтобы готовность AMCL не блокировала
+его вход. Детектор получает TF для реального frame `livox`; в симуляции
+сохраняется `livox_frame`. Свежий `/navigation/detector_diagnostics` обязателен
+для `enable_real`; видеть соперника при старте не требуется.
+
+Параметры находятся во внешнем `config/lidar_filter.yaml`, путь задаётся
+`lidar_filter_file` в `real.yaml`. После изменения YAML достаточно перезапуска.
+Для текущего крепления из вечерних записей выделены четыре направления
+в LiDAR frame: ±15°, ±165°, полуширина 5°, ближняя дальность 0.45 м.
+Это предел измеренных помех, а не физический радиус базы: штанги стоят
+на границе штатной Kobuki. Исключаются возвраты в этих ближних секторах;
+дальние возвраты сохраняются. Также удаляются low/reserved confidence
+группы Livox tag; medium сохраняется, верхние reserved bits игнорируются.
+Сохраняются header, stamp и все поля оставшихся точек.
+
+Ограничение: реальный предмет в том же ближнем секторе также может потерять
+часть точек. При переносе/повороте LiDAR нужна повторная калибровка направлений.
+Это не разрешение уменьшать collision footprint или общий слепой радиус.
+Значение `self_occlusion_max_range: 0.0` выключает секторную маску для
+сравнения записей. Raw `/livox/lidar` не меняется и записывается в bag.
+
+В автономном bag теперь дополнительно сохраняются
+`/sensing/lidar/points_filtered` и `/sensing/lidar/filter_diagnostics`,
+а также filtered obstacle scan/grid. Ручной `start_real_bag_record`
+продолжает записывать сырые данные драйверов. Проверка внутри контейнера:
+
+```bash
+ros2 topic echo /sensing/lidar/filter_diagnostics --once
+ros2 topic echo /navigation/detector_diagnostics --once
+```
+
+После обновления кода: `helm stop_real`, `helm build_real`,
+`helm start_real`, затем `helm enable_real`. Вечерние баги проверены offline
+и в изолированном ROS replay; движение после исправления на оборудовании
+ещё не проверено.

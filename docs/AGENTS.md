@@ -281,3 +281,12 @@ known_grid, не независимый referee и не доказательст
 препятствий. Recorder также сохраняет behavior/indication; второго recorder нет.
 Real_match.yaml: старты[0.5,0.5,0] и[0.5,3.5,0], active_seconds600.
 Перед реальным запуском проверить фактические позы; simulation config независим.
+
+### Real LiDAR self-return filter
+
+Real raw cloud → real_lidar_filter → AMCL/real_observations. Параметры
+внешние config/lidar_filter.yaml; не увеличивать общий слепой радиус.
+Real detector sensor_frame=livox, simulation default=livox_frame.
+enable_real требует свежую обработку detector diagnostics, без требования
+видеть соперника. Raw cloud сохраняется в bag. Hardware движение после
+исправления ещё не подтверждено; см. REAL_ROBOT.md и PROJECT_STATUS.md.

@@ -2615,3 +2615,45 @@ results/obstacles-20261002/prepared-audit.json:4 коробки ready; все я
 чтобы не снижать RTF последующего пользовательского запуска. Для визуального
 осмотра без езды: python3 benchmarks/start_match.py --prepare-only.
 После подключения нового detector — пересборка и совместный start_match.
+
+## 02Oct evening — LiDAR filter checkpoint
+
+Три свежих real bags в hsl2026Extra/вечерняя_отладка/2031: permission
+выдавался, средняя активная скорость0.0147–0.0345м/с, detector diagnostics0.
+Детектор ожидал livox_frame, hardware TF публикует livox. Ближние возвраты
+четырёх собственных штанг у контура базы превращались в lethal costmap,
+MPPI часто отвергал первый шаг. Штанги на границе штатной Kobuki.
+
+Добавлены параметризованный real_lidar_filter до AMCL/real_observations и
+real sensor_frame=livox; enable требует свежую обработку detector.
+Маска в LiDAR frame: ±15°/±165°, полуширина5°, дальность≤0.45м.
+Дальние возвраты сохраняются. Также удаляется low/reserved confidence tag,
+medium остаётся. Raw cloud не меняется, сохраняется со всеми полями;
+filtered cloud/diagnostics записываются дополнительно. YAML внешний,
+конфиг копируется в session. См. REAL_ROBOT.md для запуска и ограничений.
+
+Полный raw replay2781 облака: near-cell облака1341→7, near cells1847→7;
+20 облаков пропущены из-за отсутствующего TF. Сохранено~97.45% точек.
+Это проверка входных клеток, не столкновений или фактической езды.
+Сектор может удалить часть близкого предмета; после смены крепления
+повторить калибровку. Footprint/swept checks не ослаблены.
+
+Изолированный stationary ROS replay15с в новом real image: detector diag
+0→25, MPPI ok245→282, optimizer failure22→0, swept21→6. Baseline тоже
+выдавал команды: полная исходная неподвижность snapshot не воспроизведена.
+Одновременно проверялись незакоммиченные shared-grid/profile изменения,
+поэтому это не отдельное доказательство эффективности только данного
+checkpoint. Артефакты local results/real-bags-evening-debug-20261002;
+replay-скрипты и расширенная отладка коробок пока в рабочем дереве.
+
+167 pytest passed,1 host skip; ROS serializer внутри real image passed
+(оба endian, organized row padding, сохранение всех полей/header).
+Real image051989790b7f88339b05676b4d3374060c5b26ab864bee007912df79d518432d
+собран с рабочим деревом, включая последующие незакоммиченные изменения.
+Compose/compileall/diff check пройдены. На оборудование не подключались.
+Замеры производительности не продолжать по просьбе пользователя.
+
+Следующий шаг: повторный real заезд после build_real/start_real/enable_real;
+затем продолжить распознавание и проезд коробок на bags/в симуляции.
+Фильтр+TF оформлены отдельным checkpoint; остальная отладка сохранена
+незакоммиченной, прежние успешные серии её не подтверждают.

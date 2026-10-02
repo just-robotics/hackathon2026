@@ -61,7 +61,8 @@ class OpponentDetector(Node):
         self.last_cloud = -math.inf
         self.pending = deque(maxlen=8)
         prefix = self.get_namespace().strip('/')
-        self.sensor_frame = (prefix+'/' if prefix else '')+'livox_frame'
+        self.sensor_frame = self.declare_parameter('sensor_frame',
+            (prefix+'/' if prefix else '')+'livox_frame').value
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.create_subscription(OccupancyGrid, 'navigation/known_grid', self.on_grid,

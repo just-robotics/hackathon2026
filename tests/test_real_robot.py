@@ -12,7 +12,7 @@ from hsl_real.config import load_config,start_polygon
 
 def fixture(tmp_path):
     cfg=yaml.safe_load((ROOT/'config/real.yaml').read_text())
-    for name in ('match.yaml','real_match.yaml','localization.yaml'):
+    for name in ('match.yaml','real_match.yaml','localization.yaml','lidar_filter.yaml'):
         shutil.copy2(ROOT/'config'/name,tmp_path/name)
     shutil.copytree(ROOT/'config/maps',tmp_path/'maps')
     (tmp_path/'livox_mid360.json').write_text((ROOT/'config/livox_mid360.json').read_text())

@@ -7,6 +7,7 @@ localization: amcl  # alternatively odometry or external_tf
 localization_file: localization.yaml
 odom_topic: /odom
 lidar_topic: /livox/lidar
+lidar_filter_file: lidar_filter.yaml
 # Approximate HSL25 mounting; verify on hardware. [x,y,z,roll,pitch,yaw].
 lidar_mount: [0.0, 0.0, 0.3, 0.0, 3.141592653589793, 1.5707963267948966]
 map_file: maps/maze_bag_v1.yaml

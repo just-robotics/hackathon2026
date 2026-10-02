@@ -83,6 +83,7 @@ def main():
             for file in (path,Path(cfg['mission_file']),Path(cfg['livox_config'])):
                 shutil.copy2(file,directory/file.name)
             if cfg.get('localization_file'):shutil.copy2(cfg['localization_file'],directory/'localization.yaml')
+            if cfg.get('lidar_filter_file'):shutil.copy2(cfg['lidar_filter_file'],directory/'lidar_filter.yaml')
             if cfg['map_file']:shutil.copytree(Path(cfg['map_file']).parent,directory/'maps')
             (directory/'session.json').write_text(json.dumps({'mode':'autonomous','created_utc':session,
                 'drivers_enabled':not args.drivers_disabled,'code_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),

@@ -24,8 +24,11 @@ def nodes(context):
                     parameters=[{'use_sim_time': False}] + (parameters or []), **kwargs)
         processes.append(node)
     processes.extend(hardware_nodes(cfg,mission,drivers=drivers))
-    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':cfg['lidar_topic'],'require_localization':cfg['localization']=='amcl'}])
-    add('hsl_perception','opponent_detector', parameters=[{'opponent_max_height':float(mission['perception']['opponent_max_height'])}])
+    add('hsl_real','real_lidar_filter', parameters=(
+        [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
+    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization']=='amcl'}])
+    add('hsl_perception','opponent_detector', parameters=[{'opponent_max_height':float(mission['perception']['opponent_max_height']),
+        'sensor_frame':'livox'}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
     add('hsl_planning','trajectory_planner',parameters=[{'role':role,'max_speed':speed,
@@ -43,7 +46,7 @@ def nodes(context):
     if cfg['localization']=='amcl':
         localization = cfg['localization_file']
         add('pointcloud_to_laserscan','pointcloud_to_laserscan_node',name='localization_scan',
-            parameters=[localization],remappings=[('cloud_in',cfg['lidar_topic']),('scan','/localization/scan')])
+            parameters=[localization],remappings=[('cloud_in','/sensing/lidar/points_filtered'),('scan','/localization/scan')])
         x,y,yaw = mission['robot']['start']
         add('nav2_amcl','amcl',name='amcl',parameters=[localization, {
             'initial_pose.x':x,'initial_pose.y':y,'initial_pose.z':0.,'initial_pose.yaw':yaw}],
@@ -64,11 +67,12 @@ def nodes(context):
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
+            '/navigation/self','/navigation/scan','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',
             '/native_mppi/costmap','/native_mppi/costmap_updates','/native_mppi/costmap_raw',
+            '/sensing/lidar/points_filtered','/sensing/lidar/filter_diagnostics',
             '/match/allowed','/match/active','/real/match_finished','/cmd_vel','/diagnostics']
         processes.append(ExecuteProcess(cmd=['ros2','bag','record','-s','mcap','-o',str(directory/'bag')]+topics,
             output='screen',sigterm_timeout='60',sigkill_timeout='10'))

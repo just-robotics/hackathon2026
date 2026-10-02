@@ -7,7 +7,7 @@ import time
 def main():
     import rclpy
     from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
-    from std_msgs.msg import Bool
+    from std_msgs.msg import Bool, String
     from sensor_msgs.msg import PointCloud2
     from nav_msgs.msg import Odometry
     from std_srvs.srv import SetBool
@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
     rclpy.init()
     node = rclpy.create_node('real_motion_control')
-    state = {'native':False,'pose':None,'scan':None,'finished':None,'localized':False,'localized_at':0.}
+    state = {'native':False,'pose':None,'scan':None,'finished':None,'localized':False,'localized_at':0.,'detector_stamp':None}
     qos = QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
     subscriptions = [node.create_subscription(Bool,'/navigation/native_ready',
         lambda m:state.update(native=m.data),qos),
@@ -28,6 +28,13 @@ def main():
         lambda m:state.update(finished=m.data),qos))
     subscriptions.append(node.create_subscription(Bool,'/localization/ready',
         lambda m:state.update(localized=m.data,localized_at=time.monotonic()),10))
+    def detector_diagnostics(message):
+        try:
+            state['detector_stamp'] = float(json.loads(message.data)['stamp_s'])
+        except (ValueError, KeyError, TypeError):
+            return
+    subscriptions.append(node.create_subscription(String,'/navigation/detector_diagnostics',
+        detector_diagnostics,10))
     client = node.create_client(SetBool,'/match/allow_motion')
     timeout = args.timeout if args.timeout is not None else (30 if args.action == 'enable' else 5)
     deadline = time.monotonic()+timeout
@@ -47,6 +54,9 @@ def main():
             if args.action=='enable' and args.require_localization and not (
                     state['localized'] and time.monotonic()-state['localized_at'] < 1.):
                 continue
+            if args.action=='enable' and not (state['detector_stamp'] is not None
+                    and 0 <= node.get_clock().now().nanoseconds*1e-9-state['detector_stamp'] <= 1.):
+                continue
             if args.action=='enable':
                 publishers = node.get_publishers_info_by_topic('/cmd_vel')
                 if len(publishers)!=1 or publishers[0].node_name!='hsl_motion_gate':
@@ -57,7 +67,7 @@ def main():
                 raise RuntimeError('Motion permission service failed')
             print(json.dumps({'action':args.action,'success':True,'message':future.result().message}))
             return
-        raise RuntimeError('Not ready: check driver logs, /odom, /livox/lidar, TF and native_ready; permission was not granted')
+        raise RuntimeError('Not ready: check driver logs, /odom, /livox/lidar, TF, native_ready and detector_diagnostics (real sensor_frame=livox); permission was not granted')
     finally:
         node.destroy_node();rclpy.shutdown()
 
