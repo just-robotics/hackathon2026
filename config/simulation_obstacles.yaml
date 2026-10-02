@@ -1,0 +1,16 @@
+# Gazebo-only fixtures, absent from polygon_rosbag.world and the static /map.
+# Poses are [x, y, yaw] in map; sizes are [length, width, height] in metres.
+enabled: true
+boxes:
+  - name: unknown_box_large
+    size: [0.40, 0.60, 0.20]
+    pose: [1.05, 1.20, 0.7853981633974483]
+  - name: unknown_box_small_1
+    size: [0.15, 0.15, 0.40]
+    pose: [1.05, 2.85, 0.0]
+  - name: unknown_box_small_2
+    size: [0.15, 0.15, 0.40]
+    pose: [1.20, 2.25, 1.5707963267948966]
+  - name: unknown_box_small_3
+    size: [0.15, 0.15, 0.40]
+    pose: [1.20, 1.80, 2.356194490192345]

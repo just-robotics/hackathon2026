@@ -18,4 +18,5 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+  <exec_depend>hsl_sim_adapter</exec_depend>
 </package>

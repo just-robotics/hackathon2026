@@ -133,7 +133,7 @@ services:
     # Изолированный сценарий двух роботов. Основной профиль simulation со
     # сенсорным стендом; автономная оценка выполняется только в duel.
     gazebo-duel:
-        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-polygon_rosbag} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:-0.032} spawn_y:=${DUEL_SPAWN_Y:--0.082} spawn_z:=${SPAWN_Z:-0.23} spawn_yaw:=${DUEL_SPAWN_YAW:-0} map_origin_x:=${MAP_ORIGIN_X:--0.468} map_origin_y:=${MAP_ORIGIN_Y:--0.582} opponent_x:=${OPPONENT_X:-0.032} opponent_y:=${OPPONENT_Y:-2.918} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-0.0} lidar_horizontal_samples:=${DUEL_LIDAR_HORIZONTAL_SAMPLES:-360} lidar_vertical_samples:=${DUEL_LIDAR_VERTICAL_SAMPLES:-16}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py obstacles_file:=/autoware/simulation_obstacles.yaml map:=${MAP:-polygon_rosbag} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:-0.032} spawn_y:=${DUEL_SPAWN_Y:--0.082} spawn_z:=${SPAWN_Z:-0.23} spawn_yaw:=${DUEL_SPAWN_YAW:-0} map_origin_x:=${MAP_ORIGIN_X:--0.468} map_origin_y:=${MAP_ORIGIN_Y:--0.582} opponent_x:=${OPPONENT_X:-0.032} opponent_y:=${OPPONENT_Y:-2.918} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-0.0} lidar_horizontal_samples:=${DUEL_LIDAR_HORIZONTAL_SAMPLES:-360} lidar_vertical_samples:=${DUEL_LIDAR_VERTICAL_SAMPLES:-16}"
         extends:
             file: common.yaml
             service: app
@@ -143,6 +143,7 @@ services:
             XAUTHORITY: /tmp/.xauthority
             QT_X11_NO_MITSHM: "1"
         volumes:
+            - ../config/simulation_obstacles.yaml:/autoware/simulation_obstacles.yaml:ro
             - /tmp/.X11-unix:/tmp/.X11-unix:rw
             - ${XAUTHORITY:-/dev/null}:/tmp/.xauthority:ro
         profiles:

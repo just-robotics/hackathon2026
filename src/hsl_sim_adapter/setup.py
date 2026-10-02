@@ -15,6 +15,7 @@ setup(
     entry_points={"console_scripts": [
         "sim_observations = hsl_sim_adapter.observations:main",
         "match_metrics = hsl_sim_adapter.match_metrics:main",
+        "spawn_obstacles = hsl_sim_adapter.spawn_obstacles:main",
         "duel_referee = hsl_sim_adapter.duel_referee:main",
     ]},
 )

@@ -122,7 +122,7 @@ def test_live_launch_can_wait_for_gazebo_to_appear(monkeypatch):
     # The launcher is alive but gzserver has not appeared yet.
     monkeypatch.setattr(runner.subprocess, 'run', lambda *a, **k: types.SimpleNamespace(returncode=1))
     monkeypatch.setattr(runner, 'command', lambda *a, **k: 'true\n')
-    readiness = iter([False, True, True, True, True])
+    readiness = iter([False, True, True, True, True, True])
     monkeypatch.setattr(runner, 'ready_topic', lambda *a, **k: next(readiness))
     runner.wait_ready({}, 100)
 

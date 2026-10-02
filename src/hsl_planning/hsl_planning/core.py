@@ -97,6 +97,7 @@ class VoxelWorld:
         self.obstacle_bins = {}
         self.obstacle_tree = None
         self.cell_clearance_cache = {}
+        self.edge_clearance_cache = {}
         self.map_bounds = None
 
     def cell(self, x, y):
@@ -126,7 +127,8 @@ class VoxelWorld:
         self.obstacle_bins.clear()
         raw_obstacles = []
         self.cell_clearance_cache.clear()
-        radius_cells = ceil(self.robot_radius / self.resolution)
+        self.edge_clearance_cache.clear()
+        radius_cells = ceil(self.robot_radius / self.resolution) + 1
         for x, y, z in self.static_points + self.scan_points:
             if not 0.08 <= z <= 0.60:
                 continue
@@ -137,7 +139,8 @@ class VoxelWorld:
             raw_obstacles.append((x, y))
             for ox in range(-radius_cells, radius_cells + 1):
                 for oy in range(-radius_cells, radius_cells + 1):
-                    if hypot(ox * self.resolution, oy * self.resolution) <= self.robot_radius:
+                    if hypot((vx+ox)*self.resolution-x,
+                             (vy+oy)*self.resolution-y) <= self.robot_radius:
                         self.occupied.add((vx + ox, vy + oy))
         if scan_origin:
             origin = self.cell(scan_origin.x, scan_origin.y)
@@ -181,6 +184,18 @@ class VoxelWorld:
             self.cell_clearance_cache[cell] = self.obstacle_clearance(
                 point.x, point.y, self.robot_radius + 0.15)
         return self.cell_clearance_cache[cell]
+
+    def edge_clearance(self, first, second):
+        key = tuple(sorted((first, second)))
+        if key not in self.edge_clearance_cache:
+            a,b = self.point(first),self.point(second)
+            steps = max(1,ceil(hypot(b.x-a.x,b.y-a.y)/.04))
+            points = [(a.x+(b.x-a.x)*i/steps,a.y+(b.y-a.y)*i/steps)
+                      for i in range(1,steps+1)]
+            self.edge_clearance_cache[key] = (float(min(self.obstacle_tree.query(points)[0]))
+                if self.obstacle_tree is not None else
+                min(self.obstacle_clearance(x,y) for x,y in points))
+        return self.edge_clearance_cache[key]
 
     def clear_line_3d(self, a, b, height=0.3):
         z_cell = round(height / self.resolution)
@@ -269,10 +284,12 @@ def astar(world, start, goal, opponent=None, clearance=0.0, weight=0.0,
                         world.hard_blocked(world.point(neighbor).x,
                                            world.point(neighbor).y)):
                     continue
-            if dx and dy and ((current[0] + dx, current[1]) in world.occupied
-                              or (current[0], current[1] + dy) in world.occupied):
-                continue
             p = world.point(neighbor)
+            # Adjacent inflated axis cells do not describe a diagonal swept
+            # disk. Check the actual edge against raw geometry instead.
+            if world.edge_clearance(current, neighbor) < world.robot_radius:
+                if not source_blocked or current != source:
+                    continue
             if not world.inside_map(p.x, p.y, world.robot_radius + 0.1):
                 continue
             threat = opponent_cost(p.x, p.y, opponent, clearance, weight)

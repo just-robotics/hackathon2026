@@ -90,6 +90,7 @@ public:
       prefix.substr(1) + "/base_footprint");
     overrides.emplace_back("obstacle_layer.cloud.sensor_frame",
       prefix.empty() ? "base_footprint" : prefix.substr(1) + "/base_footprint");
+    overrides.emplace_back("static_layer.map_topic", prefix + "/navigation/obstacle_grid");
     overrides.emplace_back("obstacle_layer.cloud.topic", prefix + "/navigation/nav2_scan");
     rclcpp::NodeOptions costmap_options;
     costmap_options.use_global_arguments(false).parameter_overrides(overrides).arguments(

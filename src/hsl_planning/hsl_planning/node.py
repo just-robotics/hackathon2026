@@ -1,5 +1,6 @@
 """ROS transport and bounded refresh for the pure planner."""
 
+from copy import deepcopy
 import json
 import struct
 import random
@@ -14,6 +15,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Bool, Float32, String
+
+from .obstacle_memory import ObstacleMemory
 
 from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_target, reachable_frontier_route,
                    reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
@@ -90,7 +93,7 @@ class TrajectoryPlanner(Node):
         self.role = self.get_parameter("role").value
         if self.role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
-        self.local_safety_margin = 0.14 if self.role == "explorer" else 0.12
+        self.local_safety_margin = 0.0  # robot_radius already includes .052 m clearance
         self.pose_timeout = self.get_parameter("pose_timeout").value
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
@@ -123,6 +126,8 @@ class TrajectoryPlanner(Node):
         self.arena_bounds = (tuple(configured_bounds)
                              if configured_bounds != default_arena_bounds else None)
         self.scan_points = []
+        self.obstacle_memory = ObstacleMemory()
+        self.static_grid = None
         self.dirty = True
         self.global_path = []
         self.global_target = None
@@ -147,6 +152,8 @@ class TrajectoryPlanner(Node):
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
                                  qos_profile_sensor_data)
         grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.obstacle_grid_pub = self.create_publisher(OccupancyGrid, "navigation/obstacle_grid", grid_qos)
+        self.create_timer(.2, self.publish_obstacle_grid)
         if self.require_match_active:
             self.create_subscription(Bool, "/match/active", self.on_match_active, grid_qos)
         self.create_subscription(OccupancyGrid, "navigation/known_grid",
@@ -198,11 +205,14 @@ class TrajectoryPlanner(Node):
         if msg.header.frame_id == self.frame:
             self.scan_points = read_xyz(msg, 5000)
             self.scan_stamp = seconds(msg.header.stamp)
+            if self.own and abs(self.scan_stamp-self.own[1]) <= self.pose_timeout:
+                self.obstacle_memory.update(self.scan_points, self.own[0], self.scan_stamp)
             self.dirty = True
 
     def on_known_grid(self, msg):
         if msg.header.frame_id != self.frame or msg.info.width <= 0 or msg.info.resolution <= 0:
             return
+        self.static_grid = deepcopy(msg)
         resolution = msg.info.resolution
         width = msg.info.width
         origin = msg.info.origin.position
@@ -223,6 +233,24 @@ class TrajectoryPlanner(Node):
         self.grid_points = points
         self.grid_free = free
         self.dirty = True
+
+    def observed_obstacles(self):
+        enemy = (self.opponent[0] if self.role == "guardian" and self.opponent
+                 and 0 <= self.now()-self.opponent[1] <= 1.0 else None)
+        return self.obstacle_memory.points(self.now(), exclude=enemy)
+
+    def publish_obstacle_grid(self):
+        if self.static_grid is None:
+            return
+        grid = deepcopy(self.static_grid)
+        grid.header.stamp = self.get_clock().now().to_msg()
+        origin, resolution = grid.info.origin.position, grid.info.resolution
+        for x,y,_ in self.observed_obstacles():
+            col = int((x-origin.x)//resolution)
+            row = int((y-origin.y)//resolution)
+            if 0 <= col < grid.info.width and 0 <= row < grid.info.height:
+                grid.data[row*grid.info.width+col] = 100
+        self.obstacle_grid_pub.publish(grid)
 
     def publish_empty(self, reason):
         self.planning_diagnostics["global_status"] = reason
@@ -339,7 +367,7 @@ class TrajectoryPlanner(Node):
             "enemy_prediction": [enemy_future.x, enemy_future.y] if enemy_future else None})
         if self.dirty:
             static_points, scan_points = navigation_obstacles(
-                self.grid_points, self.map_points, self.scan_points, enemy)
+                self.grid_points + self.observed_obstacles(), self.map_points, self.scan_points, enemy)
             self.world.update(static_points, scan_points, own,
                               self.grid_free, self.grid_bounds)
             self.dirty = False

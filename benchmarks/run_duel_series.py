@@ -115,7 +115,8 @@ def wait_ready(env, deadline):
                                            env, "data", "true")
                                for container, prefix in (("docker-hsl-planning-1", "/"),
                                   ("docker-hsl-opponent-planning-1", "/opponent/")))
-            if not native_ready:
+            if not native_ready or not ready_topic("docker-gazebo-duel-1",
+                    "/simulation/obstacles_ready", env, "data", "true"):
                 time.sleep(2)
                 continue
             time.sleep(2)
@@ -246,6 +247,14 @@ def runtime_snapshot(env, config):
         if actual != expected:
             raise RuntimeError(f"navigation sources in {container} differ from the worktree; rebuild duel")
     runtime["verified_source_sha256"] = expected
+    obstacle_file = ROOT / "config/simulation_obstacles.yaml"
+    obstacle_hash = hashlib.sha256(obstacle_file.read_bytes()).hexdigest()
+    mounted_hash = command(["docker", "exec", "docker-gazebo-duel-1", "sha256sum",
+        "/autoware/simulation_obstacles.yaml"], env, timeout=10).split()[0]
+    if mounted_hash != obstacle_hash:
+        raise RuntimeError("simulation obstacle configuration differs from mounted file")
+    runtime["simulation_obstacles"] = __import__('yaml').safe_load(obstacle_file.read_text())
+    runtime["simulation_obstacles_sha256"] = obstacle_hash
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
              ("trajectory_planner", "decision_manager", "hsl_motion_gate", "opponent_detector")]
     nodes.extend(("/duel_referee", "/gazebo"))

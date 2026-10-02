@@ -26,6 +26,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("map", default_value="polygon_rosbag"),
+        DeclareLaunchArgument("obstacles_file", default_value=""),
         DeclareLaunchArgument("headless", default_value="true"),
         DeclareLaunchArgument("lidar_horizontal_samples", default_value="360"),
         DeclareLaunchArgument("lidar_vertical_samples", default_value="16"),
@@ -68,6 +69,11 @@ def generate_launch_description():
                             "-z", LaunchConfiguration("opponent_z"),
                             "-Y", LaunchConfiguration("opponent_yaw")], output="screen"),
         ]),
+        Node(package="hsl_sim_adapter", executable="spawn_obstacles", parameters=[{
+            "use_sim_time": True,
+            "config_file": LaunchConfiguration("obstacles_file"),
+            "map_origin_x": ParameterValue(LaunchConfiguration("map_origin_x"), value_type=float),
+            "map_origin_y": ParameterValue(LaunchConfiguration("map_origin_y"), value_type=float)}], output="screen"),
         OpaqueFunction(function=world_odom_transforms),
     ])
 

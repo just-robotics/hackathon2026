@@ -1,6 +1,6 @@
 """Own simulator localization and LiDAR-only opponent observations."""
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from copy import deepcopy
 from math import hypot
 
@@ -32,6 +32,8 @@ class SimObservations(Node):
         self.own_truth = None
         self.grid = None
         self.voxels = OrderedDict()
+        self.pending_clouds = deque(maxlen=8)
+        self.create_timer(.02, self.process_cloud)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.create_subscription(Odometry, self.get_parameter("own_odom_topic").value,
@@ -78,12 +80,19 @@ class SimObservations(Node):
             self.own_pub.publish(own)
 
     def on_lidar(self, msg):
+        self.pending_clouds.append(msg)
+
+    def process_cloud(self):
+        if not self.pending_clouds:
+            return
+        msg = self.pending_clouds[0]
         if self.own_truth is None:
             return
         try:
-            tf = self.tf_buffer.lookup_transform("map", msg.header.frame_id, Time())
+            tf = self.tf_buffer.lookup_transform("map", msg.header.frame_id, Time.from_msg(msg.header.stamp))
         except Exception:
             return
+        self.pending_clouds.popleft()
         t, q = tf.transform.translation, tf.transform.rotation
         own = self.own_truth.pose.pose.position
         sx, sy = own.x - self.spawn[0], own.y - self.spawn[1]
