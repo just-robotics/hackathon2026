@@ -7,7 +7,7 @@ from rclpy.time import Time
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Bool
 from tf2_ros import Buffer, TransformListener
 from hsl_sim_adapter.cloud import read_xyz, make_cloud, transform
 
@@ -17,6 +17,10 @@ class RealObservations(Node):
         super().__init__('real_observations')
         self.declare_parameter('odom_topic', '/odom')
         self.declare_parameter('lidar_topic', '/livox/lidar')
+        self.declare_parameter('require_localization', False)
+        self.localized = not self.get_parameter('require_localization').value
+        self.localized_at = None
+        self.create_subscription(Bool, '/localization/ready', self.on_localized, 10)
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, self)
         self.own = None
@@ -36,7 +40,21 @@ class RealObservations(Node):
         self.create_timer(.5, lambda: self.points_pub.publish(make_cloud(
             Header(frame_id='map', stamp=self.get_clock().now().to_msg()), [])))
 
+    def on_localized(self, msg):
+        self.localized = msg.data
+        self.localized_at = self.get_clock().now()
+        if not msg.data:
+            self.own = None
+
+    def localization_ready(self):
+        if not self.get_parameter('require_localization').value:
+            return True
+        return self.localized and self.localized_at is not None and (
+            self.get_clock().now()-self.localized_at).nanoseconds < 1_000_000_000
+
     def on_odom(self, msg):
+        if not self.localization_ready():
+            return
         try:
             tf = self.tf.lookup_transform('map', msg.header.frame_id, Time.from_msg(msg.header.stamp))
         except Exception:
@@ -59,7 +77,7 @@ class RealObservations(Node):
 
     def process_cloud(self):
         msg = self.pending_cloud
-        if msg is None or self.own is None:
+        if msg is None or self.own is None or not self.localization_ready():
             return
         try:
             tf = self.tf.lookup_transform('map', msg.header.frame_id, Time.from_msg(msg.header.stamp))
@@ -80,6 +98,8 @@ def main():
     node = RealObservations()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok(): rclpy.shutdown()

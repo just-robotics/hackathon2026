@@ -9,10 +9,10 @@ def load_config(path):
     config = yaml.safe_load(path.read_text())
     required = {'mission_file', 'kobuki_port', 'livox_config', 'localization', 'odom_topic',
                 'lidar_topic', 'lidar_mount', 'map_file', 'arena_bounds', 'ros_domain_id', 'rviz'}
-    if not isinstance(config, dict) or set(config) != required:
+    if not isinstance(config, dict) or set(config) not in (required, required | {'localization_file'}):
         raise ValueError('real.yaml fields must be ' + str(sorted(required)))
-    if config['localization'] not in ('odometry', 'external_tf'):
-        raise ValueError('localization must be odometry or external_tf')
+    if config['localization'] not in ('odometry', 'external_tf', 'amcl'):
+        raise ValueError('localization must be odometry, external_tf or amcl')
     if type(config['ros_domain_id']) is not int or not 0 <= config['ros_domain_id'] <= 232:
         raise ValueError('ros_domain_id must be in [0,232]')
     if type(config['rviz']) is not bool:
@@ -29,7 +29,9 @@ def load_config(path):
     for key in ('kobuki_port', 'odom_topic', 'lidar_topic'):
         if not isinstance(config[key], str) or not config[key].startswith('/'):
             raise ValueError(key + ' must be an absolute device/topic name')
-    for key in ('mission_file', 'livox_config', 'map_file'):
+    if config['localization'] == 'amcl' and (not config['map_file'] or not config.get('localization_file')):
+        raise ValueError('amcl requires map_file and localization_file')
+    for key in ('mission_file', 'livox_config', 'map_file') + (('localization_file',) if 'localization_file' in config else ()):
         name = config[key]
         if key == 'map_file' and name == '':
             continue

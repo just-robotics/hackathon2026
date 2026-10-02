@@ -10,7 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ecl-console ros-humble-ecl-mobile-robot ros-humble-diagnostic-updater \
     ros-humble-robot-state-publisher ros-humble-joint-state-publisher ros-humble-xacro \
     ros-humble-nav2-mppi-controller ros-humble-nav2-controller \
-    ros-humble-nav2-map-server ros-humble-nav2-lifecycle-manager ros-humble-rviz2 \
+    ros-humble-nav2-map-server ros-humble-nav2-amcl ros-humble-pointcloud-to-laserscan \
+    ros-humble-nav2-lifecycle-manager ros-humble-rviz2 \
     ros-humble-teleop-twist-keyboard ros-humble-rosbag2-storage-mcap libapr1-dev \
     && rm -rf /var/lib/apt/lists/*
 # Provided hardware packages, with their original licenses. SDK2 is in the base.

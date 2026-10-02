@@ -14,10 +14,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=['enable', 'pause'])
     parser.add_argument('--timeout', type=float, default=None)
+    parser.add_argument('--require-localization', action='store_true')
     args = parser.parse_args()
     rclpy.init()
     node = rclpy.create_node('real_motion_control')
-    state = {'native':False,'pose':None,'scan':None,'finished':None}
+    state = {'native':False,'pose':None,'scan':None,'finished':None,'localized':False,'localized_at':0.}
     qos = QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
     subscriptions = [node.create_subscription(Bool,'/navigation/native_ready',
         lambda m:state.update(native=m.data),qos),
@@ -25,6 +26,8 @@ def main():
         node.create_subscription(PointCloud2,'/navigation/scan',lambda m:state.update(scan=m.header.stamp),qos_profile_sensor_data)]
     subscriptions.append(node.create_subscription(Bool,'/real/match_finished',
         lambda m:state.update(finished=m.data),qos))
+    subscriptions.append(node.create_subscription(Bool,'/localization/ready',
+        lambda m:state.update(localized=m.data,localized_at=time.monotonic()),10))
     client = node.create_client(SetBool,'/match/allow_motion')
     timeout = args.timeout if args.timeout is not None else (30 if args.action == 'enable' else 5)
     deadline = time.monotonic()+timeout
@@ -40,6 +43,9 @@ def main():
                 raise RuntimeError('Stage finished; place robot at configured start and use start_real for a new stage')
             if args.action=='enable' and not (
                     state['finished'] is False and state['native'] and fresh(state['pose'],1.2) and fresh(state['scan'],1.8)):
+                continue
+            if args.action=='enable' and args.require_localization and not (
+                    state['localized'] and time.monotonic()-state['localized_at'] < 1.):
                 continue
             if args.action=='enable':
                 publishers = node.get_publishers_info_by_topic('/cmd_vel')

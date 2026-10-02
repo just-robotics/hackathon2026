@@ -76,8 +76,11 @@ map. Real bringup — src/hsl_real + drivers/src (HSL25), отдельный
 Compose hsl-real/domain26, CPU runtime. helm build_real/start_real/enable_real/
 pause_real/stop_real/logs_real/status_real/enter_real. start_real оставляет движение
 закрытым; enable проверяет pose/scan/native readiness и одного cmd_vel publisher.
-Конфиг real.yaml + Livox JSON, mission_file ссылается на match YAML. Wheel odom
-привязан к robot.start; без карты static layer выключен и detector не работает.
+Конфиг real.yaml + Livox JSON, mission_file ссылается на match YAML. В real.yaml подключена maze_bag_v1 и AMCL: wheel odom + LaserScan →
+map→odom → navigation/self для всего автономного контура. Миссия real_match.yaml
+отдельна от симуляционной; localization.yaml задаёт фильтр/пороги. start_real
+без permission, enable требует localization/ready. Потеря ready отзывает
+permission; без карты static layer выключен и detector не работает.
 Не использовать симуляционный truth/map/referee в real. Детали и ограничения —
 REAL_ROBOT.md. Real образ основан на nickodema/kobuki:humble-22.04-100625
 из HSL25, независимо от jr_image/Autoware. Драйверы в /workspace, решение
@@ -234,4 +237,6 @@ teleop remapped в real/keyboard_cmd_vel и ограничен watchdog. stop_re
 затем SIGINT и штатное завершение bag с проверкой metadata.yaml.
 Результаты в уникальных recordings/. Сценарий карты, FAST-LIO, LIO-SAM,
 Git-подмодули и их launch/config удалены по запросу пользователя.
-Локализация real пока wheel odom; новая локализация не заявляется готовой.
+AMCL локализация подключена в start_real, raw bag-режим её не запускает.
+Карта выровнена+1,8° до растеризации; стартовые координаты относятся к новой
+map. Replay с LIO-derived odom не доказывает физическую точность на Kobuki.

@@ -24,7 +24,7 @@ def nodes(context):
                     parameters=[{'use_sim_time': False}] + (parameters or []), **kwargs)
         processes.append(node)
     processes.extend(hardware_nodes(cfg,mission,drivers=drivers))
-    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':cfg['lidar_topic']}])
+    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':cfg['lidar_topic'],'require_localization':cfg['localization']=='amcl'}])
     add('hsl_perception','opponent_detector', parameters=[{'opponent_max_height':float(mission['perception']['opponent_max_height'])}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
@@ -39,11 +39,20 @@ def nodes(context):
         'MPPI.GoalCritic.cost_weight':15. if role=='guardian' else 5.,
         'costmap.plugins':['static_layer','obstacle_layer','inflation_layer'] if cfg['map_file'] else ['obstacle_layer','inflation_layer']}])
     add('hsl_debug_control','motion_gate',parameters=[{'require_match_active':True}],name='hsl_motion_gate')
-    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds'])}])
+    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':cfg['localization']=='amcl'}])
+    if cfg['localization']=='amcl':
+        localization = cfg['localization_file']
+        add('pointcloud_to_laserscan','pointcloud_to_laserscan_node',name='localization_scan',
+            parameters=[localization],remappings=[('cloud_in',cfg['lidar_topic']),('scan','/localization/scan')])
+        x,y,yaw = mission['robot']['start']
+        add('nav2_amcl','amcl',name='amcl',parameters=[localization, {
+            'initial_pose.x':x,'initial_pose.y':y,'initial_pose.z':0.,'initial_pose.yaw':yaw}],
+            remappings=[('scan','/localization/scan')])
+        add('hsl_real','localization_monitor',parameters=[localization,{'odom_topic':cfg['odom_topic']}])
     if cfg['map_file']:
         add('nav2_map_server','map_server', name='map_server', parameters=[{'yaml_filename':cfg['map_file']}])
         add('nav2_lifecycle_manager','lifecycle_manager', name='map_lifecycle_manager',parameters=[{
-            'autostart':True,'node_names':['map_server']}])
+            'autostart':True,'node_names':['map_server','amcl'] if cfg['localization']=='amcl' else ['map_server']}])
     if cfg['rviz']:
         rviz = str(Path(get_package_share_directory('hsl_real'))/'config/robot.rviz')
         # RViz is optional; closing it must not terminate the robot stack.

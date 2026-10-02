@@ -2,6 +2,77 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — статическая карта maze_bag_v1 построена
+
+Вход /home/eddyswens/ROS/hsl2026Extra/maze_bag_v1:140.81с,1408 облаков,
+28163 IMU; odom/TF отсутствуют. Источник смонтирован ro и не менялся,
+SHA256 сохранены в config/maps/maze_bag_v1_quality.json. Metadata9/Lyrical
+несовместим с Humble QoS parser, исправлен прямой read MCAP без переписи.
+Аудит подтверждает monotonic stamps, FLOAT64 absolute point timestamps,
+~10Гц/200Гц, IMU≈1g; пользователь описал upside-down LiDAR под верхней
+крышкой как в симуляции. Точная монтажная калибровка в bag отсутствует.
+
+Использован отдельный offline snapshot FAST-LIO2 с адаптером времени точек:
+hsl_offline_mapping:maze-v1 (6eab6677), исходники/лицензии сохранены в ignored
+results/real-bag-check-maze-v1/fastlio-source-used.tar.gz. В реальные/duel
+launch или jr_real_image backend не возвращён. Первый запуск встретил права
+выходного volume; исправлен uid/gid. Cyclone+localhost-only при networknone
+выбрал lo дважды; заменён FastDDS внутри сетевой изоляции. Первый полный
+replay зарегистрировал1405 сканов, но shutdown имел fclose(NULL)/SIGSEGV
+из-за неоткрытого source Log. Повтор с writable Log mount завершился exit0,
+все1408/28163 input доставлены,1405 registered/poses, unpaired0. Траектории
+двух проходов совпали в начале/середине/конце (difference0); финальная карта
+взята из чистого прохода. Не выдавать1405 за обработку каждого input scan.
+
+Map: robust floor plane median abs residual0.00931м; высоты0.10…0.40м над
+полом, range8м,2D nearest angular rays + log odds, free/occupied/unknown.
+Нет hand-drawn стен или inflation в static grid. Дальний фон ограничен
+bbox крупнейшего observed wall component+0.25м; полный uncropped результат
+и3D сохранились. Конечная resolution0.05м,75×97,origin[-0.45,-0.70,0],
+493 occupied/4842 free/1940 unknown. Реальный Humble Nav2 map_server прошёл
+configure/activate и опубликовал ровно эти классы/cell counts в frame map.
+
+Качество по повторным наблюдениям: на80.3% поздних wall points, попавших
+в0.15м от ранних поверхностей, median residual0.01490м,p90=0.05324м.
+Это consistency без ground truth. Траектория10.854м, end-start0.415м:
+точное возвращение в старт не задано, это не доказанный drift. Loop closure
+не выполнялся. Визуально стены согласованы, открытые/неизвестные участки
+не достраивались. Physical localization/навигация по карте не проверены.
+
+Доставлены config/maps/maze_bag_v1.yaml/pgm/png/preview, параметры и quality
+JSON, README системы координат. PCD/trajectory/registered scans/логи в
+results/real-bag-check-maze-v1/. Команды воспроизведения в OFFLINE_MAPPING.md.
+Текущий real.yaml автоматически не переключён: нужны реальные стартовые
+координаты в новой системе и проверенная привязка/локализация.
+Следующий шаг — оценить геометрию на реальном лабиринте, задать стартовые
+позы/arena_bounds, подключить карту и проверить локализацию отдельно.
+
+## 02.10.2026 — подготовка офлайн-карты по будущему bag
+
+Пользователь позже передаст новую запись. Подготовлены read-only
+`tools/inspect_mapping_bag.py` и инструкция OFFLINE_MAPPING.md: состав сессии,
+аудит топиков/типов/полей облака, timestamps, TF, odom/IMU, восстановление
+траектории, проверка дрейфа, occupancy ray tracing и Nav2 YAML/PGM экспорт.
+Работа выполняется отдельно от робота: docker --network none, cap-drop ALL,
+входные файлы ro; ROS publishers/driver launch отсутствуют. SLAM-пакеты и
+сценарий картографирования не возвращены. Реальный старт не менялся.
+
+Аудит проверен в актуальном jr_real_image на static_1m из HSL26-ros2_bags:
+все99 облаков и1992 IMU прочитаны, найдены XYZ/line/timestamp и base_link→livox,
+явно отмечены отсутствие odom и median acceleration norm1.002 (возможные
+единицы g). Exit0 при валидном LiDAR; отдельный тест отсутствующего LiDAR
+вернул exit2 с JSON ошибкой. Первая попытка смонтировать скрипт как /inspect.py
+затенила стандартный Python inspect; исправлено именем /audit_mapping_bag.py.
+Артефакты results/real-bag-check-20261002/mapping-*.json (ignored).
+py_compile/diff-check успешны. Входные bags не изменены.
+
+Новая карта не построена: новые данные ещё не предоставлены. Следующий шаг —
+получить всю сессию (metadata+все data files+конфиги), провести аудит,
+выбрать/проверить способ регистрации траектории по реальному дрейфу,
+экспортировать map с отчётом качества. Накопление по wheel odom нельзя
+выдавать за проверенную карту лабиринта. Карта и локализация — разные задачи;
+текущий static map→odom anchor не устраняет дрейф.
+
 ## 02.10.2026 — пользовательский фикс kobuki_core
 
 В drivers/src/kobuki_core перенесены два изменённых заголовка из папки
@@ -2038,3 +2109,101 @@ CAPTURE face-left omega+1.146рад/с при heading critic=true, resume revers
 - Длительные заезды, судейское событие поимки и остановку при потере входных данных проверить отдельно. Остановка на устаревшем скане покрыта модульным тестом шлюза.
 - Подставить фактические контуры стартовых площадок и настроить веса поведения под условия испытания. Текущие координаты в YAML — пример для `maze.world`.
 - Подключить реальные источники локализации, карты и трека соперника; проверить на роботе и реализовать проверку судейских условий поимки/достижения площадки. Два полных стека друг против друга пока не запускались.
+
+## 02.10.2026 — AMCL внутри start_real и выравнивание карты (текущий цикл)
+
+Запрос: статическая карта реального лабиринта + положение по сопоставлению
+карты/скана для decision manager, планировщика, MPPI; выровнять поворот карты.
+
+Изменено:
+- Официальные Humble nav2_amcl и pointcloud_to_laserscan добавлены в real образ.
+  Драйвер продолжает /odom и odom→base_footprint; AMCL /amcl_pose и динамический
+  map→odom. real_observations передаёт исправленную pose в navigation/self и
+  облако в navigation/scan для всего автономного контура. Статический anchor
+  отключён в режиме amcl, второго map→odom нет.
+- config/real.yaml включает maps/maze_bag_v1.yaml, amcl, localization.yaml;
+  real_match.yaml отделён от sim match.yaml. Старт0,0/yaw0.031416 — приближение
+  начала записи, opponent.start остаётся примером, задавать фактическую площадку.
+- AMCL likelihood_field,500–2000particles,120beams; срез base_footprint
+  z0.10–0.40м, range0.25–8м,0.5°bin. Внешний YAML без пересборки.
+- localization_monitor проверяет fresh sensors/pose/TF и большую ось XY
+  covariance≤0.20м std, yaw≤0.35рад; номotion update каждые0.5с.
+  /localization/ready10Гц, /localization/status JSON. Enable требует ready;
+  observations перестаёт выдавать pose/scan при потере ready; real_match
+  закрывает active и отзывает allow_motion. Восстановление без нового enable
+  не возобновляет движение. Ковариация не исключает ложного совпадения стен.
+- RViz показывает карту, 2D Pose Estimate→initialpose; rviz:true в real.yaml.
+- Карта перерастеризована из зарегистрированных сканов с yaw+1.8° (по
+  концентрации ортогональных проекций стен, поиск±5°, без знания лабиринта).
+  Поворот тот же для PCD/траектории/rotation; origin[-0.50,-0.65],74×96,
+  bounds[-0.50,-0.65,3.20,4.15],482occupied/4837free/1785unknown.
+  Артефакты results/real-bag-check-maze-v1/map-aligned/. Стены не дорисованы.
+
+Гипотеза: одометрия даёт непрерывное движение, AMCL исправляет её дрейф
+через текущие стены; это устраняет зависимость всей навигации от static anchor.
+Проверка использует сырой Livox bag, а одометрию восстанавливает из LIO и
+искусственно добавляет линейный дрейф(+0.30,-0.20м). Причина: исходный bag
+не содержит wheel odom/TF. Карта/reference из одной записи, поэтому ошибки
+не являются независимой физической точностью. Монтаж и base offset пока
+приблизительные, перенос на другую карту не доказан.
+
+Промежуточная фактическая проверка:
+- real образ собирается; pytest tests + helm_launch/tests:133passed;
+  compileall, git diff --check и Compose real config проходят.
+- localization-check2.json/log:1408 исходных облаков,1398navigation samples,
+  ready98.93% (включая старт), median ошибки3.93см,p956.35см относительно LIO;
+  внесённый конечный drift36.06см. Официальный AMCL и native MPPI активированы.
+  enable через tools/real_control.py --require-localization успешен внутри
+  изолированного драйвер-free контейнера domain92/networknone, один final
+  cmd_vel publisher hsl_motion_gate. После прекращения потока ready/activefalse.
+- Первый smoke выявил numpy.bool_ в сериализации covariance predicate —
+  исправлено преобразование к bool; аварийный выход monitor закрывает launch.
+- После успешного replay исправляется прежний SIGINT double-shutdown Python
+  decision/planning/gate (контекст уже остановлен); промежуточный автоматический
+  edit сломал отступы вложенных finally, исправлен до финальной проверки.
+  Это не принятое рабочее дерево/образ. Compileall всех изменённых пакетов
+  после исправления проходит. Финальная проверка последнего образа ниже.
+
+Команда воспроизведения полного аппаратно изолированного smoke — раздел
+«Проверка локализации без аппаратных драйверов» docs/OFFLINE_MAPPING.md:
+tools/check_real_localization.py --exercise-permission запускает весь
+robot.launch drivers_enabled=false. USB, сеть робота и другие ROS domains
+не затрагиваются. Настоящий start_real по-прежнему запускается закрытым.
+
+Финальная проверка завершена на последнем jr_real_image:
+sha256:94b3f3253ee37e6918394a39695a6bd44b58c95ea391361c02362261af4a7449.
+Команда выше, domain94/networknone, исходный raw bag, rate2,
+robot.launch drivers_enabled=false, --exercise-permission:
+
+| Проверка | Фактический результат |
+| --- | --- |
+| LiDAR / navigation/self | 1408 исходных облаков / 1397 samples |
+| Ready по replay samples, включая инициализацию | 96.95% |
+| Медиана / p95 XY-расхождения с зависимым LIO reference | 3.97см / 5.94см |
+| Добавленный drift одометрии к концу | 36.06см |
+| Разрешение движения в изолированном тесте | active_seen=true |
+| После прекращения sensors | ready=false, active=false, allowed=false |
+| Последний cmd_vel после sensor loss | linear.x=0, angular.z=0 |
+| Издатели finalcmd | только hsl_motion_gate |
+| Map server / AMCL | оба получили карту74×96,0.05м/cell |
+| Завершение SIGINT | все14 процессов clean, без Traceback/process died |
+
+Отчёт results/real-bag-check-maze-v1/localization-final4.json, полный launch
+log рядом. Сводка продублирована в config/maps/maze_bag_v1_quality.json.
+Собранный образ соответствует изменённым runtime исходникам; pytest133passed,
+real tests18passed, compileall всех изменённых Python-пакетов, Compose config
+и diff check проходят. Это не полный физический навигационный заезд:
+команды не управляли записанной траекторией, аппаратные драйверы не запускались.
+
+Вывод: статическая карта и официальный AMCL подключены ко всему real стеку;
+наблюдаемое сопоставление сканов исправляет добавленный odom drift на этой
+записи, motion permission/stale stop проверены фактически. Карту выровняли
+единым преобразованием, сохранив исходные наблюдения/неизвестные участки.
+
+Следующий шаг на настоящем Kobuki: подтвердить монтаж LiDAR/base offset,
+задать реальные стартовые площадки в real_match.yaml, start_real с rviz:true,
+уточнить initialpose, проверить наложение сканов, затем enable_real и записать
+bag с wheelodom/TF/AMCL для независимых повторных проверок, скорости/контактов
+и готовности. При симметричных стенах AMCL может дать уверенное неверное
+совпадение, covariance не является независимой гарантией. Физическая точность,
+поведение обоих ролей на этой карте и переносимость остаются открытыми.

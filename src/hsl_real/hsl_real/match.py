@@ -11,6 +11,10 @@ class RealMatch(Node):
     def __init__(self):
         super().__init__('real_match')
         self.declare_parameter('active_seconds', 360.)
+        self.declare_parameter('require_localization', False)
+        self.localized = False
+        self.localized_at = None
+        self.create_subscription(Bool, '/localization/ready', self.on_localized, 10)
         self.allowed = False
         self.last_tick = self.get_clock().now()
         self.elapsed = 0.0
@@ -24,6 +28,10 @@ class RealMatch(Node):
         self.client = self.create_client(SetBool, '/match/allow_motion')
         self.create_timer(.1, self.tick)
 
+    def on_localized(self, msg):
+        self.localized = msg.data
+        self.localized_at = self.get_clock().now()
+
     def on_allowed(self, msg):
         self.allowed = msg.data
 
@@ -33,14 +41,19 @@ class RealMatch(Node):
 
     def tick(self):
         now = self.get_clock().now()
-        if self.allowed and not self.finished:
+        ready = not self.get_parameter('require_localization').value or (
+            self.localized and self.localized_at is not None and
+            (now-self.localized_at).nanoseconds < 1_000_000_000)
+        if self.allowed and ready and not self.finished:
             self.elapsed += max(0., (now-self.last_tick).nanoseconds*1e-9)
+        if self.stop_future is not None and self.stop_future.done():
+            self.stop_future = None
         self.last_tick = now
         if self.elapsed >= self.get_parameter('active_seconds').value:
             self.finished = True
-        self.pub.publish(Bool(data=self.allowed and not self.finished))
+        self.pub.publish(Bool(data=self.allowed and ready and not self.finished))
         self.finished_pub.publish(Bool(data=self.finished))
-        if self.finished and self.allowed and self.client.service_is_ready() and self.stop_future is None:
+        if (self.finished or not ready) and self.allowed and self.client.service_is_ready() and self.stop_future is None:
             self.stop_future = self.client.call_async(SetBool.Request(data=False))
 
 
@@ -49,7 +62,9 @@ def main():
     node = RealMatch()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
-        node.pub.publish(Bool(data=False))
+        if rclpy.ok(): node.pub.publish(Bool(data=False))
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok(): rclpy.shutdown()

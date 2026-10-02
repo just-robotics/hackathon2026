@@ -10,4 +10,5 @@ setup(name='hsl_real', version='0.1.0', packages=['hsl_real'],
       description='Real robot integration', license='Apache-2.0',
       entry_points={'console_scripts': ['real_observations=hsl_real.observations:main',
                                        'real_match=hsl_real.match:main',
+                                       'localization_monitor=hsl_real.localization:main',
                                        'real_manual_gate=hsl_real.manual:main']})

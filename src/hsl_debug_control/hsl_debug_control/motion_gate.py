@@ -94,7 +94,9 @@ def main():
     node = MotionGate()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
-        node.pub.publish(Twist())
+        if rclpy.ok(): node.pub.publish(Twist())
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok(): rclpy.shutdown()

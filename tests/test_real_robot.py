@@ -1,4 +1,5 @@
 import copy
+import shutil
 import sys
 from pathlib import Path
 import yaml
@@ -11,7 +12,9 @@ from hsl_real.config import load_config,start_polygon
 
 def fixture(tmp_path):
     cfg=yaml.safe_load((ROOT/'config/real.yaml').read_text())
-    (tmp_path/'match.yaml').write_text((ROOT/'config/match.yaml').read_text())
+    for name in ('match.yaml','real_match.yaml','localization.yaml'):
+        shutil.copy2(ROOT/'config'/name,tmp_path/name)
+    shutil.copytree(ROOT/'config/maps',tmp_path/'maps')
     (tmp_path/'livox_mid360.json').write_text((ROOT/'config/livox_mid360.json').read_text())
     path=tmp_path/'real.yaml'
     path.write_text(yaml.safe_dump(cfg))
@@ -21,7 +24,8 @@ def fixture(tmp_path):
 def test_real_config_uses_no_simulation_map_or_opponent_truth(tmp_path):
     _,path=fixture(tmp_path)
     cfg,mission=load_config(path)
-    assert cfg['map_file']=='' and cfg['localization']=='odometry'
+    assert cfg['map_file']==str(tmp_path/'maps/maze_bag_v1.yaml') and cfg['localization']=='amcl'
+    assert 'simulation' not in mission
     assert cfg['ros_domain_id']==26
     assert mission['motion']['max_speed']==.5
     assert start_polygon(mission['opponent'])==pytest.approx([2.59,1.85,3.09,1.85,3.09,2.35,2.59,2.35])
@@ -96,3 +100,26 @@ def test_stop_bag_uses_running_session_without_reading_config(monkeypatch,tmp_pa
     with pytest.raises(SystemExit):module.main()  # mock service success cannot replace an actual output file
     assert any('python3 - pause' in ' '.join(command) for command,_ in calls)
     assert any('stop' in command and '90' in command for command,_ in calls)
+
+
+def test_amcl_requires_map_and_parameters(tmp_path):
+    cfg,path=fixture(tmp_path)
+    cfg['map_file']=''
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError,match='amcl requires'):load_config(path)
+
+
+def test_localization_rejects_rotated_large_uncertainty():
+    # Load the ROS-independent predicate without requiring rclpy on the host.
+    import ast
+    from math import sqrt,isfinite
+    source=ast.parse((ROOT/'src/hsl_real/hsl_real/localization.py').read_text())
+    function=next(n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='uncertainty_ok')
+    namespace={'sqrt':sqrt,'isfinite':isfinite}
+    exec(compile(ast.Module(body=[function],type_ignores=[]),'localization','exec'),namespace)
+    cov=[0.]*36;cov[0]=cov[7]=.03;cov[1]=.025;cov[35]=.01
+    assert not namespace['uncertainty_ok'](cov,.2,.35)
+    cov[1]=0.
+    assert namespace['uncertainty_ok'](cov,.2,.35)
+    cov[0]=float('nan')
+    assert not namespace['uncertainty_ok'](cov,.2,.35)

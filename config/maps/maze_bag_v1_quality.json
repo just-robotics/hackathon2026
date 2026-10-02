@@ -1,0 +1,150 @@
+{
+  "registered_scans": 1405,
+  "crop_to_walls": true,
+  "crop_margin_m": 0.25,
+  "crop_policy": "largest observed occupied component bounds; preserve every cell inside crop",
+  "full_size_cells": [
+    348,
+    261
+  ],
+  "projection_scans": 703,
+  "cloud_voxels": 24791,
+  "floor_plane_raw": [
+    -0.01932077296347229,
+    0.006064747382905439,
+    -0.339600031425264
+  ],
+  "floor_residual_median_abs_m": 0.009311502328055776,
+  "raw_to_map_rotation": [
+    [
+      0.9993200654011023,
+      -0.03129308980322221,
+      -0.019497420785944092
+    ],
+    [
+      0.031404898237754116,
+      0.9994918591196944,
+      0.005454898728038861
+    ],
+    [
+      0.019316812713618233,
+      -0.006063504269341429,
+      0.9997950263241774
+    ]
+  ],
+  "raw_xy_shift": [
+    0.02008944048123392,
+    0.0085505314415053,
+    -0.015672186228689582
+  ],
+  "resolution_m": 0.05,
+  "size_cells": [
+    74,
+    96
+  ],
+  "origin": [
+    -0.5,
+    -0.6500000000000004,
+    0.0
+  ],
+  "height_band_m": [
+    0.1,
+    0.4
+  ],
+  "range_m": 8.0,
+  "occupied_cells": 482,
+  "free_cells": 4837,
+  "unknown_cells": 1785,
+  "trajectory_length_m": 10.854301294561772,
+  "start_end_distance_m": 0.41456849915035654,
+  "loop_closure_applied": false,
+  "physical_localization_verified": false,
+  "input_bag": "/home/eddyswens/ROS/hsl2026Extra/maze_bag_v1",
+  "input_counts": {
+    "lidar": 1408,
+    "imu": 28163
+  },
+  "replay": {
+    "input_messages": {
+      "/livox/lidar": 1408,
+      "/livox/imu": 28163
+    },
+    "registered_scans": 1405,
+    "poses": 1405,
+    "unpaired_clouds": 0,
+    "registered_start_s": 1790935794.081443,
+    "registered_end_s": 1790935934.4813192,
+    "fastlio_exit_code": 0,
+    "rate": 1.5,
+    "loop_closure": false
+  },
+  "wall_overlap": {
+    "reference_wall_points": 3513,
+    "late_wall_points": 7387,
+    "overlap_fraction_under_15cm": 0.8027616082306755,
+    "matched_median_m": 0.01489814896976193,
+    "matched_p90_m": 0.05324456233308358,
+    "all_late_median_m": 0.017596364788836843,
+    "all_late_p90_m": 0.3148629002376108,
+    "meaning": "Nearest-surface consistency on overlapping wall observations; not ground-truth drift or exact return-to-start error"
+  },
+  "processing_image": "hsl_offline_mapping:maze-v1",
+  "processing_image_id": "sha256:6eab6677f42acc1c0f82466b08674a03003dc500b08d1a4fca6fb68639b28664",
+  "backend_source": "Ericsii/FAST_LIO_ROS2 ros2 2fffc570a25d0df172720bac034fbdb6a13d2162; HSL exact point timestamp adapter",
+  "assumptions": [
+    "MID360 integrated IMU uses vendor extrinsic translation, rotated into mounted axes",
+    "Input mount rotation follows upside-down simulation mounting per user description",
+    "Map XY is aligned with initial mounted sensor axes; physical base pose offset is not calibrated"
+  ],
+  "limitations": [
+    "No loop closure optimization",
+    "Unseen geometry remains unknown; no hand-drawn wall closing",
+    "Map crop uses observed dominant wall component bounds",
+    "No wheel odometry, TF or surveyed dimensions in input",
+    "Saved-map AMCL integration replayed with LIO-derived odometry; physical robot navigation not tested"
+  ],
+  "source_sha256": {
+    "metadata.yaml": "e22aa8cba38cfb9c901f5a040d8cd61ea02dfe2b77739e09e6d2ac4dee8a3086",
+    "0_maze_bag_v1_2026_10_02-13_09_53.mcap": "2ae4c1e5d548136dc6c010034f12c167627e35c77fcc9a5462bbb54dc176a02b"
+  },
+  "wall_alignment_degrees": 1.8000000000000007,
+  "localization_replay_validation": {
+    "raw_clouds_published": 1408,
+    "ready_fraction": 0.9694602272727273,
+    "ready_before_sensor_loss": true,
+    "ready_after_sensor_loss": false,
+    "navigation_samples": 1397,
+    "position_median_m": 0.03968211617092947,
+    "position_p95_m": 0.05938068591822781,
+    "injected_final_odom_error_m": 0.3605551275463989,
+    "cmd_vel_publishers": [
+      "hsl_motion_gate"
+    ],
+    "movement_active_after_sensor_loss": false,
+    "permission_exercised": true,
+    "active_seen": true,
+    "permission_allowed_after_sensor_loss": false,
+    "final_cmd": [
+      0.0,
+      0.0
+    ],
+    "reference": "LIO from the same bag as map, not independent ground truth"
+  },
+  "map_server_validation": {
+    "frame": "map",
+    "width": 74,
+    "height": 96,
+    "resolution": 0.05,
+    "origin": [
+      -0.5,
+      -0.65
+    ],
+    "cells": {
+      "100": 482,
+      "0": 4837,
+      "-1": 1785
+    },
+    "loaded": true,
+    "verification": "Full robot.launch replay: map_server loaded 74x96, AMCL received map; counts from exported trinary grid"
+  }
+}
