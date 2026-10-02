@@ -12,9 +12,11 @@
     opponent_frame: "opponent"
 
     # Фон. Из .world вычитаются боксы этих моделей: totami_built -- стены
-    # полигона. Если дописать Obstacle_1 ... Obstacle_5, коробки тоже уйдут
-    # в фон, и в облаке останется только соперник.
-    background_models: ["totami_built"]
+    # полигона totami, polygon_rosbag_built -- панели мира polygon_rosbag
+    # (по записи с реального полигона); моделей, которых в мире нет, просто
+    # нет. Если дописать Obstacle_1 ... Obstacle_5, коробки тоже уйдут в фон,
+    # и в облаке останется только соперник.
+    background_models: ["totami_built", "polygon_rosbag_built"]
     z_slice: 0.25
     # запас вокруг стен: 3 СКО шума дальности (0.02) и немного на позу
     wall_margin: 0.08
