@@ -5,6 +5,9 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from hsl_interfaces.msg import PlanningIntent
+from nav_msgs.msg import Odometry
+from hsl_decision.core import GOAL_CENTER_TOLERANCE
+from math import hypot, isfinite
 
 
 class RealMatch(Node):
@@ -15,6 +18,9 @@ class RealMatch(Node):
         self.localized = False
         self.localized_at = None
         self.create_subscription(Bool, '/localization/ready', self.on_localized, 10)
+        self.declare_parameter('role', 'explorer')
+        self.declare_parameter('goal_center', [0.,0.])
+        self.create_subscription(Odometry, '/navigation/self', self.on_pose, 10)
         self.allowed = False
         self.last_tick = self.get_clock().now()
         self.elapsed = 0.0
@@ -34,6 +40,23 @@ class RealMatch(Node):
 
     def on_allowed(self, msg):
         self.allowed = msg.data
+
+    def on_pose(self, msg):
+        # Observe every fresh map pose, rather than waiting for the slower
+        # decision timer to notice a brief visit to the center. Finish latches.
+        if not self.allowed or self.finished or self.get_parameter('role').value!='explorer':
+            return
+        age=(self.get_clock().now().nanoseconds-msg.header.stamp.sec*1_000_000_000-msg.header.stamp.nanosec)*1e-9
+        if msg.header.frame_id!='map' or not 0<=age<=1.2:
+            return
+        if self.get_parameter('require_localization').value and not self.localized:
+            return
+        x,y=self.get_parameter('goal_center').value
+        p=msg.pose.pose.position
+        if isfinite(p.x) and isfinite(p.y) and hypot(p.x-x,p.y-y)<=GOAL_CENTER_TOLERANCE:
+            self.finished=True
+            self.get_logger().info('Explorer goal center reached; stage permanently stopped')
+            self.tick()
 
     def on_intent(self, msg):
         if self.allowed and msg.reason == 'guardian start center reached':

@@ -1,7 +1,7 @@
 """Drivers and the existing autonomous stack on wall time; initially stopped."""
 from pathlib import Path
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, EmitEvent
+from launch.actions import ExecuteProcess, DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, EmitEvent
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
@@ -39,7 +39,7 @@ def nodes(context):
         'MPPI.GoalCritic.cost_weight':15. if role=='guardian' else 5.,
         'costmap.plugins':['static_layer','obstacle_layer','inflation_layer'] if cfg['map_file'] else ['obstacle_layer','inflation_layer']}])
     add('hsl_debug_control','motion_gate',parameters=[{'require_match_active':True}],name='hsl_motion_gate')
-    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':cfg['localization']=='amcl'}])
+    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':cfg['localization']=='amcl','role':role,'goal_center':mission['opponent']['start'][:2]}])
     if cfg['localization']=='amcl':
         localization = cfg['localization_file']
         add('pointcloud_to_laserscan','pointcloud_to_laserscan_node',name='localization_scan',
@@ -57,6 +57,21 @@ def nodes(context):
         rviz = str(Path(get_package_share_directory('hsl_real'))/'config/robot.rviz')
         # RViz is optional; closing it must not terminate the robot stack.
         viewer = Node(package='rviz2',executable='rviz2',arguments=['-d',rviz],parameters=[{'use_sim_time':False}])
+    session = LaunchConfiguration('session_dir').perform(context)
+    if session:
+        directory=Path(session).resolve()
+        if not directory.is_relative_to('/records'):raise ValueError('session_dir must be under /records')
+        directory.mkdir(parents=True,exist_ok=True)
+        topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
+            '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
+            '/navigation/self','/navigation/opponent','/navigation/opponent_visible',
+            '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
+            '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
+            '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',
+            '/native_mppi/costmap','/native_mppi/costmap_updates','/native_mppi/costmap_raw',
+            '/match/allowed','/match/active','/real/match_finished','/cmd_vel','/diagnostics']
+        processes.append(ExecuteProcess(cmd=['ros2','bag','record','-s','mcap','-o',str(directory/'bag')]+topics,
+            output='screen',sigterm_timeout='60',sigkill_timeout='10'))
     handlers = [RegisterEventHandler(OnProcessExit(target_action=p,
         on_exit=[EmitEvent(event=Shutdown(reason='Real robot process exited'))])) for p in processes]
     return processes + handlers + ([viewer] if cfg['rviz'] else [])
@@ -64,4 +79,5 @@ def nodes(context):
 
 def generate_launch_description():
     return LaunchDescription([DeclareLaunchArgument('config_file',default_value='/config/real.yaml'),
-        DeclareLaunchArgument('drivers_enabled',default_value='true'),OpaqueFunction(function=nodes)])
+        DeclareLaunchArgument('drivers_enabled',default_value='true'),
+        DeclareLaunchArgument('session_dir',default_value=''),OpaqueFunction(function=nodes)])

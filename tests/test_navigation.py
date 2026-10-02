@@ -13,7 +13,8 @@ from hsl_debug_control.core import (
                                     safe_motion_command, select_control_command, match_is_active)
 from hsl_decision.core import (CAPTURE, EVADE, GOAL, PURSUE, SEARCH, STOP,
                                WAIT, DecisionPolicy, Observation, Pose2 as DecisionPose,
-                               distance_to_polygon, intercept_point)
+                               distance_to_polygon, intercept_point, regulation_indication,
+                               sight_line)
 from hsl_planning.core import (Pose2, VoxelWorld, astar, capture_goal, moving_capture_goal, coverage_target, reachable_frontier_route,
                                reachable_target, navigation_obstacles, evade_target, evade_objective_route,
                                reachable_intercept, path_heading_error,
@@ -182,6 +183,31 @@ class DecisionTests(unittest.TestCase):
         reached = Observation(10, DecisionPose(4.0, -2), 10, None, 0, 10, 10, True)
         self.assertEqual(policy.step(reached).behavior, STOP)
         self.assertAlmostEqual(distance_to_polygon(DecisionPose(4, -2), self.area), 0)
+
+    def test_regulation_indication_states_goal_and_capture_terms(self):
+        waiting = regulation_indication(
+            "explorer", False, DecisionPose(0, 0), None, False, self.area, "unchecked")
+        self.assertIn("ожидание разрешения", waiting)
+        self.assertIn("центр площадки не достигнут", waiting)
+        reached = regulation_indication(
+            "explorer", True, DecisionPose(4, -2), None, False, self.area, "unchecked")
+        self.assertIn("центр площадки достигнут", reached)
+        capture = regulation_indication(
+            "guardian", True, DecisionPose(0.5, 1, 0), DecisionPose(0.8, 1, 0),
+            True, self.area, "clear")
+        self.assertIn("поимка да", capture)
+        turned = regulation_indication(
+            "guardian", True, DecisionPose(0.5, 1, pi), DecisionPose(0.8, 1, 0),
+            True, self.area, "clear")
+        self.assertIn("поимка нет", turned)
+        self.assertIn("вне", turned)
+        hidden = regulation_indication(
+            "guardian", True, DecisionPose(0, 0), None, False, self.area, "unchecked")
+        self.assertIn("соперник не виден", hidden)
+        free = [0] * 100
+        self.assertEqual(sight_line(0, 0, 0.1, 10, 10, free, (0.5, 0.5), (0.8, 0.5)), "clear")
+        free[5 * 10 + 6] = 100
+        self.assertEqual(sight_line(0, 0, 0.1, 10, 10, free, (0.2, 0.55), (0.9, 0.55)), "blocked")
 
 
 class PlanningTests(unittest.TestCase):

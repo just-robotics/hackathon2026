@@ -249,3 +249,13 @@ map:[+0.15,+0.15], текущий origin[-0.35,-0.50], bounds[-0.35,-0.50,3.35,4
 нижний левый пиксель с внешним фоном, не выбранный ноль внутри лабиринта.
 Габариты сейчас: planner.robot_radius=costmap.robot_radius=0.23м; это
 Kobuki0.178м+0.052м запас. В real.yaml единого robot footprint ещё нет.
+
+start_real теперь автоматически сохраняет MCAP diagnostics в
+recordings/<UTC>-autonomous; session_dir передаёт host tools/real_robot.py.
+stop_real проверяет metadata и для autonomous mode. Не пересоздавать контейнер
+без сохранения нужных старых логов. real_match high-rate navigation/self
+останавливает explorer в центре0.08м независимо от частоты decision timer.
+Decision goal completion latch не снимается шумом позиции. Recovery watchdog
+не объявляет свободную точку/mission goal препятствием без world.blocked.
+Размер реальной площадки0.5×0.5м:half_size0.25. Реальную проверку поведения
+последних правок не объявлять по синтетическому ROS-тесту без оборудования.

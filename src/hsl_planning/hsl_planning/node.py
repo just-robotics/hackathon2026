@@ -303,20 +303,23 @@ class TrajectoryPlanner(Node):
             blocked_ahead = next((point for point in self.global_path
                                   if hypot(point.x - own.x,
                                            point.y - own.y) >= 0.35), None)
-            self.recovery_avoid = blocked_ahead or self.global_target
+            # A watchdog timeout is not evidence of an obstacle. Do not
+            # blacklist a free corridor or the actual mission goal.
+            candidate = blocked_ahead
+            self.recovery_avoid = candidate if candidate is not None and self.world.blocked(candidate.x,candidate.y) else None
             self.recovery_until = now + 8.0
             self.recovery_attempt += 1
             self.global_path = []
             # First retry the nominal route/warm start. A useful turn in free
             # space must not immediately hand authority to an arbitrary escape.
             self.recovery_goal = None
-            pending_native_recovery = self.nominal_retry > 0
+            pending_native_recovery = self.nominal_retry > 0 and self.recovery_avoid is not None
             self.nominal_retry += 1
             self.recovery_origin = own
             self.progress_pose = own
             self.progress_since = now
             self.progress_heading_error = heading_error
-            self.get_logger().warn("No translation for 4 s; retrying another corridor")
+            self.get_logger().warn("No translation for 4 s; retrying route (avoid only confirmed obstacles)")
         recovery_avoid = self.recovery_avoid if now < self.recovery_until else None
         enemy = (self.opponent[0] if self.opponent and now - self.opponent[1] <= 2.0
                  else None)
