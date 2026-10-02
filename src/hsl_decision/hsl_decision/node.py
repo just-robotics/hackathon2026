@@ -1,18 +1,19 @@
 """ROS-facing decision manager."""
 
-from math import atan2, cos, sin
+from math import atan2, cos, hypot, sin
 from time import perf_counter
 
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Bool, Float32, String
 from std_srvs.srv import SetBool
 
-from .core import DecisionPolicy, Observation, Pose2
+from .core import (DecisionPolicy, Observation, Pose2, behavior_name,
+                   regulation_indication, sight_line)
 
 
 def stamp_seconds(stamp):
@@ -49,6 +50,9 @@ class DecisionManager(Node):
         self.opponent = None
         self.scan_stamp = 0.0
         self.map_stamp = 0.0
+        self.logged_action = None
+        self.logged_indication = None
+        self.grid = None
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
         self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
@@ -57,6 +61,9 @@ class DecisionManager(Node):
                                  qos_profile_sensor_data)
         self.intent_pub = self.create_publisher(PlanningIntent, "navigation/intent", 10)
         self.state_pub = self.create_publisher(String, "navigation/behavior", 10)
+        self.indication_pub = self.create_publisher(String, "navigation/indication", 10)
+        grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(OccupancyGrid, "navigation/known_grid", self.on_grid, grid_qos)
         self.cycle_pub = self.create_publisher(Float32, "navigation/decision_cycle_ms", 10)
         state_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         self.allowed_pub = self.create_publisher(Bool, "match/allowed", state_qos)
@@ -87,6 +94,9 @@ class DecisionManager(Node):
     def on_map(self, msg):
         self.map_stamp = stamp_seconds(msg.header.stamp)
 
+    def on_grid(self, msg):
+        self.grid = msg
+
     def on_allow(self, request, response):
         self.allowed = request.data
         self.allowed_pub.publish(Bool(data=self.allowed))
@@ -112,6 +122,7 @@ class DecisionManager(Node):
             allowed=self.allowed,
         )
         decision = self.policy.step(obs)
+        self._log_action(obs, decision)
         msg = PlanningIntent()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame
@@ -129,6 +140,40 @@ class DecisionManager(Node):
         msg.reason = decision.reason
         self.intent_pub.publish(msg)
         self.state_pub.publish(String(data=decision.reason))
+        indication = regulation_indication(
+            self.policy.role, obs.allowed, obs.own, obs.opponent,
+            obs.opponent is not None and obs.now - obs.opponent_stamp <= self.policy.opponent_timeout,
+            self.policy.goal_polygon, self._sight(obs))
+        self.indication_pub.publish(String(data=indication))
+        if indication != self.logged_indication:
+            self.logged_indication = indication
+            self.get_logger().info(indication)
+
+    def _sight(self, obs):
+        if self.grid is None or obs.own is None or obs.opponent is None:
+            return "unchecked"
+        info = self.grid.info
+        return sight_line(
+            info.origin.position.x, info.origin.position.y, info.resolution,
+            info.width, info.height, self.grid.data,
+            (obs.own.x, obs.own.y), (obs.opponent.x, obs.opponent.y))
+
+    def _log_action(self, obs, decision):
+        action = (decision.behavior, decision.reason)
+        if action == self.logged_action:
+            return
+        self.logged_action = action
+        parts = [f"{self.policy.role} {behavior_name(decision.behavior)}: {decision.reason}"]
+        if obs.own is not None:
+            parts.append(f"own=({obs.own.x:.2f}, {obs.own.y:.2f})")
+        if decision.target is not None:
+            parts.append(f"target=({decision.target.x:.2f}, {decision.target.y:.2f})")
+        opponent_fresh = (obs.opponent is not None and obs.own is not None
+                          and obs.now - obs.opponent_stamp <= self.policy.opponent_timeout)
+        if opponent_fresh:
+            distance = hypot(obs.opponent.x - obs.own.x, obs.opponent.y - obs.own.y)
+            parts.append(f"opponent={distance:.2f}m")
+        self.get_logger().info("; ".join(parts))
 
 
 def main():

@@ -1,10 +1,19 @@
 """Pure behavior logic; ROS transport lives in node.py."""
 
 from dataclasses import dataclass
-from math import atan2, hypot, isfinite, sqrt
+from math import atan2, ceil, floor, hypot, isfinite, pi, sqrt
 
 
 WAIT, STOP, GOAL, EXPLORE, EVADE, SEARCH, PURSUE, CAPTURE = range(8)
+BEHAVIOR_NAMES = (
+    "WAIT", "STOP", "GOAL", "EXPLORE", "EVADE", "SEARCH", "PURSUE", "CAPTURE",
+)
+
+
+def behavior_name(behavior):
+    if 0 <= behavior < len(BEHAVIOR_NAMES):
+        return BEHAVIOR_NAMES[behavior]
+    return str(behavior)
 
 
 @dataclass(frozen=True)
@@ -51,6 +60,72 @@ GOAL_CENTER_TOLERANCE = 0.08  # Matches the native MPPI XY goal tolerance.
 def start_center_reached(point, flat_vertices):
     center = polygon_center(flat_vertices)
     return hypot(point.x - center.x, point.y - center.y) <= GOAL_CENTER_TOLERANCE
+
+
+def _angle_error(target, current):
+    return (target - current + pi) % (2 * pi) - pi
+
+
+def sight_line(origin_x, origin_y, resolution, width, height, data, start, end,
+               endpoint_radius=0.1):
+    """Classify the segment between two robot frames.
+
+    Cells of 50 and above are walls. Negative cells are unknown and are not
+    treated as obstacles. Returns clear, blocked, unknown, or unchecked.
+    """
+    if data is None or not isfinite(resolution) or resolution <= 0:
+        return "unchecked"
+    distance = hypot(end[0] - start[0], end[1] - start[1])
+    if distance <= 2 * endpoint_radius:
+        return "clear"
+    count = max(1, ceil((distance - 2 * endpoint_radius) / (resolution * 0.5)))
+    saw_unknown = False
+    for index in range(count + 1):
+        travel = endpoint_radius + index * (distance - 2 * endpoint_radius) / count
+        fraction = travel / distance
+        x = start[0] + fraction * (end[0] - start[0])
+        y = start[1] + fraction * (end[1] - start[1])
+        col = floor((x - origin_x) / resolution + 1e-9)
+        row = floor((y - origin_y) / resolution + 1e-9)
+        cell = row * width + col
+        if not (0 <= col < width and 0 <= row < height and cell < len(data)):
+            return "blocked"
+        value = data[cell]
+        if value >= 50:
+            return "blocked"
+        if value < 0:
+            saw_unknown = True
+    return "unknown" if saw_unknown else "clear"
+
+
+def regulation_indication(role, allowed, own, opponent, opponent_fresh, goal_polygon, sight):
+    """One judge-facing line for the current regulation conditions."""
+    motion = "движение разрешено" if allowed else "ожидание разрешения"
+    title = "исследователь" if role == "explorer" else "страж" if role == "guardian" else role
+    if own is None:
+        return f"{title}; {motion}; своя поза неизвестна"
+    if role == "explorer":
+        center = polygon_center(goal_polygon)
+        distance = hypot(own.x - center.x, own.y - center.y)
+        reached = "центр площадки достигнут" if start_center_reached(own, goal_polygon) else "центр площадки не достигнут"
+        return (f"{title}; {motion}; до центра площадки {distance:.2f} м; {reached}; "
+                f"допуск {GOAL_CENTER_TOLERANCE:.2f} м")
+    if not opponent_fresh or opponent is None:
+        return f"{title}; {motion}; соперник не виден; поимка нет"
+    dx, dy = opponent.x - own.x, opponent.y - own.y
+    distance = hypot(dx, dy)
+    heading = abs(_angle_error(atan2(dy, dx), own.yaw))
+    distance_ok = distance < 0.45
+    heading_ok = heading <= pi / 4
+    line = {"clear": "между роботами препятствия нет",
+            "blocked": "между роботами препятствие",
+            "unknown": "линия через неизвестные клетки",
+            "unchecked": "линия не проверена"}.get(sight, "линия не проверена")
+    capture = distance_ok and heading_ok and sight == "clear"
+    return (f"{title}; {motion}; дистанция {distance:.2f} м "
+            f"({'меньше' if distance_ok else 'не меньше'} 0.45); "
+            f"курс {heading * 180 / pi:.0f}° ({'в пределах' if heading_ok else 'вне'} 45); "
+            f"{line}; поимка {'да' if capture else 'нет'}")
 
 
 def distance_to_polygon(point, flat_vertices):
