@@ -64,6 +64,8 @@ def main():
     clipped_errors = []
     gate_clipped_tangent_errors = []
     opponent_position_errors = []
+    detector_cycles = []
+    detector_reports = []
     time_series = []
     subscriptions = []
 
@@ -342,6 +344,16 @@ def main():
     subscriptions.append(node.create_subscription(
         Odometry, truth_topic, remember("opponent_truth"), 10))
 
+    def on_detector_diagnostics(message):
+        if not match['started'] or match['finished']:
+            return
+        report = json.loads(message.data)
+        detector_reports.append(report)
+        detector_cycles.append(report['cycle_ms'])
+
+    subscriptions.append(node.create_subscription(
+        String, prefix + "/navigation/detector_diagnostics", on_detector_diagnostics, 10))
+
     def on_opponent_estimate(message):
         latest["opponent_estimate"] = (message, time.monotonic())
         truth = latest.get("opponent_truth")
@@ -500,6 +512,9 @@ def main():
                   gate_clipped_tangent_errors, 0.5),
               "gate_clipped_tangent_error_p90_rad": percentile(
                   gate_clipped_tangent_errors, 0.9),
+              "detector_cycle_ms_median": percentile(detector_cycles, 0.5),
+              "detector_cycle_ms_p90": percentile(detector_cycles, 0.9),
+              "detector_reports": detector_reports,
               "opponent_position_error_count": len(opponent_position_errors),
               "opponent_position_error_median_m": percentile(
                   opponent_position_errors, 0.5),

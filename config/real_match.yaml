@@ -15,7 +15,7 @@ motion:
   max_angular_speed: 1.5
 perception:
   # Model top: 0.0102 + 0.3966 + 0.003 m; includes ~0.05 m sensor margin.
-  # Upper 90th height percentile of a candidate cluster in the planar map.
+  # Maximum height of a candidate cluster above the planar map.
   opponent_max_height: 0.46
 match:
   seed: 0

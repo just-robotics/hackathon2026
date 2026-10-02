@@ -2,6 +2,112 @@
 
 Обновлено: 2026-10-02. Цель и регламент — в [PROJECT_GOAL.md](PROJECT_GOAL.md), правила работы — в [AGENTS.md](AGENTS.md), команды — в [README.md](../README.md).
 
+## 02.10.2026 — перенос feature/detector и отладка в Gazebo
+
+Источник origin/feature/detector b985515fde5cceb13e8cf1901183d957ab7d773f.
+Сегментация/Tracker CV Kalman перенесены без изменения исходных файлов;
+новый ROS adapter hsl_perception/node.py использует прежние scan/self/known_grid,
+static occupancy фон вместо SDF моделей, TF сенсора на stamp, local-frame twist.
+Предыдущий CPP detector/test удалены, checkpoint4f9168c доступен в Git.
+Нет полного merge чужой ветки/подмены world или truth оппонента в навигации.
+
+Цикл1: queue TF из8 сканов вместо отбрасывания до прихода трансформации;
+стационарный робот подтверждается3 strong hits, prediction без det не публикует
+fresh Odometry/visible. Новые diagnostics + trace timing/причины. 145tests passed.
+Первый предварительный стенд без движения остановлен до исхода, не оценивается.
+
+Цикл2: source-профиль в hsl-detector-check/domain76/Gazebo11421, seed0,
+4 штатные unknown коробки,90с active. Исход timeout; скорости explorer0.207,
+guardian0.007м/с: страж выбирал коробку/ложный трек. Baseline серия прервана
+после1 полного матча; следующий неполный не оценивать. Артефакты
+results/isolated/hsl-detector-check/series-20261002T145425Z. Position error
+p90 explorer1.882м/guardian2.291м; median0.087/0.049. Cycle median3.759/6.558мс,
+p90 9.789/12.827мс. Не выдавать меньшую median за отсутствие ложных треков.
+
+Записаны128 полных map-clouds обеих ролей + own/peer eval poses/sensor/map:
+results/detector-integration-20261002/clouds-baseline.json. Evaluation only.
+Replay baseline:29 correct/21 false/78 none (proximity<0.3м, не visibility recall).
+Solid угол15см коробки давал strong fit окружности. Existing gap-test source
+max_gap_share0.12:77 correct/0 false/51 none на этом же фрагменте. Min_extent0.22
+ухудшает partial robot; оставлен0. Изменение профиля только simulation launch;
+real default gap1.0 сохранён. Ограничен BLAS1thread для маленьких Kalman матриц.
+146tests passed. Повторные реальные симуляционные результаты ниже после сборки;
+replay сам по себе не доказывает устойчивую дуэль и hardware не проверяет.
+
+### Продолжение циклов переноса detector
+
+Промежуточная gap0.12 серия20261002T150206Z: seeds0/1/2,
+поимки22.0/23.5/22.4с, скорости explorer0.211/0.278/0.207,
+guardian0.264/0.250/0.264, контакты0,RTF0.515–0.528. Но paired active-window
+report выявил ложные box-near samples; поимки не считаются доказательством
+качества detector. Profile line_ratio0.35 серия20261002T151111Z тоже дала
+поимки, но explorer удерживал prestart ложный трек крупной низкой коробки.
+У seed0 guardian error p90=0.039м, ложных0; explorer ложных105 samples.
+Report_detector.py сравнивает stamp с интерполированной peer own pose,
+строго внутри referee window; новые цифры не смешивать со старым trace
+error, включавшим подготовку. Не называть proximity error semantic recall.
+
+Запись начала seed2:168 full clouds с9.821simsec, clouds-start.json.
+Источник круговой fit допускал выбор подмножества rim points. После
+confidence checks simulation (arc90°, fraction0.95, mergedstrong=false)
+replay этого старта не выдаёт ни одного ложного трека; mid fragment
+clouds-gap сохраняет корректные обнаружения. Одно replay/одна удачная дуэль
+не завершает проверку. Исходные segmentation/tracker byte-identicalb985515;
+confidence adaptation в core.py, real defaults не усилены без hardware данных.
+
+### Итоговая проверенная версия detector
+
+Simulation confidence profile: gap0.12, line_ratio0.35, strong_arc_min_span_deg90,
+allow_merged_strongfalse, strong_min_inlier_fraction0.95. Все дополнительные
+проверки делают сомнительный кандидат weak, не открывая новый трек; source
+segmentation/tracker не переписаны. Real launch сохраняет source defaults,
+на роботе ничего не развёртывалось и jr_real_image не пересобирался.
+
+Команда:
+
+```bash
+python3 benchmarks/run_duel_series.py --isolated-project hsl-detector-check --ros-domain-id 76 --gazebo-port 11421 --runs 3 --start-seed 0 --active-s 90 --trace --audit-start
+```
+
+Точные команды/условия также сохранены в run logs и match.yaml.
+Последовательные seeds0/1/2, одинаковые старты, штатные4 коробки с разными yaw
+из simulation_obstacles.yaml. Никаких навигационных teleport/truth opponent.
+Серия results/isolated/hsl-detector-check/series-20261002T152625Z:
+
+| Seed | Первый исход | Активное время, с | Explorer, м/с | Guardian, м/с | Контакты обоих | Ошибочные треки коробок обоих |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | guardian_capture | 18.1 | 0.246 | 0.295 | 0 | 0 |
+| 1 | guardian_capture | 24.1 | 0.254 | 0.241 | 0 | 0 |
+| 2 | guardian_capture | 23.8 | 0.241 | 0.247 | 0 | 0 |
+
+767 aligned detections внутри общего активного referee window: ни одного
+position error>0.3м, ни одного box-near false sample. P90 позиции по6 парам
+role/run0.022–0.045м; вычисление detector p90 10.34–17.34мс. Это ошибка
+выданных треков; visibility recall не измерен. Слабые/перекрытые первые
+наблюдения намеренно не открывают трек, пока корпус недостаточно различим.
+Weighted скорость за суммарные66с:explorer≈0.247м/с,guardian≈0.258м/с.
+Planner OK explorer0.834–0.924,guardian0.972–0.983; RTF0.527–0.552.
+Подтверждены3 автономные поимки, штатный запрет до старта и стоп послефиниша,
+source/parameter audit в обеих ролях. Цель explorer в этих3 дуэлях не достигнута;
+это не подтверждение баланса ролей и не20-серия устойчивости навигации.
+
+Образ jr_image:latest sha256:75589886b4f0b02bb3a5d781e1504eb72864105a1c6fc2d8fb144891a5316c2b.
+148pytest passed, compileall, Compose simulation/real, diffcheck и установленный
+launch audit (4 role/reverse cases, один detector в каждом namespace) прошли.
+Изолированный мир каждого заезда убран runner; собственные init containers
+удалены. Другие проекты не остановлены. Артефакты capture/replay/final-summary
+в ignored results/detector-integration-20261002. Инструменты воспроизведения
+benchmarks/capture_detector_clouds.py, replay_detector_clouds.py,
+report_detector.py; последний использует только активное окно и interpolation
+≤0.2с. Изменения пока не закоммичены/не отправлены.
+
+Следующий шаг: другие расстановки и ориентации коробок, более длинные заезды,
+проверка reacquire после сильного перекрытия, отдельно stationary distant robot.
+Неподвижный робот/короткая дуга/merged cluster/time reset проверены unit-тестами,
+но далёкое первое обнаружение при occlusion не объявлять экспериментально
+доказанным. Новый конкурентный баланс и прохождение цели explorer требуют
+отдельной серии; hardware detection требует своего профиля и реальной записи.
+
 ## 02.10.2026 — слияние feature/real-diagnostics в feature/decision-manager
 
 Слиты source3242169 и target7c71cee. Сохранены polygon_rosbag, неизвестные

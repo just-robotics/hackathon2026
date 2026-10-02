@@ -1,44 +1,21 @@
 #!/usr/bin/env python3
-"""Replay saved map-frame clouds through the current C++ detector core.
+"""Replay saved map-frame clouds through the current feature/detector core.
 
 Truth positions only label the output offline; they never enter detect().
-Requires a host C++17 compiler, no ROS installation.
+Requires NumPy, no ROS installation.
 """
 import argparse
 import collections
 import json
 import math
 from pathlib import Path
-import subprocess
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CPP = r'''
-#include "hsl_perception/detector.hpp"
-#include <iostream>
-#include <iomanip>
-#include <array>
-int main(int argc,char ** argv) {
-  const double height=std::stod(argv[1]);
-  hsl_perception::Grid grid;
-  std::cin>>grid.resolution>>grid.width>>grid.height>>grid.origin_x>>grid.origin_y;
-  for (int i=0;i<grid.width*grid.height;++i) {int v;std::cin>>v;grid.data.push_back(v);}
-  std::array<std::optional<hsl_perception::Position>,2> previous;
-  std::array<double,2> last{-1e20,-1e20};
-  int observer; double time,x,y; size_t count;
-  while (std::cin>>observer>>time>>x>>y>>count) {
-    std::vector<hsl_perception::Point> points(count);
-    for (auto & p:points) {std::cin>>p.x>>p.y>>p.z;}
-    const auto prior=time-last[observer]>=0 && time-last[observer]<=1.0 ? previous[observer] : std::nullopt;
-    const auto detection=hsl_perception::detect(points,grid,{x,y},prior,height);
-    if (detection) {
-      previous[observer]=detection->centre;last[observer]=time;
-      std::cout<<std::setprecision(12)<<detection->centre.x<<" "<<detection->centre.y<<" "
-        <<detection->hits<<" "<<detection->extent<<"\n";
-    } else {std::cout<<"none\n";}
-  }
-}
-'''
+import sys
+import numpy as np
+sys.path.insert(0, str(ROOT/'src/hsl_perception'))
+from hsl_perception.core import Detector, StaticBackground
+from hsl_perception.segmentation import RobotModel
 
 
 def main():
@@ -46,42 +23,44 @@ def main():
     parser.add_argument('recording', type=Path)
     parser.add_argument('--height', type=float, default=0.46)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--max-gap-share', type=float, default=.12)
+    parser.add_argument('--line-ratio', type=float, default=.35)
+    parser.add_argument('--arc-span', type=float, default=90.)
     args = parser.parse_args()
     if not math.isfinite(args.height) or not 0.08 <= args.height <= 0.60:
         parser.error("height must be within [0.08, 0.60]")
     data = json.loads(args.recording.read_text())
-    grid = data['replay_grid']
-    lines = [' '.join(str(grid[k]) for k in ('resolution','width','height','origin_x','origin_y')),
-             ' '.join(map(str,grid['data']))]
-    clouds = data['cloud_samples']
+    full_clouds = 'grid' in data
+    grid = data['grid'] if full_clouds else data['replay_grid']
+    if full_clouds:
+        grid = dict(grid, origin_x=grid['origin'][0], origin_y=grid['origin'][1])
+    static = StaticBackground(grid['resolution'], [grid['origin_x'],grid['origin_y']],
+                              grid['width'],grid['height'],grid['data'])
+    detectors = [Detector(RobotModel(max_height=args.height, max_gap_share=args.max_gap_share, line_ratio=args.line_ratio), strong_arc_min_span_deg=args.arc_span, allow_merged_strong=False, strong_min_inlier_fraction=.95) for _ in range(2)]
+    clouds = data['cloud_samples'] if not full_clouds else [
+        dict(observer=s['observer'], stamp_sim_s=s['stamp'], own_xy=s['own'],
+             sensor=s['sensor'], peer_truth_xy=s['peer'], points=s['points'])
+        for s in data['samples']]
+    outputs=[]
     for sample in clouds:
-        lines.append(' '.join(map(str, [int(sample['observer']=='peer_scan'),
-            sample['received_sim_s'], *sample['own_xy'], len(sample['points'])])))
-        lines.extend(' '.join(map(str,point)) for point in sample['points'])
-    with tempfile.TemporaryDirectory(prefix='hsl-detector-replay-') as directory:
-        cpp, binary = Path(directory)/'replay.cpp', Path(directory)/'replay'
-        cpp.write_text(CPP)
-        subprocess.run(['g++','-O2','-std=c++17','-I',str(ROOT/'src/hsl_perception/include'),
-                        str(cpp),'-o',str(binary)],check=True,timeout=60)
-        result = subprocess.run([str(binary),str(args.height)],input='\n'.join(lines)+'\n',
-                                text=True,capture_output=True,check=True,timeout=60)
-    outputs = result.stdout.splitlines()
-    if len(outputs) != len(clouds):
-        raise RuntimeError('C++ replay did not return one output per cloud')
+        track, diagnostic = detectors[int(sample['observer']=='peer_scan')].step(
+            sample['points'], sample.get('sensor', [*sample['own_xy'], .374]), static, sample['stamp_sim_s'])
+        detected = track is not None and abs(track.last_update-sample['stamp_sim_s']) < 1e-6
+        outputs.append(None if not detected else (track.mean[0],track.mean[1],track.hits))
     rows=[]
     counts=collections.Counter()
     for sample, output in zip(clouds, outputs):
         row = dict(observer=sample['observer'], stamp_sim_s=sample['stamp_sim_s'])
-        if output=='none':
+        if output is None:
             row['label']='no_detection'
         else:
-            x,y,hits,extent=map(float,output.split())
+            x,y,hits=output
             peer_error=math.dist((x,y),sample['peer_truth_xy'])
-            box_error=math.dist((x,y),data['fixture_map_xy'])
+            box_error=math.dist((x,y),data['fixture_map_xy']) if 'fixture_map_xy' in data else math.inf
             label=('ambiguous' if peer_error<.4 and box_error<.4 else
-                   'peer_near' if peer_error<.4 else 'fixture_near' if box_error<.4 else 'other')
-            row.update(label=label,centre=[x,y],hits=int(hits),extent=extent,
-                       peer_error_m=peer_error,fixture_error_m=box_error)
+                   'peer_near' if peer_error<.3 else 'fixture_near' if box_error<.4 else 'other')
+            row.update(label=label,centre=[x,y],hits=int(hits),
+                       peer_error_m=peer_error,fixture_error_m=box_error if math.isfinite(box_error) else None)
         counts[row['label']]+=1
         rows.append(row)
     report=dict(recording=str(args.recording),height=args.height,cloud_count=len(clouds),

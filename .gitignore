@@ -15,3 +15,5 @@ results/real-bag-check-*/
 recordings/
 
 results/real-record-check-*/
+
+results/detector-*/

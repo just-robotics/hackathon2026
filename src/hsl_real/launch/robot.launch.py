@@ -64,7 +64,7 @@ def nodes(context):
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/opponent','/navigation/opponent_visible',
+            '/navigation/self','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',

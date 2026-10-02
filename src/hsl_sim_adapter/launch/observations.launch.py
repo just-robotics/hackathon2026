@@ -1,4 +1,4 @@
-"""Own simulator observations and independent C++ LiDAR opponent detector."""
+"""Own simulator observations and independent shape-based LiDAR opponent detector."""
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, OpaqueFunction, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
@@ -17,7 +17,7 @@ def nodes(context):
     processes = [Node(package='hsl_sim_adapter', executable='sim_observations',
                       namespace=values['robot_namespace'], parameters=[params], output='screen'),
                  Node(package='hsl_perception', executable='opponent_detector',
-                      namespace=values['robot_namespace'], parameters=[{'use_sim_time': True, 'opponent_max_height': float(values['opponent_max_height'])}], output='screen')]
+                      namespace=values['robot_namespace'], parameters=[{'use_sim_time': True, 'opponent_max_height': float(values['opponent_max_height']), 'robot.max_gap_share': 0.12, 'robot.line_ratio': 0.35, 'strong_arc_min_span_deg': 90.0, 'allow_merged_strong': False, 'strong_min_inlier_fraction': 0.95}], output='screen')]
     handlers = [RegisterEventHandler(OnProcessExit(target_action=process,
                 on_exit=[EmitEvent(event=Shutdown(reason='Observation process exited'))]))
                 for process in processes]

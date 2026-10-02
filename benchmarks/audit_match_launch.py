@@ -44,7 +44,7 @@ assert not Path('/autoware/src/hsl_debug_control/hsl_debug_control/node.py').exi
 assert (Path(get_package_share_directory('hsl_debug_control'))/'launch/motion.launch.py').exists()
 print(json.dumps(dict(installed_launch_only=True, cases=results, passed=True), indent=2))
 
-# The two observation launches must each own exactly one C++ detector.
+# The two observation launches must each own exactly one shape detector.
 path = Path(get_package_share_directory('hsl_sim_adapter')) / 'launch/observations.launch.py'
 spec = importlib.util.spec_from_file_location('observations', path)
 observations = importlib.util.module_from_spec(spec)
@@ -60,5 +60,5 @@ for namespace in ('', 'opponent'):
     detectors = [n for n in observed if n['executable'] == 'opponent_detector']
     assert len(detectors) == 1 and detectors[0]['namespace'] == namespace
     assert detectors[0]['package'] == 'hsl_perception'
-    assert detectors[0]['parameters'] == [{'use_sim_time': True, 'opponent_max_height': 0.49}]
-print(json.dumps(dict(observation_launch_cpp_detector=True, passed=True)))
+    assert detectors[0]['parameters'] == [{'use_sim_time': True, 'opponent_max_height': 0.49, 'robot.max_gap_share': 0.12, 'robot.line_ratio': 0.35, 'strong_arc_min_span_deg': 90.0, 'allow_merged_strong': False, 'strong_min_inlier_fraction': 0.95}]
+print(json.dumps(dict(observation_launch_shape_detector=True, passed=True)))
