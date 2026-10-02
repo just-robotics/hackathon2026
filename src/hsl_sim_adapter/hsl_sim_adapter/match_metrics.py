@@ -36,8 +36,8 @@ class MatchMetrics(Node):
     def __init__(self):
         super().__init__("match_metrics")
         self.declare_parameter("role", "explorer")
-        self.declare_parameter("own_spawn_x", -0.34)
-        self.declare_parameter("own_spawn_y", 0.4)
+        self.declare_parameter("own_spawn_x", -0.468)
+        self.declare_parameter("own_spawn_y", -0.582)
         self.declare_parameter("result_dir", "/autoware/match-results")
         self.declare_parameter("max_reference_speed", 1.0)
         self.declare_parameter("own_truth_topic", "/localization/pose")

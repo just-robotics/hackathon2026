@@ -270,8 +270,8 @@ def start_traces(series_dir, index, env):
     command(["docker", "cp", str(ROOT / "benchmarks" / "trace_motion.py"),
              "docker-hsl-adapter-1:/tmp/hsl_trace_motion.py"], env, timeout=15)
     traces = []
-    spawn_x = float(env.get("MAP_ORIGIN_X", "-0.34"))
-    spawn_y = float(env.get("MAP_ORIGIN_Y", "0.4"))
+    spawn_x = float(env.get("MAP_ORIGIN_X", "-0.468"))
+    spawn_y = float(env.get("MAP_ORIGIN_Y", "-0.582"))
     for role, namespace in (("first", ""), ("second", " --namespace opponent")):
         destination = series_dir / f"{index:02d}-trace-{role}.json"
         output = destination.open("w")

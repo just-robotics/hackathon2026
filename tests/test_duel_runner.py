@@ -36,7 +36,7 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
     env = settings
     referee = {"run_id": "evaluation-20", "seed": 20, "code_revision": "abc",
                "max_active_s": 90.0, "first_role": "explorer", "second_role": "guardian",
-               "spawn_x": float(env["SPAWN_X"]), "spawn_y": float(env["DUEL_SPAWN_Y"]),
+               "spawn_x": float(env["MAP_ORIGIN_X"]), "spawn_y": float(env["MAP_ORIGIN_Y"]),
                "second_start": json.loads(env["DUEL_SECOND_START"]),
                "first_start": json.loads(env["DUEL_FIRST_START"])}
     params = {"/duel_referee": referee}

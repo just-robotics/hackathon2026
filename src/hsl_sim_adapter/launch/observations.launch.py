@@ -25,7 +25,7 @@ def nodes(context):
 
 
 def generate_launch_description():
-    defaults = dict(opponent_max_height='0.46', robot_namespace='', own_spawn_x='-0.34', own_spawn_y='0.4',
+    defaults = dict(opponent_max_height='0.46', robot_namespace='', own_spawn_x='-0.468', own_spawn_y='-0.582',
                     own_odom_topic='/odom', own_truth_topic='/localization/pose',
                     lidar_topic='/livox/lidar')
     return LaunchDescription([DeclareLaunchArgument(key, default_value=value)

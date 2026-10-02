@@ -87,8 +87,8 @@ def main():
     parser.add_argument('--record-scans', action='store_true',
                         help='save height-filtered map-frame clouds of both robots for offline replay')
     parser.add_argument('--run-id', required=True)
-    parser.add_argument('--origin-x', type=float, default=-0.34)
-    parser.add_argument('--origin-y', type=float, default=0.4)
+    parser.add_argument('--origin-x', type=float, default=-0.468)
+    parser.add_argument('--origin-y', type=float, default=-0.582)
     parser.add_argument('--wall-seconds', type=float, default=1200)
     args = parser.parse_args()
     if not isfinite(args.height) or args.height < 0.15:

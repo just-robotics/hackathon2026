@@ -2358,3 +2358,54 @@ pytest tests — 134 passed, git diff --check — без ошибок.
 - Read-only ROS проверка фактически работающего финального контейнера tb2:
   /match/allowed=false,/match/active=false,/cmd_vel=[0,0]. Новая сессия работает
   с закрытым движением; включение разрешения агентом на реальной базе не делалось.
+
+## 02.10.2026 — замена симуляционного мира на polygon_rosbag
+
+Запрос: перенести реконструированный реальный лабиринт из feature/rosbag_map,
+заменить старый мир и построить согласованную статическую карту.
+Источник мира: origin/feature/rosbag_map, commit
+3744e75e732d57678473c633fa71b5bb177940b7; перенесён только polygon_rosbag.world,
+геометрия 10 box-панелей сохранена. Старый maze.world удалён, доступен из Git.
+
+По уточнению пользователя map[0,0] — внутренний нижний левый угол стен:
+world[-0.468,-0.582], +X вправо, +Y вверх, yaw0 вправо. Старты map[0.5,0.5,0]
+и[0.5,3.5,0], обе площадки0.5×0.5м. Фактический Gazebo spawn[0.032,-0.082,0]
+и[0.032,2.918,0]. Bounds[-0.025,-0.025,3.065,4.05]. Конфигурация реального
+робота и bag-карта maze_bag_v1 не изменены; их frame не подменяется.
+
+Изменения: match.yaml, .env, Compose и launch/defaults синхронизированы;
+jr_map/sdf_geometry.py выделяет прежнюю геометрию в модуль без ROS.
+И живой /map, и tools/export_sdf_map.py используют этот же растеризатор.
+Сохранён config/maps/polygon_rosbag.yaml + pgm:102×122,0.05м/ячейка,
+444 occupied, срез0.25м,padding1м,origin[-1.0244244094,-1.0205000367,0].
+Origin изображения включает поля и не совпадает с внутренним нулём map.
+
+Команды: python3 tools/export_sdf_map.py; helm build duel; helm start_match.
+Проверка pytest tests:135passed; новая проверка сравнивает YAML/PGM с
+растеризацией и проверяет доступность стартов/маршрут A* с радиусом0.23м.
+Fixture runtime-audit исправлен: referee получает origin map, независимо
+от собственной стартовой позы; production audit уже проверял это правильно.
+Исторические серии старого maze не являются доказательством нового полигона.
+
+Фактические проверки после сборки:
+- helm build duel завершён, окончательный jr_image
+  sha256:d32fccf33aef16fe4c469136a4e827d95dd41c17a0542cf1739bcb4cd057746d.
+  Compose config, compileall, git diff --check проходят.
+- Изолированный ROS-запуск jr_map.launch.xml подтвердил map→odom translation
+  [0.468,0.582,0] и карту444 occupied без ошибок запуска.
+- Реальный Gazebo прогон: python3 benchmarks/run_duel_series.py
+  --isolated-project hsl-polygon-check --ros-domain-id 74 --gazebo-port 11419
+  --runs 1 --start-seed 0 --active-s 30 --trace --audit-start
+  Полные артефакты results/isolated/hsl-polygon-check/series-20261002T130232Z.
+  Runtime audit сверил исходники/параметры; gate before/partial-start passed.
+  Начальные navigation/self map-позы[0.499635,0.500200] и[0.499749,3.500202],
+  yaw≈0. Все ячейки живого /map побитово совпали с экспортом PGM;
+  снимок results/isolated/hsl-polygon-check/map-audit.json.
+- Первый исход guardian_capture после10.8с активного sim-времени (seed0),
+  оба остановлены, затем оценочный мир очищен. Explorer:2.989м,средняя0.277м/с,
+  moving0.926;guardian:3.866м,средняя0.358м/с,moving0.898. Коллизии0 у обоих,
+  planner_ok0.889 у обоих,RTF0.606. Есть короткие RECOVERY/NO_GLOBAL_PATH у
+  explorer и NO_LOCAL_PATH у guardian; это проверка подключения нового мира,
+  не доказательство устойчивой навигации/баланса ролей. Цель explorer в этом
+  заезде не достигнута (его поймали). Следующий шаг при развитии алгоритмов —
+  повторная серия уже на этом полигоне, без ссылок на успехи прежнего мира.

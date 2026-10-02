@@ -64,7 +64,7 @@ services:
     # Карта занятости: считается из того же .world, что грузит симулятор,
     # и публикуется в /map как nav_msgs/OccupancyGrid.
     map:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_map.launch.xml map:=${MAP:-maze} resolution:=${MAP_RESOLUTION:-0.05}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_map.launch.xml map:=${MAP:-polygon_rosbag} map_origin_x:=${MAP_ORIGIN_X:--0.468} map_origin_y:=${MAP_ORIGIN_Y:--0.582} resolution:=${MAP_RESOLUTION:-0.05}"
         extends:
             file: common.yaml
             service: app
@@ -94,7 +94,7 @@ services:
             - debug
 
     gazebo:
-        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${SPAWN_Y:--0.18} spawn_z:=${SPAWN_Z:-0.23}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_sim.launch.py map:=${MAP:-polygon_rosbag} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:-0.032} spawn_y:=${SPAWN_Y:--0.082} spawn_z:=${SPAWN_Z:-0.23}"
         extends:
             file: common.yaml
             service: app
@@ -133,7 +133,7 @@ services:
     # Изолированный сценарий двух роботов. Основной профиль simulation со
     # сенсорным стендом; автономная оценка выполняется только в duel.
     gazebo-duel:
-        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-maze} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:--0.34} spawn_y:=${DUEL_SPAWN_Y:-0.4} spawn_z:=${SPAWN_Z:-0.23} spawn_yaw:=${DUEL_SPAWN_YAW:-0} map_origin_x:=${MAP_ORIGIN_X:--0.34} map_origin_y:=${MAP_ORIGIN_Y:-0.4} opponent_x:=${OPPONENT_X:-2.5} opponent_y:=${OPPONENT_Y:-2.5} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-3.14159} lidar_horizontal_samples:=${DUEL_LIDAR_HORIZONTAL_SAMPLES:-360} lidar_vertical_samples:=${DUEL_LIDAR_VERTICAL_SAMPLES:-16}"
+        command: $CMD "source /usr/share/gazebo/setup.bash && export GAZEBO_RESOURCE_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_RESOURCE_PATH:-} && export GAZEBO_MODEL_PATH=$${JR_GAZEBO_PATH}:$${GAZEBO_MODEL_PATH:-} && source /autoware/install/setup.bash && ros2 launch sim_kobuki launch_duel.launch.py map:=${MAP:-polygon_rosbag} headless:=${GAZEBO_HEADLESS:-true} spawn_x:=${SPAWN_X:-0.032} spawn_y:=${DUEL_SPAWN_Y:--0.082} spawn_z:=${SPAWN_Z:-0.23} spawn_yaw:=${DUEL_SPAWN_YAW:-0} map_origin_x:=${MAP_ORIGIN_X:--0.468} map_origin_y:=${MAP_ORIGIN_Y:--0.582} opponent_x:=${OPPONENT_X:-0.032} opponent_y:=${OPPONENT_Y:-2.918} opponent_z:=${OPPONENT_Z:-0.23} opponent_yaw:=${OPPONENT_YAW:-0.0} lidar_horizontal_samples:=${DUEL_LIDAR_HORIZONTAL_SAMPLES:-360} lidar_vertical_samples:=${DUEL_LIDAR_VERTICAL_SAMPLES:-16}"
         extends:
             file: common.yaml
             service: app
@@ -165,7 +165,7 @@ services:
             - duel
 
     hsl-adapter:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py opponent_max_height:=${HSL_OPPONENT_MAX_HEIGHT:-0.46} own_spawn_x:=${MAP_ORIGIN_X:--0.34} own_spawn_y:=${MAP_ORIGIN_Y:-0.4}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py opponent_max_height:=${HSL_OPPONENT_MAX_HEIGHT:-0.46} own_spawn_x:=${MAP_ORIGIN_X:--0.468} own_spawn_y:=${MAP_ORIGIN_Y:--0.582}"
         extends:
             file: common.yaml
             service: app
@@ -173,7 +173,7 @@ services:
             - duel
 
     hsl-map:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run jr_map sdf_map_server.py --ros-args -p world:=/autoware/install/sim_kobuki/share/sim_kobuki/worlds/${MAP:-maze}.world -p resolution:=${MAP_RESOLUTION:-0.05} -p spawn_x:=${MAP_ORIGIN_X:--0.34} -p spawn_y:=${MAP_ORIGIN_Y:-0.4} -p use_sim_time:=true"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run jr_map sdf_map_server.py --ros-args -p world:=/autoware/install/sim_kobuki/share/sim_kobuki/worlds/${MAP:-polygon_rosbag}.world -p resolution:=${MAP_RESOLUTION:-0.05} -p spawn_x:=${MAP_ORIGIN_X:--0.468} -p spawn_y:=${MAP_ORIGIN_Y:--0.582} -p use_sim_time:=true"
         extends:
             file: common.yaml
             service: app
@@ -181,7 +181,7 @@ services:
             - duel
 
     hsl-decision:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_decision decision_manager --ros-args --params-file /autoware/install/hsl_decision/share/hsl_decision/config/decision.yaml -p role:=${HSL_ROLE:-explorer} -p own_start:=${DUEL_FIRST_START:-[-0.5,-0.5,0.5,-0.5,0.5,0.5,-0.5,0.5]} -p opponent_start:=${DUEL_SECOND_START:-[2.59,1.85,3.09,1.85,3.09,2.35,2.59,2.35]} -p own_max_speed:=${HSL_MAX_SPEED:-0.5} -p use_sim_time:=true"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_decision decision_manager --ros-args --params-file /autoware/install/hsl_decision/share/hsl_decision/config/decision.yaml -p role:=${HSL_ROLE:-explorer} -p own_start:=${DUEL_FIRST_START:-[0.25,0.25,0.75,0.25,0.75,0.75,0.25,0.75]} -p opponent_start:=${DUEL_SECOND_START:-[0.25,3.25,0.75,3.25,0.75,3.75,0.25,3.75]} -p own_max_speed:=${HSL_MAX_SPEED:-0.5} -p use_sim_time:=true"
         extends:
             file: common.yaml
             service: app
@@ -189,7 +189,7 @@ services:
             - duel
 
     hsl-planning:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_planning autonomous.launch.py role:=${HSL_ROLE:-explorer} random_seed:=${DUEL_SEED:-0} arena_bounds:=${DUEL_ARENA_BOUNDS:-[-2.66,-0.4,3.34,4.6]} allow_reverse:=${HSL_ALLOW_REVERSE:-true} max_speed:=${HSL_MAX_SPEED:-0.5} max_angular_speed:=${HSL_MAX_ANGULAR_SPEED:-1.5}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_planning autonomous.launch.py role:=${HSL_ROLE:-explorer} random_seed:=${DUEL_SEED:-0} arena_bounds:=${DUEL_ARENA_BOUNDS:-[-0.025,-0.025,3.065,4.05]} allow_reverse:=${HSL_ALLOW_REVERSE:-true} max_speed:=${HSL_MAX_SPEED:-0.5} max_angular_speed:=${HSL_MAX_ANGULAR_SPEED:-1.5}"
         extends:
             file: common.yaml
             service: app
@@ -205,7 +205,7 @@ services:
             - duel
 
     hsl-opponent-adapter:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py opponent_max_height:=${HSL_OPPONENT_MAX_HEIGHT:-0.46} robot_namespace:=opponent own_spawn_x:=${MAP_ORIGIN_X:--0.34} own_spawn_y:=${MAP_ORIGIN_Y:-0.4} own_odom_topic:=/opponent/odom own_truth_topic:=/opponent/localization/pose lidar_topic:=/opponent/livox/lidar"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_sim_adapter observations.launch.py opponent_max_height:=${HSL_OPPONENT_MAX_HEIGHT:-0.46} robot_namespace:=opponent own_spawn_x:=${MAP_ORIGIN_X:--0.468} own_spawn_y:=${MAP_ORIGIN_Y:--0.582} own_odom_topic:=/opponent/odom own_truth_topic:=/opponent/localization/pose lidar_topic:=/opponent/livox/lidar"
         extends:
             file: common.yaml
             service: app
@@ -213,7 +213,7 @@ services:
             - duel
 
     hsl-opponent-decision:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_decision decision_manager --ros-args -r __ns:=/opponent --params-file /autoware/install/hsl_decision/share/hsl_decision/config/decision_opponent.yaml -p role:=${HSL_OPPONENT_ROLE:-guardian} -p opponent_start:=${DUEL_FIRST_START:-[-0.5,-0.5,0.5,-0.5,0.5,0.5,-0.5,0.5]} -p own_start:=${DUEL_SECOND_START:-[2.59,1.85,3.09,1.85,3.09,2.35,2.59,2.35]} -p own_max_speed:=${HSL_MAX_SPEED:-0.5} -p use_sim_time:=true"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_decision decision_manager --ros-args -r __ns:=/opponent --params-file /autoware/install/hsl_decision/share/hsl_decision/config/decision_opponent.yaml -p role:=${HSL_OPPONENT_ROLE:-guardian} -p opponent_start:=${DUEL_FIRST_START:-[0.25,0.25,0.75,0.25,0.75,0.75,0.25,0.75]} -p own_start:=${DUEL_SECOND_START:-[0.25,3.25,0.75,3.25,0.75,3.75,0.25,3.75]} -p own_max_speed:=${HSL_MAX_SPEED:-0.5} -p use_sim_time:=true"
         extends:
             file: common.yaml
             service: app
@@ -221,7 +221,7 @@ services:
             - duel
 
     hsl-opponent-planning:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_planning autonomous.launch.py robot_namespace:=opponent role:=${HSL_OPPONENT_ROLE:-guardian} random_seed:=${DUEL_OPPONENT_SEED:-1} arena_bounds:=${DUEL_ARENA_BOUNDS:-[-2.66,-0.4,3.34,4.6]} allow_reverse:=${HSL_ALLOW_REVERSE:-true} max_speed:=${HSL_MAX_SPEED:-0.5} max_angular_speed:=${HSL_MAX_ANGULAR_SPEED:-1.5}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch hsl_planning autonomous.launch.py robot_namespace:=opponent role:=${HSL_OPPONENT_ROLE:-guardian} random_seed:=${DUEL_OPPONENT_SEED:-1} arena_bounds:=${DUEL_ARENA_BOUNDS:-[-0.025,-0.025,3.065,4.05]} allow_reverse:=${HSL_ALLOW_REVERSE:-true} max_speed:=${HSL_MAX_SPEED:-0.5} max_angular_speed:=${HSL_MAX_ANGULAR_SPEED:-1.5}"
         extends:
             file: common.yaml
             service: app
@@ -237,7 +237,7 @@ services:
             - duel
 
     hsl-opponent-metrics:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter match_metrics --ros-args -r __ns:=/opponent -p use_sim_time:=true -p role:=${HSL_OPPONENT_ROLE:-guardian} -p own_spawn_x:=${MAP_ORIGIN_X:--0.34} -p own_spawn_y:=${MAP_ORIGIN_Y:-0.4} -p own_truth_topic:=/opponent/localization/pose -p opponent_truth_topic:=/localization/pose -p other_model:=kobuki -p result_dir:=/autoware/match-results/opponent -p run_id:=${DUEL_RUN_ID:-manual} -p seed:=${DUEL_SEED:-0} -p code_revision:='\"${DUEL_REVISION:-unknown}\"'"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter match_metrics --ros-args -r __ns:=/opponent -p use_sim_time:=true -p role:=${HSL_OPPONENT_ROLE:-guardian} -p own_spawn_x:=${MAP_ORIGIN_X:--0.468} -p own_spawn_y:=${MAP_ORIGIN_Y:--0.582} -p own_truth_topic:=/opponent/localization/pose -p opponent_truth_topic:=/localization/pose -p other_model:=kobuki -p result_dir:=/autoware/match-results/opponent -p run_id:=${DUEL_RUN_ID:-manual} -p seed:=${DUEL_SEED:-0} -p code_revision:='\"${DUEL_REVISION:-unknown}\"'"
         extends:
             file: common.yaml
             service: app
@@ -247,7 +247,7 @@ services:
             - duel
 
     hsl-metrics:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter match_metrics --ros-args -p use_sim_time:=true -p role:=${HSL_ROLE:-explorer} -p own_spawn_x:=${MAP_ORIGIN_X:--0.34} -p own_spawn_y:=${MAP_ORIGIN_Y:-0.4} -p run_id:=${DUEL_RUN_ID:-manual} -p seed:=${DUEL_SEED:-0} -p code_revision:='\"${DUEL_REVISION:-unknown}\"'"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter match_metrics --ros-args -p use_sim_time:=true -p role:=${HSL_ROLE:-explorer} -p own_spawn_x:=${MAP_ORIGIN_X:--0.468} -p own_spawn_y:=${MAP_ORIGIN_Y:--0.582} -p run_id:=${DUEL_RUN_ID:-manual} -p seed:=${DUEL_SEED:-0} -p code_revision:='\"${DUEL_REVISION:-unknown}\"'"
         extends:
             file: common.yaml
             service: app
@@ -257,7 +257,7 @@ services:
             - duel
 
     hsl-referee:
-        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter duel_referee --ros-args -p use_sim_time:=true -p first_role:=${HSL_ROLE:-explorer} -p second_role:=${HSL_OPPONENT_ROLE:-guardian} -p max_active_s:=${DUEL_MAX_ACTIVE_S:-360.0} -p spawn_x:=${MAP_ORIGIN_X:--0.34} -p spawn_y:=${MAP_ORIGIN_Y:-0.4} -p first_start:=${DUEL_FIRST_START:-[-0.5,-0.5,0.5,-0.5,0.5,0.5,-0.5,0.5]} -p second_start:=${DUEL_SECOND_START:-[2.59,1.85,3.09,1.85,3.09,2.35,2.59,2.35]} -p run_id:=${DUEL_RUN_ID:-manual} -p seed:=${DUEL_SEED:-0} -p code_revision:='\"${DUEL_REVISION:-unknown}\"'"
+        command: $CMD "source /autoware/install/setup.bash && ros2 run hsl_sim_adapter duel_referee --ros-args -p use_sim_time:=true -p first_role:=${HSL_ROLE:-explorer} -p second_role:=${HSL_OPPONENT_ROLE:-guardian} -p max_active_s:=${DUEL_MAX_ACTIVE_S:-360.0} -p spawn_x:=${MAP_ORIGIN_X:--0.468} -p spawn_y:=${MAP_ORIGIN_Y:--0.582} -p first_start:=${DUEL_FIRST_START:-[0.25,0.25,0.75,0.25,0.75,0.75,0.25,0.75]} -p second_start:=${DUEL_SECOND_START:-[0.25,3.25,0.75,3.25,0.75,3.75,0.25,3.75]} -p run_id:=${DUEL_RUN_ID:-manual} -p seed:=${DUEL_SEED:-0} -p code_revision:='\"${DUEL_REVISION:-unknown}\"'"
         extends:
             file: common.yaml
             service: app

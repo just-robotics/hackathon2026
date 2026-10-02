@@ -1,10 +1,10 @@
 # All mission coordinates are in map; angles are radians.
 robot:
   role: explorer
-  start: [0.0, 0.0, 0.0]
-  start_area_half_size: 0.5
+  start: [0.5, 0.5, 0.0]
+  start_area_half_size: 0.25
 opponent:
-  start: [2.84, 2.1, 3.141592653589793]
+  start: [0.5, 3.5, 0.0]
   start_area_half_size: 0.25
 motion:
   # Applies only to explorer; guardian always translates forward.
@@ -19,8 +19,8 @@ match:
   seed: 0
   active_seconds: 360.0
 simulation:
-  world: maze
-  map_origin_world: [-0.34, 0.4]
-  arena_bounds: [-2.66, -0.4, 3.34, 4.6]
+  world: polygon_rosbag
+  map_origin_world: [-0.468, -0.582]
+  arena_bounds: [-0.025, -0.025, 3.065, 4.05]
   headless: false
   rviz: auto

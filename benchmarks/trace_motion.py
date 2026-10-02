@@ -41,8 +41,8 @@ def main():
     parser.add_argument("--namespace", default="")
     parser.add_argument("--wall-seconds", type=float, default=60)
     parser.add_argument("--timeseries", action="store_true")
-    parser.add_argument("--spawn-x", type=float, default=-0.34)
-    parser.add_argument("--spawn-y", type=float, default=0.4)
+    parser.add_argument("--spawn-x", type=float, default=-0.468)
+    parser.add_argument("--spawn-y", type=float, default=-0.582)
     args = parser.parse_args()
     prefix = "/" + args.namespace.strip("/") if args.namespace else ""
     rclpy.init()

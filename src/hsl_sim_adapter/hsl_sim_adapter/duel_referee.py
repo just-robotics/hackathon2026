@@ -24,9 +24,9 @@ class DuelReferee(Node):
                 ("first_role", "explorer"),
                 ("second_role", "guardian"),
                 ("max_active_s", 360.0),
-                ("spawn_x", -0.34), ("spawn_y", 0.4),
-                ("first_start", [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]),
-                ("second_start", [2.59, 1.85, 3.09, 1.85, 3.09, 2.35, 2.59, 2.35]),
+                ("spawn_x", -0.468), ("spawn_y", -0.582),
+                ("first_start", [0.25, 0.25, 0.75, 0.25, 0.75, 0.75, 0.25, 0.75]),
+                ("second_start", [0.25, 3.25, 0.75, 3.25, 0.75, 3.75, 0.25, 3.75]),
                 ("run_id", "manual"), ("seed", 0), ("code_revision", "unknown"),
                 ("result_dir", "/autoware/match-results")):
             self.declare_parameter(name, value)

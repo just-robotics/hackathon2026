@@ -9,9 +9,11 @@
 <launch>
   <arg name="simulation" default="true" description="запуск в симуляторе"/>
 
-  <arg name="map" default="maze" description="имя мира из sim_kobuki/worlds"/>
+  <arg name="map" default="polygon_rosbag" description="имя мира из sim_kobuki/worlds"/>
   <arg name="world"
        default="$(find-pkg-share sim_kobuki)/worlds/$(var map).world"/>
+  <arg name="map_origin_x" default="-0.468"/>
+  <arg name="map_origin_y" default="-0.582"/>
   <arg name="resolution" default="0.05" description="метров на ячейку"/>
   <arg name="padding" default="1.0" description="свободные поля вокруг, м"/>
   <arg name="z_slice" default="0.25"
@@ -19,10 +21,9 @@
   <arg name="frame_id" default="map"/>
   <arg name="topic" default="/map"/>
 
-  <!-- Gazebo Classic публикует /odom в мировых координатах. Карта в этом
-       профиле тоже задана в мировых координатах, поэтому TF единичный. -->
+  <!-- Gazebo /odom is world-based; map zero is the lower-left wall corner. -->
   <node pkg="tf2_ros" exec="static_transform_publisher" name="map_to_odom_tf"
-        args="--x 0.0 --y 0.0 --z 0.0
+        args="--x $(eval '-float($(var map_origin_x))') --y $(eval '-float($(var map_origin_y))') --z 0.0
               --roll 0.0 --pitch 0.0 --yaw 0.0
               --frame-id $(var frame_id)
               --child-frame-id odom"/>
@@ -30,6 +31,8 @@
   <node pkg="jr_map" exec="sdf_map_server.py" name="sdf_map_server"
         output="screen">
     <param name="world" value="$(var world)"/>
+    <param name="spawn_x" value="$(var map_origin_x)"/>
+    <param name="spawn_y" value="$(var map_origin_y)"/>
     <param name="resolution" value="$(var resolution)"/>
     <param name="padding" value="$(var padding)"/>
     <param name="z_slice" value="$(var z_slice)"/>

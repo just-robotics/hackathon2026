@@ -48,7 +48,7 @@ def nodes(context):
 
 def generate_launch_description():
     defaults = {"robot_namespace": "", "role": "explorer", "random_seed": "0",
-                "arena_bounds": "[-2.66,-0.4,3.34,4.6]",
+                "arena_bounds": "[-0.025,-0.025,3.065,4.05]",
                 "allow_reverse": "true",
                 "max_speed": "0.5", "max_angular_speed": "1.5"}
     return LaunchDescription([DeclareLaunchArgument(name, default_value=value)

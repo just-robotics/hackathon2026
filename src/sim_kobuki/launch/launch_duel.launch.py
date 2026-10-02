@@ -25,20 +25,20 @@ def generate_launch_description():
                  " ros_namespace:=/opponent frame_prefix:=opponent/", *lidar_args]), value_type=str)
 
     return LaunchDescription([
-        DeclareLaunchArgument("map", default_value="maze"),
+        DeclareLaunchArgument("map", default_value="polygon_rosbag"),
         DeclareLaunchArgument("headless", default_value="true"),
         DeclareLaunchArgument("lidar_horizontal_samples", default_value="360"),
         DeclareLaunchArgument("lidar_vertical_samples", default_value="16"),
-        DeclareLaunchArgument("spawn_x", default_value="-0.34"),
-        DeclareLaunchArgument("spawn_y", default_value="0.4"),
+        DeclareLaunchArgument("spawn_x", default_value="0.032"),
+        DeclareLaunchArgument("spawn_y", default_value="-0.082"),
         DeclareLaunchArgument("spawn_yaw", default_value="0"),
-        DeclareLaunchArgument("map_origin_x", default_value="-0.34"),
-        DeclareLaunchArgument("map_origin_y", default_value="0.4"),
+        DeclareLaunchArgument("map_origin_x", default_value="-0.468"),
+        DeclareLaunchArgument("map_origin_y", default_value="-0.582"),
         DeclareLaunchArgument("spawn_z", default_value="0.23"),
-        DeclareLaunchArgument("opponent_x", default_value="2.5"),
-        DeclareLaunchArgument("opponent_y", default_value="2.5"),
+        DeclareLaunchArgument("opponent_x", default_value="0.032"),
+        DeclareLaunchArgument("opponent_y", default_value="2.918"),
         DeclareLaunchArgument("opponent_z", default_value="0.23"),
-        DeclareLaunchArgument("opponent_yaw", default_value="3.14159"),
+        DeclareLaunchArgument("opponent_yaw", default_value="0.0"),
         Node(package="robot_state_publisher", executable="robot_state_publisher",
              name="robot_state_publisher", parameters=[{
                  "robot_description": own_description, "use_sim_time": True}], output="screen"),

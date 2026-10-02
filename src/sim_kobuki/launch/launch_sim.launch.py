@@ -55,17 +55,17 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "map",
-                default_value="maze",
+                default_value="polygon_rosbag",
                 description="World name from worlds/, without the .world suffix.",
             ),
             DeclareLaunchArgument(
                 "spawn_x",
-                default_value="-0.34",
+                default_value="0.032",
                 description="Robot spawn X, world frame.",
             ),
             DeclareLaunchArgument(
                 "spawn_y",
-                default_value="-0.18",
+                default_value="-0.082",
                 description="Robot spawn Y, world frame.",
             ),
             DeclareLaunchArgument(

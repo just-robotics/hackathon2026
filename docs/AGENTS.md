@@ -38,7 +38,7 @@ hackathon2026 — стек для робототехнического хака�
 | docker/init-compose.yaml | Начальная подготовка ROS daemon |
 | docker/launch.yaml | Команды, доступные через helm |
 | helm_launch/ | Исходники CLI helm и её модульные тесты |
-| src/sim_kobuki/ | Модель Kobuki, мир maze.world и одиночный/двухроботный launch для Gazebo Classic |
+| src/sim_kobuki/ | Модель Kobuki, мир polygon_rosbag.world и одиночный/двухроботный launch для Gazebo Classic |
 | src/jr_map/, src/jr_launch/ | Карта занятости из SDF, демонстрационные launch для карты и локализации |
 | src/hsl_interfaces/ | Сообщение PlanningIntent между decision manager и планировщиком |
 | src/hsl_decision/ | Конечный автомат и ROS-узел выбора поведения |
@@ -259,3 +259,13 @@ Decision goal completion latch не снимается шумом позиции
 не объявляет свободную точку/mission goal препятствием без world.blocked.
 Размер реальной площадки0.5×0.5м:half_size0.25. Реальную проверку поведения
 последних правок не объявлять по синтетическому ROS-тесту без оборудования.
+
+## Симуляционный полигон (02.10.2026)
+
+Основной мир теперь polygon_rosbag.world, перенесённый из feature/rosbag_map;
+maze.world удалён. config/match.yaml: map_origin_world[-0.468,-0.582], старты[0.5,0.5,0]
+и[0.5,3.5,0], обе площадкиhalf_size0.25, bounds[-0.025,-0.025,3.065,4.05].
+Это сдвинутый frame реконструкции, не frame реальной maze_bag_v1; real config
+не менять вслед за симуляцией. /map строится из SDF общей геометрией
+jr_map/sdf_geometry.py; tools/export_sdf_map.py воспроизводит YAML/PGM
+config/maps/polygon_rosbag.*. Исторические серии maze не оценивают новый мир.

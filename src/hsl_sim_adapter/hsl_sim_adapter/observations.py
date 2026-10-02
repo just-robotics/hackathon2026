@@ -19,8 +19,8 @@ from .visibility import StaticGrid
 class SimObservations(Node):
     def __init__(self):
         super().__init__("sim_observations")
-        self.declare_parameter("own_spawn_x", -0.34)
-        self.declare_parameter("own_spawn_y", 0.4)
+        self.declare_parameter("own_spawn_x", -0.468)
+        self.declare_parameter("own_spawn_y", -0.582)
         self.declare_parameter("own_odom_topic", "/odom")
         self.declare_parameter("own_truth_topic", "/localization/pose")
         self.declare_parameter("lidar_topic", "/livox/lidar")

@@ -10,6 +10,8 @@ from match_config import load_config, configuration_environment
 
 def test_map_origin_is_independent_of_robot_start(tmp_path):
     cfg = load_config()
+    cfg['simulation']['map_origin_world'] = [-0.34, 0.4]
+    cfg['robot']['start_area_half_size'] = 0.5
     cfg['robot']['start'] = [1.0, 2.0, 0.7]
     cfg['motion']['allow_reverse'] = False
     path = tmp_path/'match.yaml'

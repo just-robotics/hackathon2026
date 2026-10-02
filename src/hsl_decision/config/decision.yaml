@@ -2,9 +2,9 @@ decision_manager:
   ros__parameters:
     role: explorer
     planning_frame: map
-    own_start: [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]
-    # Demo start area around world (2.5, 2.5); map origin is own spawn (-0.34, 0.4).
-    opponent_start: [2.59, 1.85, 3.09, 1.85, 3.09, 2.35, 2.59, 2.35]
+    own_start: [0.25, 0.25, 0.75, 0.25, 0.75, 0.75, 0.25, 0.75]
+    # Default polygon_rosbag mission; map origin is the inner lower-left wall corner [-0.468, -0.582].
+    opponent_start: [0.25, 3.25, 0.75, 3.25, 0.75, 3.75, 0.25, 3.75]
     pose_timeout: 1.2
     scan_timeout: 1.8
     opponent_timeout: 1.0
