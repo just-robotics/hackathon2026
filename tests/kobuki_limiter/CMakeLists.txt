@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.5)
+project(kobuki_limiter_check)
+set(CMAKE_CXX_STANDARD 14)
+find_package(ament_cmake REQUIRED)
+find_package(kobuki_core REQUIRED)
+find_package(ecl_time REQUIRED)
+add_executable(check ../kobuki_acceleration_limiter.cpp)
+ament_target_dependencies(check kobuki_core ecl_time)

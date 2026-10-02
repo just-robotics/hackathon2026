@@ -153,7 +153,13 @@ void Kobuki::init(Parameters &parameters)
   stx.push_back(0xaa);
   stx.push_back(0x55);
   packet_finder.configure(sigslots_namespace, stx, etx, 1, 256, 1, true);
-  acceleration_limiter.init(parameters.enable_acceleration_limiter);
+  acceleration_limiter.init(parameters.enable_acceleration_limiter,
+                            parameters.linear_acceleration_limit,
+                            parameters.angular_acceleration_limit,
+                            parameters.linear_deceleration_limit,
+                            parameters.angular_deceleration_limit,
+                            parameters.linear_speed_limit,
+                            parameters.angular_speed_limit);
 
   // in case the user changed these from the defaults
   Battery::capacity = parameters.battery_capacity;

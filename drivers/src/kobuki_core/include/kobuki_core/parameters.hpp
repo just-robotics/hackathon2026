@@ -47,9 +47,11 @@ public:
     battery_low(Battery::low),
     battery_dangerous(Battery::dangerous),
     linear_acceleration_limit(0.3),
-    linear_deceleration_limit(-0.3*1.2),
+    linear_deceleration_limit(0.7),
     angular_acceleration_limit(3.5),
-    angular_deceleration_limit(-3.5*1.2),
+    angular_deceleration_limit(5.2),
+    linear_speed_limit(0.4),
+    angular_speed_limit(3.0),
     log_level(LogLevel::WARNING)
   {
   } /**< @brief Default constructor. **/
@@ -62,10 +64,12 @@ public:
   double battery_low;              /**< @brief Threshold for battery level warnings [14.0V] **/  /* defaults defined in battery.cpp */
   double battery_dangerous;        /**< @brief Threshold for battery level in danger of depletion [13.2V] **/  /* defaults defined in battery.cpp */
 
-  double linear_acceleration_limit;
-  double linear_deceleration_limit;
-  double angular_acceleration_limit;
-  double angular_deceleration_limit;
+  double linear_acceleration_limit;  /**< @brief Max speed-up rate, magnitude [0.3 m/s^2] **/
+  double linear_deceleration_limit;  /**< @brief Max braking rate, magnitude [0.7 m/s^2] **/
+  double angular_acceleration_limit; /**< @brief Max speed-up rate, magnitude [3.5 rad/s^2] **/
+  double angular_deceleration_limit; /**< @brief Max braking rate, magnitude [5.2 rad/s^2] **/
+  double linear_speed_limit;
+  double angular_speed_limit;
 
   LogLevel log_level;              /**< @brief Print to stdout messages for this logging level and above. **/
 

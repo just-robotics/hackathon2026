@@ -17,12 +17,16 @@
 ** Includes
 *****************************************************************************/
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 #include <iomanip>
 #include <sstream>
 #include <iostream>
 #include <stdint.h>
 #include <ecl/time.hpp>
+
+#include "../parameters.hpp"
 
 /*****************************************************************************
 ** Namespaces
@@ -40,12 +44,14 @@ namespace kobuki {
  * This class will check incoming velocity commands and limit them if
  * the change since the last incoming command is great.
  *
- * Right now, this hasn't got any configurable parameters for the user -
- * that might be an option to provide for users in the future. Ideally
+ * Limits are supplied via init() from kobuki::Parameters.
+ * init(enable) uses default Parameters limits; the full
+ * form sets them explicitly.
  *
- * - User can disable this and do their own velocity smoothing outside.
- * - User can enable this with defaults (fairly high accelerations)
- * - (Later) User can enable this reconfigure a parameter to suit.
+ * Speed is clamped first, then acceleration/deceleration.
+ * Acceleration and deceleration limits follow the sign of the current
+ * velocity. A command that crosses zero brakes to zero first, then
+ * accelerates into the new direction with the remaining time.
  */
 class AccelerationLimiter {
 public:
@@ -55,15 +61,32 @@ public:
     last_vx(0.0),
     last_wz(0.0)
   {}
-  void init(bool enable_acceleration_limiter
-    , double linear_acceleration_max_= 0.5, double angular_acceleration_max_= 3.5
-    , double linear_deceleration_max_=-0.5*1.2, double angular_deceleration_max_=-3.5*1.2)
+  void init(bool enable_acceleration_limiter)
+  {
+    Parameters defaults;
+    init(enable_acceleration_limiter,
+         defaults.linear_acceleration_limit,
+         defaults.angular_acceleration_limit,
+         defaults.linear_deceleration_limit,
+         defaults.angular_deceleration_limit,
+         defaults.linear_speed_limit,
+         defaults.angular_speed_limit);
+  }
+  void init(bool enable_acceleration_limiter,
+            double linear_acceleration_max_,
+            double angular_acceleration_max_,
+            double linear_deceleration_max_,
+            double angular_deceleration_max_,
+            double linear_speed_max_,
+            double angular_speed_max_)
   {
     is_enabled = enable_acceleration_limiter;
-    linear_acceleration_max  = linear_acceleration_max_ ;
-    linear_deceleration_max  = linear_deceleration_max_ ;
-    angular_acceleration_max = angular_acceleration_max_;
-    angular_deceleration_max = angular_deceleration_max_;
+    linear_acceleration_max  = std::abs(linear_acceleration_max_);
+    linear_deceleration_max  = std::abs(linear_deceleration_max_);
+    angular_acceleration_max = std::abs(angular_acceleration_max_);
+    angular_deceleration_max = std::abs(angular_deceleration_max_);
+    linear_speed_max = linear_speed_max_;
+    angular_speed_max = angular_speed_max_;
   }
 
   bool isEnabled() const { return is_enabled; }
@@ -80,60 +103,79 @@ public:
   std::vector<double> limit(const double &vx, const double &wz)
   {
     std::vector<double> ret_val;
+    double vx_limited = std::max(-linear_speed_max, std::min(vx, linear_speed_max));
+    double wz_limited = std::max(-angular_speed_max, std::min(wz, angular_speed_max));
+
     if( is_enabled ) {
       //get current time
       ecl::TimeStamp curr_timestamp;
       //get time difference
       ecl::TimeStamp duration = curr_timestamp - last_timestamp;
-      //calculate acceleration
-      double linear_acceleration = ((double)(vx - last_vx)) / duration; // in [m/s^2]
-      double angular_acceleration = ((double)(wz - last_wz)) / duration; // in [rad/s^2]
+      const double dt = duration;
 
-      //std::ostringstream oss;
-      //oss << std::fixed << std::setprecision(4);
-      //oss << "[" << std::setw(6) << (double)duration << "]";
-      //oss << "[" << std::setw(6) << last_vx << ", " << std::setw(6) << last_wz << "]";
-      //oss << "[" << std::setw(6) << vx << ", " << std::setw(6) << wz << "]";
-      //oss << "[" << std::setw(6) << linear_acceleration << ", " << std::setw(6) << angular_acceleration << "]";
-
-      if( linear_acceleration > linear_acceleration_max )
-        command_vx = last_vx + linear_acceleration_max * duration;
-      else if( linear_acceleration < linear_deceleration_max )
-        command_vx = last_vx + linear_deceleration_max * duration;
-      else
-        command_vx = vx;
+      command_vx = limitAxis(last_vx, vx_limited, dt,
+                             linear_acceleration_max, linear_deceleration_max);
       last_vx = command_vx;
 
-      if( angular_acceleration > angular_acceleration_max )
-        command_wz = last_wz + angular_acceleration_max * duration;
-      else if( angular_acceleration < angular_deceleration_max )
-        command_wz = last_wz + angular_deceleration_max * duration;
-      else
-        command_wz = wz;
+      command_wz = limitAxis(last_wz, wz_limited, dt,
+                             angular_acceleration_max, angular_deceleration_max);
       last_wz = command_wz;
 
       last_timestamp = curr_timestamp;
 
-      //oss << "[" << std::setw(6) << command_vx << ", " << std::setw(6) << command_wz << "]";
-      //std::cout << oss.str() << std::endl;
-
       ret_val.push_back(command_vx);
       ret_val.push_back(command_wz);
     } else {
-      ret_val.push_back(0.0);
-      ret_val.push_back(0.0);
+      last_vx = vx_limited;
+      last_wz = wz_limited;
+      ret_val.push_back(vx_limited);
+      ret_val.push_back(wz_limited);
     }
     return ret_val;
   }
 
 private:
+  /**
+   * @brief Limit one velocity axis over dt.
+   *
+   * Both limits are positive magnitudes: acceleration_max applies while
+   * |v| grows, deceleration_max while |v| shrinks, in either direction.
+   * Opposite signs split the step at zero.
+   */
+  static double limitAxis(const double v0, const double v1, const double dt,
+                          const double acceleration_max, const double deceleration_max)
+  {
+    if( dt <= 0.0 ) {
+      return v0;
+    }
+
+    if( (v0 > 0.0 && v1 < 0.0) || (v0 < 0.0 && v1 > 0.0) ) {
+      const double t_stop = std::abs(v0) / deceleration_max;
+      if( t_stop >= dt ) {
+        return v0 - std::copysign(deceleration_max * dt, v0);
+      }
+      const double v = std::copysign(acceleration_max * (dt - t_stop), v1);
+      return (v1 > 0.0) ? std::min(v, v1) : std::max(v, v1);
+    }
+
+    const double side = (v0 != 0.0) ? v0 : v1;
+    if( side == 0.0 ) {
+      return 0.0;
+    }
+
+    const double up   = (side > 0.0) ? acceleration_max : deceleration_max;
+    const double down = (side > 0.0) ? deceleration_max : acceleration_max;
+    return std::max(v0 - down * dt, std::min(v1, v0 + up * dt));
+  }
+
   bool is_enabled;
   ecl::TimeStamp last_timestamp;
 
   double last_vx, last_wz; // In [m/s] and [rad/s]
   double command_vx, command_wz; // In [m/s] and [rad/s]
-  double linear_acceleration_max, linear_deceleration_max; // In [m/s^2]
-  double angular_acceleration_max, angular_deceleration_max; // In [rad/s^2]
+  double linear_acceleration_max, linear_deceleration_max; // Magnitudes in [m/s^2]
+  double angular_acceleration_max, angular_deceleration_max; // Magnitudes in [rad/s^2]
+  double linear_speed_max, angular_speed_max; // In [m/s] and [rad/s]
 };
 
 } // namespace kobuki

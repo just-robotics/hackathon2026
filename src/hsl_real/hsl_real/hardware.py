@@ -18,7 +18,7 @@ def hardware_nodes(cfg, mission, drivers=True, map_anchor=True):
     if drivers:
         add('kobuki_node','kobuki_ros_node', parameters=[{
             'device_port':cfg['kobuki_port'], 'odom_frame':'odom', 'base_frame':'base_footprint',
-            'publish_tf':True, 'use_imu_heading':True, 'acceleration_limiter':False,
+            'publish_tf':True, 'use_imu_heading':True, 'acceleration_limiter':True,
             'cmd_vel_timeout_sec':.6}], remappings=[('commands/velocity','/cmd_vel'),('odom',cfg['odom_topic'])])
         add('livox_ros_driver2','livox_ros_driver2_node', name='livox_lidar_publisher',
             parameters=[{'xfer_format':0, 'multi_topic':0, 'data_src':0, 'publish_freq':10.,
