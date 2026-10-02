@@ -11,7 +11,9 @@ build:
   parameters:
     - __profile__
   commands:
-    - "docker compose --profile __placeholder_1__ build"
+    # Сервисы профиля собираются из одного Dockerfile в один тег IMAGE.
+    # Bake иначе экспортирует этот образ отдельно на каждый сервис.
+    - "svc=$(docker compose --profile __placeholder_1__ config --services | head -n 1) && docker compose --profile __placeholder_1__ build \"$svc\""
 
 start:
   desc: "Свежий матч из config/match.yaml (алиас start_match)"

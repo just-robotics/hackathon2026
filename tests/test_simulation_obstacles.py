@@ -26,3 +26,15 @@ def test_bad_box_configuration_rejected(tmp_path,key,value):
     cfg['boxes'][0][key]=value
     path=tmp_path/'boxes.yaml';path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError):load_obstacles(path)
+
+
+def test_small_boxes_have_physical_collision_and_can_be_pushed():
+    cfg=load_obstacles(ROOT/'config/simulation_obstacles.yaml')
+    for box in cfg['boxes']:
+        model=ET.fromstring(box_sdf(box)).find('model')
+        assert model.find('link/collision') is not None
+        if box['size']==[.15,.15,.4]:
+            assert model.findtext('static')=='false'
+            assert float(model.findtext('link/inertial/mass'))>0
+        else:
+            assert model.findtext('static')=='true'

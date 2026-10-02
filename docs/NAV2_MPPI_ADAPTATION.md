@@ -1,4 +1,4 @@
-# Актуальный локальный контур после очистки 01.10.2026
+# Локальный контур Nav2 MPPI (02.10.2026)
 
 Исполняется только официальный C++ MPPI Nav2 1.1.20 в hsl_nav2_control.
 Python mppi.py, переключатель backend и отладочный follower удалены; ниже
@@ -12,6 +12,17 @@ cmd_vel. У explorer диапазон±0.5м/с при allow_reverse=true,
 config/match.yaml, reverse применяется только к исследователю. GoalAngle
 включается динамически только guardian/CAPTURE. Весь перемещаемый footprint
 проверяется перед выдачей команды. Нет скрытого fallback.
+
+Текущая costmap: StaticLayer читает исходную /map, ObstacleLayer с
+marking+clearing читает navigation/nav2_scan из filtered obstacle_scan.
+ObstacleMemory/obstacle_grid остаётся у глобального планировщика и диагностики.
+Раньше динамическая память подавалась через StaticLayer; это отменено в
+текущем дереве, чтобы штатная очистка облачного слоя могла убирать его отметки.
+Фильтр собственных real-возвратов работает до AMCL и адаптера.
+Реальная блокировка движения ещё не подтверждена как исправленная.
+
+Исторические испытания ниже относятся к указанным версиям; актуальные
+ограничения и следующие проверки — [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 После очистки версия0c8ad5a проверена seeds12–14: две поимки и одна цель,
 контактов0, обе роли≥0.2м/с во всех3 матчах; explorer ниже0.3 в одном.
@@ -167,3 +178,14 @@ optimizer/модели или снятие collision-check. Остальные c
 2→6 у обоих роботов, без изменения скоростей/остальных critics/footprint.
 Медленное начальное выравнивание подтверждено трассами; польза усиления
 ещё не доказана, результаты и критерии отката — в PROJECT_STATUS.
+
+## Live obstacle ownership (02Oct evening correction)
+
+The stock StaticLayer reads the original `/map` for both namespaces.
+`navigation/obstacle_grid` remains global-planner memory/diagnostics; it is
+not an input to MPPI StaticLayer. The stock ObstacleLayer marks and clears
+`navigation/nav2_scan`, derived from semantically filtered obstacle_scan.
+This restores normal ray and footprint clearing of live observations rather
+than repeatedly importing them as static-map cells. Neither the collision
+footprint nor the swept trajectory check is reduced. Upstream self-return
+filtering is still required: changing layer ownership does not identify rods.

@@ -79,6 +79,7 @@ class RunMetrics:
         self.moving = False
         self.collisions = 0
         self.wall_collisions = 0
+        self.small_box_contacts = 0
         self.robot_collisions = 0
         self.collision_points = []
         self.contact_active = False
@@ -196,6 +197,8 @@ class RunMetrics:
             self.collisions += 1
             if kind == "robot":
                 self.robot_collisions += 1
+            elif kind == "small_box":
+                self.small_box_contacts += 1
             else:
                 self.wall_collisions += 1
             if position is not None and len(self.collision_points) < 50:
@@ -301,6 +304,7 @@ class RunMetrics:
             "stop_go_events": max(0, self.starts - 1),
             "collisions": self.collisions,
             "wall_collisions": self.wall_collisions,
+            "small_box_contacts": self.small_box_contacts,
             "robot_collisions": self.robot_collisions,
             "collision_points": self.collision_points,
             "opponent_visible_fraction": round(self.visible_s / elapsed, 3) if elapsed else 0.0,

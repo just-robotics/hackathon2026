@@ -94,7 +94,9 @@ def prepare_xauthority() -> str:
     stable_path = os.path.join(stable_dir, "xauthority")
 
     os.makedirs(stable_dir, exist_ok=True)
-    shutil.copyfile(xauthority, stable_path)
+    # start_match вызывает helm повторно уже с XAUTHORITY, указывающим на копию
+    if not (os.path.exists(stable_path) and os.path.samefile(xauthority, stable_path)):
+        shutil.copyfile(xauthority, stable_path)
     os.chmod(stable_path, 0o600)
 
     return stable_path

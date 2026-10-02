@@ -17,6 +17,8 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Bool, Float32, String
 
 from .obstacle_memory import ObstacleMemory
+from .obstacle_filter import SmallBoxFilter
+from hsl_sim_adapter.cloud import make_cloud
 
 from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_target, reachable_frontier_route,
                    reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
@@ -127,6 +129,7 @@ class TrajectoryPlanner(Node):
                              if configured_bounds != default_arena_bounds else None)
         self.scan_points = []
         self.obstacle_memory = ObstacleMemory()
+        self.small_box_filter = SmallBoxFilter()
         self.static_grid = None
         self.dirty = True
         self.global_path = []
@@ -152,6 +155,8 @@ class TrajectoryPlanner(Node):
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
                                  qos_profile_sensor_data)
         grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.obstacle_scan_pub = self.create_publisher(PointCloud2, "navigation/obstacle_scan", qos_profile_sensor_data)
+        self.obstacle_filter_diag_pub = self.create_publisher(String, "navigation/obstacle_filter_diagnostics", 10)
         self.obstacle_grid_pub = self.create_publisher(OccupancyGrid, "navigation/obstacle_grid", grid_qos)
         self.create_timer(.2, self.publish_obstacle_grid)
         if self.require_match_active:
@@ -198,21 +203,35 @@ class TrajectoryPlanner(Node):
 
     def on_map(self, msg):
         if msg.header.frame_id == self.frame:
-            self.map_points = read_xyz(msg)
+            points, _ = self.small_box_filter.filter(read_xyz(msg), seconds(msg.header.stamp))
+            self.map_points = points.tolist()
             self.dirty = True
 
     def on_scan(self, msg):
         if msg.header.frame_id == self.frame:
-            self.scan_points = read_xyz(msg, 5000)
+            raw = read_xyz(msg, 5000)
+            scan_stamp = seconds(msg.header.stamp)
+            protected = ([[self.opponent[0].x, self.opponent[0].y]]
+                if self.opponent and 0 <= scan_stamp-self.opponent[1] <= .3 else [])
+            points, diagnostic = self.small_box_filter.filter(raw, scan_stamp, protected)
+            self.scan_points = points.tolist()
+            self.obstacle_memory.forget(self.small_box_filter.ignored)
+            self.obstacle_scan_pub.publish(make_cloud(msg.header, self.scan_points))
+            self.obstacle_filter_diag_pub.publish(String(data=json.dumps(dict(
+                stamp_s=seconds(msg.header.stamp), **diagnostic))))
             self.scan_stamp = seconds(msg.header.stamp)
             if self.own and abs(self.scan_stamp-self.own[1]) <= self.pose_timeout:
                 self.obstacle_memory.update(self.scan_points, self.own[0], self.scan_stamp)
+                self.publish_obstacle_grid()
             self.dirty = True
 
     def on_known_grid(self, msg):
         if msg.header.frame_id != self.frame or msg.info.width <= 0 or msg.info.resolution <= 0:
             return
         self.static_grid = deepcopy(msg)
+        self.small_box_filter.set_grid(msg.info.resolution,
+            [msg.info.origin.position.x,msg.info.origin.position.y],
+            msg.info.width,msg.info.height,msg.data)
         resolution = msg.info.resolution
         width = msg.info.width
         origin = msg.info.origin.position

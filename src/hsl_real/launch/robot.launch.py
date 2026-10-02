@@ -9,6 +9,7 @@ from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from hsl_real.config import load_config, start_polygon
 from hsl_real.hardware import hardware_nodes
+from hsl_perception.profiles import REAL_PARAMETERS
 
 
 def nodes(context):
@@ -27,8 +28,9 @@ def nodes(context):
     add('hsl_real','real_lidar_filter', parameters=(
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
     add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization']=='amcl'}])
-    add('hsl_perception','opponent_detector', parameters=[{'opponent_max_height':float(mission['perception']['opponent_max_height']),
-        'sensor_frame':'livox'}])
+    add('hsl_perception','opponent_detector', parameters=[dict(REAL_PARAMETERS,
+        opponent_max_height=float(mission['perception']['opponent_max_height']),
+        sensor_frame='livox')])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
     add('hsl_planning','trajectory_planner',parameters=[{'role':role,'max_speed':speed,
@@ -67,7 +69,7 @@ def nodes(context):
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/scan','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
+            '/navigation/self','/navigation/scan','/navigation/obstacle_scan','/navigation/obstacle_grid','/navigation/obstacle_filter_diagnostics','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',

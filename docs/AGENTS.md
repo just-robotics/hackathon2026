@@ -1,292 +1,138 @@
 # Инструкции для агентов
 
-Актуальные направления движения: `motion.allow_reverse` действует только
-на исследователя (`[-max_speed, max_speed]` при true), независимо от namespace.
-Страж всегда имеет `[0, max_speed]` и `PathAngleCritic.forward_preference=true`.
-У исследователя forward_preference=!allow_reverse. PreferForward выключен.
-GoalAngle включается C++-обёрткой только у стража в CAPTURE.
-Историческая20-серия01Oct относится к двунаправленным обеим ролям.
-Новая20-серия series-20261001T210408Z с guardian forward-only и высотным
-CPP detector завершена:14 целей/6 поимок,0 контактов. Она не подтверждает
-последующие изменения детектора; проверять реальные команды обоих роботов.
+## Перед работой
 
-## О проекте
+- Прочитай [PROJECT_GOAL.md](PROJECT_GOAL.md), текущую сводку и последние циклы
+  в [PROJECT_STATUS.md](PROJECT_STATUS.md), затем относящийся к задаче код.
+- Проверь ветку, `git status`, работающие контейнеры. Сохраняй чужие
+  незавершённые изменения. Записи прежних проверок не доказывают текущий код.
+- После каждого завершённого цикла обновляй PROJECT_STATUS: гипотеза,
+  изменение, команды/условия/seed, результаты, вывод и следующий шаг.
+- При изменении запуска, архитектуры, зависимостей или ROS-интерфейсов
+  синхронно обновляй README и соответствующее руководство.
+- Не отправляй изменения в origin без запроса. Не записывай секреты в документы.
+  Не удаляй чужие данные и записи. Удаляй подтверждённо неиспользуемый код
+  и его настройки; сохраняй необходимые заготовки реальных интерфейсов.
+- Требования соревнования сверяй с PROJECT_GOAL и PDF-регламентом.
+  Рабочие выводы проекта не являются дополнительными правилами организаторов.
 
-hackathon2026 — стек для робототехнического хакатона: Autoware / ROS 2 Humble и симуляция мобильного робота Kobuki в Gazebo Classic 11. Сборка и запуск выполняются в Docker через локальную CLI-команду helm. Цель, регламентные ограничения и инвентаризация модулей описаны в [PROJECT_GOAL.md](PROJECT_GOAL.md), первоисточник — [регламент HSL26](<Регламент HSL26 - v06092026.pdf>). Текущее состояние работ и проверок ведётся в [PROJECT_STATUS.md](PROJECT_STATUS.md). Границы адаптации Nav2 — в [NAV2_MPPI_ADAPTATION.md](NAV2_MPPI_ADAPTATION.md).
+## Запуск и сборка
 
-## Цель и правила соревнования
+Симуляция: Docker/ROS 2 Humble/Gazebo Classic 11, образ `jr_image`.
+`helm build duel` собирает один общий образ сервисов профиля.
+После изменения `helm_launch/` переустанови CLI по инструкции README.
+`jr_launch` устанавливает только tracked-каталог launch, config у пакета нет.
 
-- Подготовить автономное ПО для TurtleBot 2 с Livox Mid-360 в обеих ролях: исследователь достигает стартовой площадки стража и избегает поимки; страж обнаруживает и ловит исследователя.
-- Матч состоит из двух этапов по 10 минут со сменой ролей. Первые 4 минуты каждого этапа — подготовка без выезда за стартовую линию. Полигон представляет собой лабиринт со статическими препятствиями, расстановка которых заранее неизвестна.
-- Поимка требует одновременно дистанции между СК роботов менее 0,45 м, отклонения оси X стража от направления на исследователя не более 45° и отсутствия препятствия между ними. Достижение площадки определяется касанием её контура.
-- Нельзя закреплять в ПО сведения о заранее неизвестных особенностях испытаний, добавлять сенсоры или оборудование, изменять конструкцию либо внешний вид робота. Детали и границы этих правил сверяй с [целевым документом](PROJECT_GOAL.md) и PDF-регламентом.
+Основной запуск — `helm start_match`, настройки — внешний `config/match.yaml`.
+Других start_matchN нет. Перед разрешением движения проверяются оба стека,
+MPPI, параметры, исходники и готовность коробок. `--prepare-only` не открывает
+движение. GUI/RViz при DISPLAY, иначе headless. `simulation`/`gazebo` —
+сенсорный стенд, не оценочная автономная дуэль.
 
-## Карта репозитория
+Real: отдельный CPU-образ `jr_real_image` на базе контейнера HSL25,
+драйверы `drivers/src` в /workspace, решение `src` в /solution.
+`helm build_real` не собирает Gazebo; sim build не обновляет real-образ.
+`start_real` оставляет движение закрытым, `enable_real` проверяет готовность,
+`pause_real` закрывает движение, `stop_real` завершает контейнер и bag штатно.
+Конфиги оборудования `real.yaml`/Livox JSON, миссии `real_match.yaml`,
+локализации `localization.yaml`, фильтра `lidar_filter.yaml`.
+`start_real_bag_record` — драйверы, raw MCAP и клавиатура через watchdog;
+автономных издателей команд в этом режиме нет. Сценария построения карты,
+LIO-SAM/FAST-LIO и submodules нет. [REAL_ROBOT.md](REAL_ROBOT.md) — руководство.
 
-Пути в таблице указаны от корня репозитория.
+## Архитектурный контракт
 
-| Путь | Назначение |
-| --- | --- |
-| README.md | Установка, запуск и проверка ROS-интерфейса |
-| docs/PROJECT_GOAL.md | Цель, условия регламента, наличие модулей и открытые части автономного контура |
-| docs/Регламент HSL26 - v06092026.pdf | Первоисточник правил соревнования |
-| docs/PROJECT_STATUS.md | Фактическое состояние работ и результаты проверок |
-| .env | Переменные Docker Compose и helm, включая режим симуляции и GUI |
-| docker/Dockerfile | Образ Autoware, ROS 2 Humble, Gazebo Classic 11, Livox SDK/драйвер и пакеты из src/ |
-| docker/docker-compose.yaml | Gazebo, профили и контейнеры-заготовки для будущих модулей |
-| docker/common.yaml | Общие параметры контейнеров: сеть, GPU, устройства и DDS |
-| docker/init-compose.yaml | Начальная подготовка ROS daemon |
-| docker/launch.yaml | Команды, доступные через helm |
-| helm_launch/ | Исходники CLI helm и её модульные тесты |
-| src/sim_kobuki/ | Модель Kobuki, мир polygon_rosbag.world и одиночный/двухроботный launch для Gazebo Classic |
-| src/jr_map/, src/jr_launch/ | Карта занятости из SDF, демонстрационные launch для карты и локализации |
-| src/hsl_interfaces/ | Сообщение PlanningIntent между decision manager и планировщиком |
-| src/hsl_decision/ | Конечный автомат и ROS-узел выбора поведения |
-| src/hsl_planning/ | Проекция 3D-препятствий, A*, цели и recovery; reference для Nav2 |
-| src/hsl_perception/ | Детектор формы корпуса и Kalman трекер из feature/detector |
-| src/hsl_nav2_control/ | Основной официальный C++ MPPI Nav2, costmap, команды и проверка траектории |
-| src/hsl_sim_adapter/ | Временные источники данных Gazebo, отдельные наблюдатели метрик каждого робота для обоих автономных роботов |
-| src/hsl_debug_control/ | Защитный шлюз MPPI и конфигурация RViz |
-| benchmarks/run_duel_series.py | Независимые дуэли с пересозданием мира, seed, фиксированными или чередующимися ролями, YAML-конфигурацией и парными отчётами |
+Каждый автономный робот имеет собственные наблюдения, detector, decision,
+A*, costmap, штатный C++ Nav2 Humble MPPI 1.1.20, motion_gate и метрики.
+MPC, Python MPPI, debug follower и scripted opponent удалены.
+Не возвращай скрытые backend/fallback. Единственный издатель финального
+cmd_vel — motion_gate. Отсутствие безопасного MPPI означает остановку.
+До общего старта/после первого исхода команды обоих роботов закрыты.
+Актуальность pose/scan/path/intent/command обязательна.
 
-## Как устроен запуск
+- MPPI выдаёт `navigation/mppi_cmd_vel`; `local_path` — визуальный префикс,
+  вся оптимизированная траектория проходит swept-check.
+- Радиус планирования и costmap 0,23 м: тело Kobuki 0,178 м + запас 0,052 м.
+  Не уменьшай footprint для обхода отказа. A* проверяет swept edges, включая
+  диагонали; дополнительный local_safety_margin номинально 0.
+- `motion.allow_reverse` касается только исследователя. Страж vx_min=0,
+  PathAngle.forward_preference=true. PreferForward выключен. GoalAngle
+  включается у стража только в CAPTURE. Пределы команд — motion YAML.
+- PURSUE получает собственный `own_max_speed` из motion.max_speed.
+  Скорость соперника измеряется по треку; не ограничивай её нашей скоростью.
+- Цель исследователя — центр площадки с допуском 0,08 м (строже регламента).
+  Завершение защёлкивается и не снимается шумом локализации. Размер площадки
+  0,5×0,5 м, half_size=0,25. Конфиги sim/real независимы.
 
-`helm start_match` читает внешний `config/match.yaml`, валидирует его,
-пересоздаёт duel и разрешает движение после готовности двух поз/MPPI и
-проверки источников/параметров. Все parameter list/get читаются одним ROS-клиентом через сервисы;
-этапы печатаются, `startup-timing.json` сохраняет накопленное wall-время.
-Текущий критерий explorer_goal — центр площадки с допуском0,08м, общий
-для decision и referee; критерий помечается в outcome. Старые серии с
-касанием контура не подтверждают достижение центра. Регламентное касание
-описано выше отдельно; более строгий критерий задан пользователем.
-Других start_matchN нет. Настройки не требуют пересборки; стартовые позы
-в map, map_origin_world независим от нашего старта. Оба decision manager
-и referee получают одинаковые рассчитанные полигоны площадок.
-Контур каждого робота: собственные наблюдения → decision manager → A* →
-штатный C++ Nav2 MPPI → motion_gate → cmd_vel. MPC удалён.
-Один издатель финальной команды на робот, запрет до общего старта и после
-исхода, актуальность pose/scan/path/intent обязательны.
-Автозапуск RViz при DISPLAY, иначе headless. simulation — сенсорный стенд.
-Python-адаптация MPPI и debug follower удалены; единственный локальный
-контроллер — штатный C++ MPPI Nav2.
-Benchmark читает тот же YAML, сохраняет его и эффективные overrides;
-разрешает движение напрямую, не вызывает пересоздающий мир start_match.
-На реальном роботе миссионные секции конфигурации сохраняют ту же семантику
-map. Real bringup — src/hsl_real + drivers/src (HSL25), отдельный
-Compose hsl-real/domain26, CPU runtime. helm build_real/start_real/enable_real/
-pause_real/stop_real/logs_real/status_real/enter_real. start_real оставляет движение
-закрытым; enable проверяет pose/scan/native readiness и одного cmd_vel publisher.
-Конфиг real.yaml + Livox JSON, mission_file ссылается на match YAML. В real.yaml подключена maze_bag_v1 и AMCL: wheel odom + LaserScan →
-map→odom → navigation/self для всего автономного контура. Миссия real_match.yaml
-отдельна от симуляционной; localization.yaml задаёт фильтр/пороги. start_real
-без permission, enable требует localization/ready. Потеря ready отзывает
-permission; без карты static layer выключен и detector не работает.
-Не использовать симуляционный truth/map/referee в real. Детали и ограничения —
-REAL_ROBOT.md. Real образ основан на nickodema/kobuki:humble-22.04-100625
-из HSL25, независимо от jr_image/Autoware. Драйверы в /workspace, решение
-в /solution; build_real не собирает симуляцию. Основной src/ не содержит
-дублированный Livox пакет. Исходный комплект сохранён вне рабочего дерева.
+## Карта, наблюдения и неизвестные препятствия
 
-## Правила работы
+Симуляционный мир `polygon_rosbag.world`, карта из его коллизий через общий
+`jr_map/sdf_geometry.py`. Экспорт `tools/export_sdf_map.py`.
+Старты `[0.5,0.5,0]`/`[0.5,3.5,0]`, map_origin_world `[-0.468,-0.582]`.
+Ноль map внутри нижнего левого угла стен, yaw 0 вправо.
+Real использует отдельную maze_bag_v1 и AMCL: wheel odom + LiDAR LaserScan
+→ map→odom → navigation/self. Потеря localization/ready закрывает движение.
+Не переносить sim truth/map/referee или смещение мира в hardware-стек.
 
-`benchmarks/run_duel_series.py` перед заездом сохраняет `NN-runtime.json` с
-ID образов и параметрами узлов; проверяет SHA256 навигационных исходников,
-карты/мира в обоих planning-контейнерах. Несовпадение требует пересборки;
-не отключай проверку, чтобы выдать результат устаревшего образа за текущий код.
+- `/map` и `navigation/known_grid` статические, входы детектора и StaticLayer.
+- Planner фильтрует неизвестные препятствия, публикует obstacle_scan.
+  Тот же набор обновляет ObstacleMemory/A* и штатный cloud ObstacleLayer
+  MPPI с marking+clearing. **Не подавать obstacle_grid в StaticLayer MPPI.**
+- obstacle_grid — представление статических стен и памяти LiDAR до 8 с
+  для глобального планирования/диагностики. Видимые свободные лучи очищают
+  память, невидимые записи истекают. Это не SLAM.
+- По указанию пользователя коробки 15×15×40 см можно толкать и игнорировать
+  после распознавания по форме, без fixture poses. 40×60×20 см учитывать.
+  Стены и неоднозначные кластеры сохраняются. Fresh measured opponent≤0,3 с
+  защищается от классификации как коробка; устаревший прогноз — нет.
+- `config/simulation_obstacles.yaml`: 3 узкие подвижные коробки, 1 широкая
+  неподвижная. Физическая коллизия сохранена, mass/friction приблизительные.
+  small_box_contacts отдельно; общий collisions всё ещё включает толкания.
+- Guardian исключает текущего соперника из препятствий для поимки. Ложный
+  трек коробки при этом опасен; не считать проблему решённой.
 
-Оценочные отчёты обоих наблюдателей должны иметь `window_source=referee` и
-одинаковые границы `window_start_sim_s`/`window_end_sim_s`, совпадающие с
-`started_at_sim_s`/`finished_at_sim_s` outcome. Наблюдатель пересчитывает
-наблюдения внутри этого окна, включая интерполяцию граничных перемещений;
-`sample_coverage_fraction` показывает покрытие. Ручное завершение без outcome
-помечается `allow_motion`, runner не принимает его как полный оценочный матч.
+Real LiDAR: raw `/livox/lidar` → независимый от TF real_lidar_filter →
+`/sensing/lidar/points_filtered` → AMCL и real_observations → scan →
+detector/planner → obstacle_scan → MPPI. Сырой cloud сохраняется.
+Узкие угловые маски с ограниченным ближним диапазоном в lidar_filter.yaml;
+не увеличивай общий радиальный blind zone. Фильтр помог на оборудовании
+лишь частично по отзыву пользователя; нового post-filter bag нет.
 
-Диагностический `/navigation/mppi_diagnostics` (`String` с JSON) и его
-`/opponent/` аналог публикуют результат MPPI, первое управление, режим
-ориентирования для поимки и причину отказа с точкой отклонённой траектории.
-Штатная обёртка не публикует число безопасных samples или минимальный просвет;
-не трактовать прежние null-поля trace как такие измерения. `benchmarks/trace_motion.py`
-сопоставляет их с фактическим движением по sim time; топик не управляет роботом.
-`RECOVERY_MPPI` означает MPPI-дугу выхода: шлюз берёт прямую команду, но
-наблюдатель не записывает этот интервал как обычный `planner OK`.
+## Детектор
 
-Для коррекций на прямой используйте offline `benchmarks/report_straight_motion.py`.
-Он читает завершённые trace и индивидуальные referee windows; выдаёт покрытие
-straight reference, measured omega sign changes/RMS, lateral RMS и arc time.
-Пороги/пробелы/ограничения приведены в JSON definition и README. Не смешивать
-sample fraction с time fraction; reference straightness не доказывает clearance.
-Изменение поведения/направления reference сбрасывает счётчик коррекций.
+Python/NumPy из feature/detector b985515; segmentation.py/tracker.py
+не менялись, ROS-адаптация в node.py/core.py. Входы: scan в map, own pose,
+static known_grid и TF сенсора на stamp. Observed grid и fixture poses
+не входы. Стационарный соперник может открывать трек. Prediction не освежает
+Odometry/visible. Скорость публикуется в child frame; курс движения при
+reverse не равен направлению корпуса.
 
-В навигационных адаптерах `duel` используй точную симуляционную позу только для собственного робота. Положение и скорость соперника должны оцениваться из текущих LiDAR-возвратов и карты; не передавай decision manager pose/velocity соперника из Gazebo. Ground truth соперника допустим в referee и наблюдателях метрик для оценки исхода и ошибки детектора.
+Real sensor_frame=livox, simulation=livox_frame. Профили в profiles.py;
+real-профиль пока проверен offline без semantic labels. Simulation
+strong_rectangle_ratio=0,70 понижает прямоугольные strong-кандидаты до weak;
+для real выключен. Одна ложная strong + weak подтверждения всё ещё могут
+создать ложный трек. Происхождение и ограничения — hsl_perception/SOURCE.md.
+Enable real требует свежей обработки detector, а не присутствия соперника.
+Без карты detector не готов и автономное разрешение остаётся закрытым.
 
-- Перед изменениями прочитай PROJECT_STATUS.md и относящиеся к задаче файлы; проверь текущую ветку и состояние рабочего дерева. Сохраняй чужие незавершённые изменения.
-- При разработке соревновательной логики сверяй требования с [PROJECT_GOAL.md](PROJECT_GOAL.md) и исходным PDF; не выдавай рабочие выводы документа за дополнительные правила организаторов.
-- После **каждой завершённой работы** обнови PROJECT_STATUS.md в рамках той же работы: что изменено, что проверено и с каким результатом, что осталось открытым. Отличай подтверждение пользователя от собственной проверки.
-- Если меняются архитектура, команды запуска, зависимости или ROS-интерфейс, синхронно обнови README.md, этот файл и PROJECT_STATUS.md.
-- При изменении топиков, имён кадров или параметров робота сверяй Xacro, launch-файл, настройки плагинов Gazebo Classic и документацию. При изменении Docker/Compose учитывай необходимость пересборки образа и пересоздания контейнера.
-- Выбирай проверку по характеру изменения: для CLI есть тесты в helm_launch/tests/; для ROS/Gazebo нужны проверки в запущенной среде. Записывай ограничения проверки в PROJECT_STATUS.md.
-- Не добавляй в документацию токены, пароли и прочие секреты. Не удаляй чужие файлы и не выполняй разрушительные команды без необходимости.
-- Не оставляй неиспользуемые функции, модули, параметры и устаревшие ветки кода. Когда реализация заменена, удали старую вместе с относящимися к ней настройками и документацией, чтобы проект не разрастался без пользы.
+## Испытания и передача
 
-## Текущий MPPI после удаления MPC (01.10.2026)
+[DIAGNOSTICS.md](DIAGNOSTICS.md) — команды, ROS-топики, replay и графики.
+Для CLI есть helm_launch/tests, для алгоритмов tests; после изменения Docker
+проверь Compose и реальную сборку. Для поведения нужны ROS/Gazebo-прогоны.
 
-По запросу пользователя MPC полностью удалён из рабочего дерева, сборки и
-Compose; прежние реализации восстанавливаются только через Git/checkpoint.
-Не добавлять их как скрытый fallback. Старые записи PROJECT_STATUS — история,
-а не описание текущего запуска. Исходный основной плагин Nav21.1.20 не изменён.
-`motion.launch.py` запускает только `hsl_motion_gate`; он единственный final
-cmd_vel publisher и пропускает только checked MPPI statuses при свежих данных.
-Больше нет hsl_cc_mpc/hsl_lat_mpc, mpc_path/mpc_cmd_vel/long_cmd или параметров
-control_mode/mpc_path_source. Backend switch удалён; всегда native.
+Runner сохраняет image IDs, source hashes, параметры и YAML каждого заезда.
+Не отключай проверку устаревших образов. Отчёты двух ролей должны относиться
+к одному referee active window; ручной останов не полный оценочный матч.
+Ground truth соперника разрешён только в referee/метриках/offline labels.
+Средняя скорость — за всё активное время. Ориентир ≥0,2 м/с, далее ≥0,3;
+максимальные команды этим порогом не ограничены. Финальная серия ≥20 матчей,
+360 с active, разными записанными seed при одинаковых стартах; не подбирать
+seed ради исхода и не подгонять поведение под 50/50.
 
-По умолчанию исследователь ±0,5м/с при разрешённом reverse, страж0…0,5м/с.
-Параметры motion переопределяют пределы; allow_reverse касается только explorer.
-PreferForward=false; PathAngle.forward_preference=true у guardian.
-GoalAngle=false при старте и динамически true только у guardian/CAPTURE.
-Глобальный planner сохраняет переднюю capture yaw. Trace содержит
-mppi_capture_heading_required и measured_omega_radps. Подтверждать команды,
-направление поимки, lateral, плавность, скорость и контакты реальными матчами.
-Полная проверка движущегося контура, unknown/occupied cells и stale stops
-сохраняются. Отсутствие команды MPPI означает стоп, а не резервное движение.
-
-planning_diagnostics содержит stamps и стадии цели/маршрута одного цикла.
-reachable_intercept проверяет прогноз с margin0 при сохранённом robot_radius;
-это не снятие собственного recovery margin или swept-check. moving_capture_goal
-непрерывно смешивает текущую и прогнозную позицию по наблюдаемой скорости,
-без гипотезы о максимальной скорости соперника. Внутри радиуса ориентируется
-на текущую позицию. GoalCritic15 у guardian/5 у explorer проверять в runtime.
-
-Профиль simulation теперь только сенсорный/картографический стенд. Старые
-jr_control/jr_planning демонстрации удалены вместе с MPC. Автономные испытания —
-duel и start_match. Настройки и актуальная оценка описаны в README/STATUS.
-
-## Изолированная оценка рядом с ручным миром
-
-```bash
-python3 benchmarks/run_duel_series.py --isolated-project hsl-eval --ros-domain-id 73 --gazebo-port 11418 --runs 3 --start-seed 12 --active-s 90 --trace --audit-start
-```
-
-Отдельный проект Compose, ROS domain и Gazebo master исключают обмен
-командами/наблюдениями с обычным docker-проектом. Результаты находятся в
-`results/isolated/hsl-eval/`; ручные latest.json не перезаписываются.
-Навигация и YAML остаются прежними. Дополнительная нагрузка может снизить
-RTF: учитывайте её при сравнении. Не используйте тот же domain/порт для
-других экспериментов одновременно. После серии удаляйте только её проект:
-`COMPOSE_PROJECT_NAME=hsl-eval ROS_DOMAIN_ID=73 GAZEBO_MASTER_URI=http://127.0.0.1:11418 helm clean duel`.
-
-Изолированный runner после каждого заезда очищает только подтверждённый
-свой runtime, чтобы оставшийся Gazebo не снижал RTF ручного запуска.
-Не проводить измерения RTF с параллельно работающим другим миром.
-
-## Детектор соперника
-
-Текущий hsl_perception/opponent_detector — Python/NumPy алгоритм из
-feature/detector b985515: unchanged segmentation.py/tracker.py, адаптация
-ROS в node.py/core.py. Старый C++ detector удалён, checkpoint4f9168c.
-Детектор получает scan в map с TF на stamp, собственную pose и статический
-known_grid; observed obstacle_grid и координаты неизвестных коробок не входы.
-Сильная детекция — fit окружности корпуса; слабая только продлевает трек.
-Несколько треков, Kalman CV, выбор после потери из source ветки.
-Стационарный соперник может открывать трек; движения как обязательного фильтра нет.
-Фон — occupied cells static map+margin0.08, не аналитические SDF boxes.
-Оба namespace имеют один publisher opponent/visible; TF sensor position только
-на stamp. Прогноз без наблюдения не освежает output Odometry/visible.
-Скорость map переводится в child frame; курс по движению не доказывает курс
-корпуса при reverse. Source происхождение/изменения в hsl_perception/SOURCE.md.
-Simulation max_gap_share0.12 отличает solid узкие коробки от пластин;
-line_ratio0.35 требует достоверной кривизны, плоские фрагменты остаются weak.
-Simulation strong arc≥90°, inlier_fraction≥0.95; merged-cluster кандидат
-не открывает новый трек. Реальный профиль сохраняет source defaults1.0/0.7
-и выключенные дополнительные confidence checks до hardware проверки. Минимальная ширина
-кластера выключена (replay терял частично видимого робота). BLAS1 thread.
-Диагностика detector_diagnostics JSON; trace записывает cycle timing и reports.
-Не ссылаться на старые C++ серии как подтверждение этой версии.
-
-DecisionPolicy/PURSUE теперь принимает own_max_speed из motion.max_speed
-через Compose для обоих namespace; runtime audit проверяет совпадение.
-Не возвращать implicit0.3 в вызов перехвата. Значение — собственная
-возможность движения, не cap наблюдаемой скорости соперника и не обещание
-фактической постоянной скорости. Intent speed fields/controller tuning
-в этом цикле не изменены; физический эффект нужно проверить отдельно.
-
-## Ручная запись real bag
-
-start_real_bag_record использует тот же Compose hsl-real/real,
-без автономных command publishers. Источник cmd_vel — real_manual_gate,
-teleop remapped в real/keyboard_cmd_vel и ограничен watchdog. stop_real
-определяет режим по labels работающего контейнера, сначала закрывает движение,
-затем SIGINT и штатное завершение bag с проверкой metadata.yaml.
-Результаты в уникальных recordings/. Сценарий карты, FAST-LIO, LIO-SAM,
-Git-подмодули и их launch/config удалены по запросу пользователя.
-AMCL локализация подключена в start_real, raw bag-режим её не запускает.
-Карта выровнена+1,8° до растеризации; стартовые координаты относятся к новой
-map. Replay с LIO-derived odom не доказывает физическую точность на Kobuki.
-
-Текущий ноль real map — внутренний левый нижний угол основных стен,
-+X вправо/+Y вверх/yaw0 вправо. Перенос относительно recording-start
-map:[+0.15,+0.15], текущий origin[-0.35,-0.50], bounds[-0.35,-0.50,3.35,4.30].
-Начальная robot.start приблизительно[0.15,0.15,0.031416]; yaw оставлен для
-той же физической ориентации начала записи. Отрицательный origin YAML —
-нижний левый пиксель с внешним фоном, не выбранный ноль внутри лабиринта.
-Габариты сейчас: planner.robot_radius=costmap.robot_radius=0.23м; это
-Kobuki0.178м+0.052м запас. В real.yaml единого robot footprint ещё нет.
-
-start_real теперь автоматически сохраняет MCAP diagnostics в
-recordings/<UTC>-autonomous; session_dir передаёт host tools/real_robot.py.
-stop_real проверяет metadata и для autonomous mode. Не пересоздавать контейнер
-без сохранения нужных старых логов. real_match high-rate navigation/self
-останавливает explorer в центре0.08м независимо от частоты decision timer.
-Decision goal completion latch не снимается шумом позиции. Recovery watchdog
-не объявляет свободную точку/mission goal препятствием без world.blocked.
-Размер реальной площадки0.5×0.5м:half_size0.25. Реальную проверку поведения
-последних правок не объявлять по синтетическому ROS-тесту без оборудования.
-
-## Симуляционный полигон (02.10.2026)
-
-Основной мир теперь polygon_rosbag.world, перенесённый из feature/rosbag_map;
-maze.world удалён. config/match.yaml: map_origin_world[-0.468,-0.582], старты[0.5,0.5,0]
-и[0.5,3.5,0], обе площадкиhalf_size0.25, bounds[-0.025,-0.025,3.065,4.05].
-Это сдвинутый frame реконструкции, не frame реальной maze_bag_v1; real config
-не менять вслед за симуляцией. /map строится из SDF общей геометрией
-jr_map/sdf_geometry.py; tools/export_sdf_map.py воспроизводит YAML/PGM
-config/maps/polygon_rosbag.*. Исторические серии maze не оценивают новый мир.
-
-## Подготовленные неизвестные препятствия (02.10.2026)
-
-Пользователь разрешил замену detector на feature/detector и совместные
-испытания с коробками. Работа только Gazebo,
-на реальный робот ничего не разворачивать.
-config/simulation_obstacles.yaml монтируется в gazebo-duel; spawn_obstacles
-добавляет3 узкие15×15×40см и1 широкую40×60×20см через SpawnEntity. В world/map
-их нет. Позиции и yaw в map; enabled:false отключает fixtures. Start_match
-ждёт simulation/obstacles_ready и сохраняет YAML/hash в runtime snapshot.
-prepare-only не выдаёт permission. Прежние серии без коробок нельзя сравнивать
-с default стартом без фиксации нового YAML.
-Planner obstacle_memory хранит LiDAR-возвраты до8с, очищает видимые свободные
-лучами, публикует navigation/obstacle_grid5Гц; NativeMPPI static layer подписан
-на карту своего namespace. Статический known_grid для детектора неизменён.
-У guardian область текущего трека исключается из наблюдаемого слоя: при ложном
-треке коробки это риск, от которого новый detector ещё должен защитить.
-Номинальный дополнительный local_safety_margin=0: robot_radius0.23 уже включает
-0.052м запас к телу0.178. A* проверяет геометрический swept edge вместо запрета
-диагонали по двум соседним inflated клеткам. Радиус робота не уменьшен.
-SimObservations теперь ждёт TF stamp скана в bounded очереди8 сообщений.
-Не выдавать синтетический диагональный тест/одиночный объезд за полную дуэль.
-
-## Слияние real-diagnostics (02.10.2026)
-
-Decision публикует navigation/indication (String) с текущими условиями цели/поимки
-и логирует изменения действия; это диагностика по оценённым позам и статической
-known_grid, не независимый referee и не доказательство отсутствия неизвестных
-препятствий. Recorder также сохраняет behavior/indication; второго recorder нет.
-Real_match.yaml: старты[0.5,0.5,0] и[0.5,3.5,0], active_seconds600.
-Перед реальным запуском проверить фактические позы; simulation config независим.
-
-### Real LiDAR self-return filter
-
-Real raw cloud → real_lidar_filter → AMCL/real_observations. Параметры
-внешние config/lidar_filter.yaml; не увеличивать общий слепой радиус.
-Real detector sensor_frame=livox, simulation default=livox_frame.
-enable_real требует свежую обработку detector diagnostics, без требования
-видеть соперника. Raw cloud сохраняется в bag. Hardware движение после
-исправления ещё не подтверждено; см. REAL_ROBOT.md и PROJECT_STATUS.md.
+Изолированные серии используют отдельные project/domain/Gazebo port.
+Удаляй только свой подтверждённый runtime; не измеряй RTF рядом с другим миром.
+MCAP в hsl2026Extra read-only, артефакты в ignored results. Нет разметки
+коробок/соперника — число гипотез не precision/recall. Offline и модульные
+проверки не подтверждают физическое достижение цели/поимку. Исторические
+серии старого мира/контроллера/детектора не оценивают текущую версию.

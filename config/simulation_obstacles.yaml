@@ -1,16 +1,27 @@
 # Gazebo-only fixtures, absent from polygon_rosbag.world and the static /map.
 # Poses are [x, y, yaw] in map; sizes are [length, width, height] in metres.
+# Two separated upper-corridor boxes are visible from the guardian start.
+# One lower-corridor box; broad low box stays in the other passage.
 enabled: true
 boxes:
   - name: unknown_box_large
     size: [0.40, 0.60, 0.20]
     pose: [1.05, 1.20, 0.7853981633974483]
   - name: unknown_box_small_1
+    movable: true
+    mass: 0.10  # provisional lightweight-box model, not measured hardware mass
+    friction: 0.30
     size: [0.15, 0.15, 0.40]
-    pose: [1.05, 2.85, 0.0]
+    pose: [1.40, 3.40, 0.0]
   - name: unknown_box_small_2
+    movable: true
+    mass: 0.10  # provisional lightweight-box model, not measured hardware mass
+    friction: 0.30
     size: [0.15, 0.15, 0.40]
-    pose: [1.20, 2.25, 1.5707963267948966]
+    pose: [2.50, 3.65, 0.7853981633974483]
   - name: unknown_box_small_3
+    movable: true
+    mass: 0.10  # provisional lightweight-box model, not measured hardware mass
+    friction: 0.30
     size: [0.15, 0.15, 0.40]
-    pose: [1.20, 1.80, 2.356194490192345]
+    pose: [2.40, 0.55, 1.5707963267948966]

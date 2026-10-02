@@ -5,7 +5,7 @@
 Отдельный Compose-проект `hsl-real`, контейнер `real`, образ
 `jr_real_image:latest`, на базе организационного образа HSL25
 `nickodema/kobuki:humble-22.04-100625` (digest закреплён в Dockerfile).
-Он взят из добавленного комплекта `hsl25-master (1)/hsl25-master/kobuki/docker`.
+Драйверы перенесены из комплекта HSL25 в `drivers/src`, сборка — `docker/Dockerfile.real`.
 Симуляция продолжает использовать свой `jr_image`; real не зависит от него.
 Для работы контейнера NVIDIA не требуется.
 
@@ -392,3 +392,10 @@ ros2 topic echo /navigation/detector_diagnostics --once
 `helm start_real`, затем `helm enable_real`. Вечерние баги проверены offline
 и в изолированном ROS replay; движение после исправления на оборудовании
 ещё не проверено.
+
+Локальная costmap MPPI: исходная `/map` в StaticLayer, динамические
+препятствия из filtered scan в штатном ObstacleLayer (marking+clearing).
+Наша obstacle_memory/obstacle_grid нужна глобальному планировщику и
+диагностике; в StaticLayer MPPI её больше не подаём. Это исправление
+залипания отметок, а исключение собственного корпуса выполняется фильтром
+облака. Обновлённый bringup ещё нужно подтвердить реальным заездом.

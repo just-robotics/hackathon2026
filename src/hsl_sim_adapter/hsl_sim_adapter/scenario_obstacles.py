@@ -15,8 +15,14 @@ def load_obstacles(path):
         raise ValueError('boxes must be a list')
     names=set()
     for box in cfg['boxes']:
-        if not isinstance(box,dict) or set(box)!={'name','size','pose'}:
-            raise ValueError('box must contain name, size, pose')
+        if not isinstance(box,dict) or not {'name','size','pose'} <= set(box) or set(box)-{'name','size','pose','movable','mass','friction'}:
+            raise ValueError('box requires name, size, pose and optional movable/mass/friction')
+        if type(box.get('movable',False)) is not bool:
+            raise ValueError('movable must be bool')
+        for key,default in (('mass',.10),('friction',.30)):
+            value=box.get(key,default)
+            if isinstance(value,bool) or not isinstance(value,(int,float)) or not isfinite(value) or value<=0:
+                raise ValueError(f'{key} must be positive finite')
         name=box['name']
         if not isinstance(name,str) or not re.fullmatch(r'unknown_box_[A-Za-z0-9_]+',name) or name in names:
             raise ValueError('unique names beginning unknown_box_ are required')
@@ -33,8 +39,12 @@ def load_obstacles(path):
 
 def box_sdf(box):
     sx,sy,sz=box['size']
-    return f'''<sdf version="1.6"><model name="{box['name']}"><static>true</static>
-<link name="box"><collision name="collision"><geometry><box><size>{sx} {sy} {sz}</size></box></geometry></collision>
+    mass=box.get('mass',.10)
+    friction=box.get('friction',.30)
+    static='false' if box.get('movable',False) else 'true'
+    inertial=f'<inertial><mass>{mass}</mass><inertia><ixx>{mass*(sy*sy+sz*sz)/12}</ixx><iyy>{mass*(sx*sx+sz*sz)/12}</iyy><izz>{mass*(sx*sx+sy*sy)/12}</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial>'
+    return f'''<sdf version="1.6"><model name="{box['name']}"><static>{static}</static>
+<link name="box">{inertial}<collision name="collision"><geometry><box><size>{sx} {sy} {sz}</size></box></geometry><surface><friction><ode><mu>{friction}</mu><mu2>{friction}</mu2></ode></friction></surface></collision>
 <visual name="visual"><geometry><box><size>{sx} {sy} {sz}</size></box></geometry>
 <material><ambient>0.75 0.45 0.15 1</ambient><diffuse>0.75 0.45 0.15 1</diffuse></material></visual>
 </link></model></sdf>'''

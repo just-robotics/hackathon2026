@@ -623,3 +623,36 @@ def test_execute_return_code_3(mocker):
     mocker.patch("misc.execute", side_effect=[1, 0, 2])
 
     assert c.execute() == 2
+
+
+def test_prepare_xauthority_reentrant(tmp_path, monkeypatch):
+    """Nested helm/start_match must accept its own stable cookie copy."""
+    from pathlib import Path
+    import os
+    original = tmp_path / 'session-cookie'
+    original.write_bytes(b'cookie-data')
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('XAUTHORITY', str(original))
+    stable = misc.prepare_xauthority()
+    monkeypatch.setenv('XAUTHORITY', stable)
+    assert misc.prepare_xauthority() == stable
+    assert Path(stable).read_bytes() == b'cookie-data'
+    assert os.stat(stable).st_mode & 0o777 == 0o600
+
+
+def test_prepare_xauthority_alias_and_refresh(tmp_path, monkeypatch):
+    """A symlink to the copy is safe; a fresh session replaces its cookie."""
+    import pathlib
+    monkeypatch.setenv('HOME', str(tmp_path))
+    original = tmp_path / 'session-cookie'
+    original.write_bytes(b'first')
+    monkeypatch.setenv('XAUTHORITY', str(original))
+    stable = misc.prepare_xauthority()
+    alias = tmp_path / 'alias'
+    alias.symlink_to(stable)
+    monkeypatch.setenv('XAUTHORITY', str(alias))
+    assert misc.prepare_xauthority() == stable
+    original.write_bytes(b'next-session')
+    monkeypatch.setenv('XAUTHORITY', str(original))
+    misc.prepare_xauthority()
+    assert pathlib.Path(stable).read_bytes() == b'next-session'

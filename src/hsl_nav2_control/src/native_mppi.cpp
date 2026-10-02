@@ -90,7 +90,8 @@ public:
       prefix.substr(1) + "/base_footprint");
     overrides.emplace_back("obstacle_layer.cloud.sensor_frame",
       prefix.empty() ? "base_footprint" : prefix.substr(1) + "/base_footprint");
-    overrides.emplace_back("static_layer.map_topic", prefix + "/navigation/obstacle_grid");
+    // Keep live LiDAR obstacles in Nav2 obstacle_layer so ray/footprint
+    // clearing can remove them. The static layer reads the original /map.
     overrides.emplace_back("obstacle_layer.cloud.topic", prefix + "/navigation/nav2_scan");
     rclcpp::NodeOptions costmap_options;
     costmap_options.use_global_arguments(false).parameter_overrides(overrides).arguments(
@@ -131,7 +132,7 @@ public:
         if (msg->poses.size() >= 2) {controller_.setPlan(*msg);}
       }));
     subscriptions_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
-      "navigation/scan", rclcpp::SensorDataQoS(),
+      "navigation/obstacle_scan", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {filter_scan(*msg);}));
     const double frequency = get_parameter("controller_frequency").as_double();
     if (frequency <= 0.0) {throw std::invalid_argument("controller_frequency must be positive");}

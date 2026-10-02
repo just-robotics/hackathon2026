@@ -16,6 +16,9 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>hsl_interfaces</exec_depend>
+  <exec_depend>hsl_perception</exec_depend>
+  <exec_depend>hsl_sim_adapter</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

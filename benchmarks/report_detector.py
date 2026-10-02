@@ -60,7 +60,7 @@ def main():
                 cycle_ms_median=statistics.median(cycles) if cycles else None,
                 cycle_ms_p90=sorted(cycles)[int(.9*(len(cycles)-1))] if cycles else None))
     report={'series':str(args.series),'rows':reports,
-            'scope':'active referee window only; interpolation <=0.2s; proximity error, not semantic or visibility recall; box poses evaluation-only',
+            'scope':'active referee window only; interpolation <=0.2s; proximity error, not semantic or visibility recall; box poses evaluation-only and INITIAL, so box-near counts cannot label boxes displaced by contact',
             'obstacle_config':cfg}
     text=json.dumps(report,indent=2)
     if args.output:args.output.write_text(text+'\n')

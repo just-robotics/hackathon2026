@@ -54,7 +54,9 @@ class OpponentDetector(Node):
         self.detector = Detector(model, parameters(TrackerConfig, 'tracker'),
             strong_arc_min_span_deg=self.declare_parameter('strong_arc_min_span_deg', 0.).value,
             allow_merged_strong=self.declare_parameter('allow_merged_strong', True).value,
-            strong_min_inlier_fraction=self.declare_parameter('strong_min_inlier_fraction', 0.).value)
+            strong_min_inlier_fraction=self.declare_parameter('strong_min_inlier_fraction', 0.).value,
+            strong_min_extent=self.declare_parameter('strong_min_extent', 0.).value,
+            strong_rectangle_ratio=self.declare_parameter('strong_rectangle_ratio', 0.).value)
         self.static = None
         self.own = None
         self.visible_stamp = -math.inf

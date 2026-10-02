@@ -168,9 +168,12 @@ class MatchMetrics(Node):
             names = (state.collision1_name, state.collision2_name)
             if any("ground_plane" in name for name in names):
                 continue
-            kind = "robot" if any(name.startswith(self.other_model + "::")
-                                  for name in names) else "wall"
-            break
+            candidate = ("robot" if any(name.startswith(self.other_model + "::") for name in names)
+                         else "small_box" if any(name.startswith("unknown_box_small_") or
+                             name.startswith("unknown_box_push::") for name in names) else "wall")
+            priorities = {None: 0, "small_box": 1, "robot": 2, "wall": 3}
+            if priorities[candidate] > priorities[kind]:
+                kind = candidate
         position = pose3(self.own, self.spawn)[:2] if self.own is not None else None
         self.metrics.contact(self.now(), kind, position)
 

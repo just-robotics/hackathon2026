@@ -89,3 +89,58 @@ def test_robot_extracted_from_oversized_cluster_can_only_continue_known_track():
         assert diagnostic['strong_candidates']==0 and track is None
     for i in range(4,7):track,_=detector.step(robot_cloud(),[0,1,.374],static,i*.1)
     assert track is not None and track.confirmed
+
+
+def test_unknown_background_and_impossible_fitted_center_are_rejected():
+    grid=np.zeros((40,40),dtype=int);grid[5:10,5:10]=-1
+    static=StaticBackground(.1,[0,0],40,40,grid.ravel())
+    assert not static.foreground(np.array([[.75,.75,.2]]))[0]
+    assert not static.free_center([.75,.75])
+    assert static.free_center([1.,1.])
+    # Returns outside the wall margin can still extrapolate a center into it.
+    grid[10,10]=100
+    static=StaticBackground(.1,[0,0],40,40,grid.ravel(),margin=0)
+    detector=Detector()
+    points=robot_cloud((1.05,1.05))
+    for i in range(4):
+        track,diag=detector.step(points,[0,1,.31],static,i*.1)
+        assert track is None
+
+
+def test_real_birth_width_does_not_disable_partial_updates():
+    detector=Detector(strong_min_extent=.25)
+    static=StaticBackground(.05,[-1,-1],80,80,[0]*6400)
+    partial=robot_cloud()[:15]
+    for i in range(4):
+        track,diag=detector.step(partial,[0,1,.31],static,i*.1)
+        assert track is None and diag['strong_candidates']==0
+    for i in range(4,7):track,_=detector.step(robot_cloud(),[0,1,.31],static,i*.1)
+    assert track is not None
+    track,_=detector.step(partial,[0,1,.31],static,.7)
+    assert track is not None and track.last_update==.7
+
+
+def test_rectangle_corner_cannot_initialize_robot_track():
+    rng = np.random.default_rng(17)
+    length = .28
+    xy = np.concatenate([np.column_stack((np.linspace(0, length, 35), np.zeros(35))),
+                         np.column_stack((np.zeros(35), np.linspace(0, length, 35)))]) + [1, 1]
+    corner = np.concatenate([np.column_stack((xy + rng.normal(0, .005, xy.shape),
+                             np.full(len(xy), z))) for z in [.085, .10, .115, .14, .18, .20]])
+    static = StaticBackground(.05, [0, 0], 80, 80, [0]*6400)
+    baseline = Detector(RobotModel(max_gap_share=.12, line_ratio=.35))
+    fixed = Detector(RobotModel(max_gap_share=.12, line_ratio=.35), strong_rectangle_ratio=.70)
+    for i in range(4):
+        old, _ = baseline.step(corner, [0, 0, .374], static, i*.1)
+        new, diag = fixed.step(corner, [0, 0, .374], static, i*.1)
+    assert old is not None  # reproduce the geometric ambiguity first
+    assert new is None and diag['strong_candidates'] == 0
+    assert diag['weak_reasons']['rectangle fits better: weak only'] > 0
+
+
+def test_rectangle_check_preserves_curved_robot_rim():
+    fixed = Detector(strong_rectangle_ratio=.70)
+    static = StaticBackground(.05, [-1, -1], 80, 80, [0]*6400)
+    for i in range(4):
+        track, diag = fixed.step(robot_cloud(), [0, 1, .31], static, i*.1)
+    assert track is not None and diag['strong_candidates'] > 0

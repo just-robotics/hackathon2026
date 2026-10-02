@@ -26,17 +26,30 @@ def main():
     parser.add_argument('--max-gap-share', type=float, default=.12)
     parser.add_argument('--line-ratio', type=float, default=.35)
     parser.add_argument('--arc-span', type=float, default=90.)
+    parser.add_argument('--rectangle-ratio', type=float, default=.70)
     args = parser.parse_args()
     if not math.isfinite(args.height) or not 0.08 <= args.height <= 0.60:
         parser.error("height must be within [0.08, 0.60]")
-    data = json.loads(args.recording.read_text())
+    if args.recording.suffix == '.jsonl':
+        data = {'samples': []}
+        for line in args.recording.read_text().splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # interrupted final line after evaluation cleanup
+            if 'grid' in row:
+                data['grid'] = row['grid']
+            if 'sample' in row:
+                data['samples'].append(row['sample'])
+    else:
+        data = json.loads(args.recording.read_text())
     full_clouds = 'grid' in data
     grid = data['grid'] if full_clouds else data['replay_grid']
     if full_clouds:
         grid = dict(grid, origin_x=grid['origin'][0], origin_y=grid['origin'][1])
     static = StaticBackground(grid['resolution'], [grid['origin_x'],grid['origin_y']],
                               grid['width'],grid['height'],grid['data'])
-    detectors = [Detector(RobotModel(max_height=args.height, max_gap_share=args.max_gap_share, line_ratio=args.line_ratio), strong_arc_min_span_deg=args.arc_span, allow_merged_strong=False, strong_min_inlier_fraction=.95) for _ in range(2)]
+    detectors = [Detector(RobotModel(max_height=args.height, max_gap_share=args.max_gap_share, line_ratio=args.line_ratio), strong_arc_min_span_deg=args.arc_span, allow_merged_strong=False, strong_min_inlier_fraction=.95, strong_rectangle_ratio=args.rectangle_ratio) for _ in range(2)]
     clouds = data['cloud_samples'] if not full_clouds else [
         dict(observer=s['observer'], stamp_sim_s=s['stamp'], own_xy=s['own'],
              sensor=s['sensor'], peer_truth_xy=s['peer'], points=s['points'])

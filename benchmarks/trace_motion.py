@@ -66,6 +66,7 @@ def main():
     opponent_position_errors = []
     detector_cycles = []
     detector_reports = []
+    obstacle_filter_reports = []
     time_series = []
     subscriptions = []
 
@@ -344,6 +345,13 @@ def main():
     subscriptions.append(node.create_subscription(
         Odometry, truth_topic, remember("opponent_truth"), 10))
 
+    def on_obstacle_filter(message):
+        if match["started"] and not match["finished"]:
+            obstacle_filter_reports.append(json.loads(message.data))
+
+    subscriptions.append(node.create_subscription(
+        String, prefix + "/navigation/obstacle_filter_diagnostics", on_obstacle_filter, 10))
+
     def on_detector_diagnostics(message):
         if not match['started'] or match['finished']:
             return
@@ -515,6 +523,7 @@ def main():
               "detector_cycle_ms_median": percentile(detector_cycles, 0.5),
               "detector_cycle_ms_p90": percentile(detector_cycles, 0.9),
               "detector_reports": detector_reports,
+              "obstacle_filter_reports": obstacle_filter_reports,
               "opponent_position_error_count": len(opponent_position_errors),
               "opponent_position_error_median_m": percentile(
                   opponent_position_errors, 0.5),

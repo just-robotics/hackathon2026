@@ -204,7 +204,7 @@ def validate_runtime_metadata(runtime, env):
                   "hsl_motion_gate": {"require_match_active": True},
                   "opponent_detector": {"use_sim_time": True,
                       "opponent_max_height": float(env.get("HSL_OPPONENT_MAX_HEIGHT", "0.46")),
-                      "robot.max_gap_share": 0.12, "robot.line_ratio": 0.35, "strong_arc_min_span_deg": 90.0, "allow_merged_strong": False, "strong_min_inlier_fraction": 0.95}}
+                      "robot.max_gap_share": 0.12, "robot.line_ratio": 0.35, "strong_arc_min_span_deg": 90.0, "allow_merged_strong": False, "strong_min_inlier_fraction": 0.95, "strong_rectangle_ratio": 0.70}}
         allow_reverse = role == "explorer" and env.get("HSL_ALLOW_REVERSE", "true") == "true"
         checks["native_mppi"] = {
             "role": role, "random_seed": seed,

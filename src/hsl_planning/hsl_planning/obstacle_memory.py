@@ -34,6 +34,14 @@ class ObstacleMemory:
                 del self.cells[cell]
         self.cells.update(hits)
 
+    def forget(self, points):
+        """Erase previously marked cells when their returns are reclassified."""
+        for x,y,_ in points:
+            cx,cy=floor(x/self.resolution),floor(y/self.resolution)
+            for dx in (-1,0,1):
+                for dy in (-1,0,1):
+                    self.cells.pop((cx+dx,cy+dy),None)
+
     def points(self, stamp, exclude=None):
         return [(x,y,z) for x,y,z,last in self.cells.values()
                 if 0 <= stamp-last <= self.lifetime and
