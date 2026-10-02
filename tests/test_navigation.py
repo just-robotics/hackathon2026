@@ -42,6 +42,14 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(policy.step(self.observation(own_stamp=7)).behavior, STOP)
         self.assertEqual(policy.step(self.observation()).behavior, GOAL)
 
+    def test_explorer_finish_latches_after_pose_jitter(self):
+        from dataclasses import replace
+        policy = DecisionPolicy("explorer", self.area)
+        at_goal = replace(self.observation(), own=policy.goal)
+        self.assertEqual(policy.step(at_goal).behavior, STOP)
+        drifted = replace(at_goal, own=DecisionPose(policy.goal.x+.2,policy.goal.y))
+        self.assertEqual(policy.step(drifted).behavior, STOP)
+
     def test_explorer_stops_only_near_start_center(self):
         policy = DecisionPolicy("explorer", self.area)
         from dataclasses import replace

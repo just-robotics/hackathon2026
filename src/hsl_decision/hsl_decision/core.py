@@ -123,6 +123,7 @@ class DecisionPolicy:
         self.last_switch = float("-inf")
         self.search_anchor = None
         self.search_exploring = False
+        self.goal_completed = False
 
     def _select(self, scores, now):
         best = max(scores, key=scores.get)
@@ -151,7 +152,8 @@ class DecisionPolicy:
                          obs.opponent.y - obs.own.y) if opponent_fresh else float("inf")
 
         if self.role == "explorer":
-            if start_center_reached(obs.own, self.goal_polygon):
+            if self.goal_completed or start_center_reached(obs.own, self.goal_polygon):
+                self.goal_completed = True
                 self.previous = STOP
                 return Decision(STOP, None, 0, 0, 0, 0,
                                 "guardian start center reached")

@@ -56,10 +56,10 @@ def main():
             failed=True
             print('Motion/save service failed: '+str(exc)+'. Stopping drivers; existing files are preserved.',file=sys.stderr)
         finally:run('stop','--timeout','90','real',check=True)
-        if labels and mode == 'bag':
+        if labels and (mode == 'bag' or labels.get('org.hsl.real.session')):
             session=Path(labels.get('org.hsl.real.data_dir',str(data)))/labels.get('org.hsl.real.session','')
             print('Session files: '+str(session),flush=True)
-            if mode=='bag' and not (session/'bag'/'metadata.yaml').is_file():
+            if not (session/'bag'/'metadata.yaml').is_file():
                 failed=True
                 print('Bag metadata.yaml missing: final export UNCONFIRMED.',file=sys.stderr)
             manifest=session/'session.json'
@@ -78,7 +78,18 @@ def main():
         labels=active()
         if labels and not stop(labels):raise RuntimeError('Previous session could not be saved; inspect files before restarting')
         if args.action=='start':
-            env.update(HSL_REAL_MODE='autonomous',HSL_REAL_LAUNCH='robot.launch.py',HSL_REAL_LAUNCH_ARGS='drivers_enabled:='+str(not args.drivers_disabled).lower())
+            session=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')+'-autonomous'
+            directory=data/session;directory.mkdir(parents=True)
+            for file in (path,Path(cfg['mission_file']),Path(cfg['livox_config'])):
+                shutil.copy2(file,directory/file.name)
+            if cfg.get('localization_file'):shutil.copy2(cfg['localization_file'],directory/'localization.yaml')
+            if cfg['map_file']:shutil.copytree(Path(cfg['map_file']).parent,directory/'maps')
+            (directory/'session.json').write_text(json.dumps({'mode':'autonomous','created_utc':session,
+                'drivers_enabled':not args.drivers_disabled,'code_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+                'working_tree_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip())},indent=2))
+            (directory/'source.patch').write_bytes(subprocess.check_output(['git','diff','--binary','HEAD'],cwd=ROOT))
+            print('Autonomous diagnostics: '+str(directory),flush=True)
+            env.update(HSL_REAL_MODE='autonomous',HSL_REAL_LAUNCH='robot.launch.py',HSL_REAL_SESSION=session,HSL_REAL_LAUNCH_ARGS='drivers_enabled:='+str(not args.drivers_disabled).lower()+f' session_dir:=/records/{session}')
         else:
             session=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')+'-'+args.action
             directory=data/session;directory.mkdir(parents=True)

@@ -30,6 +30,8 @@ def main():
     p.add_argument('bag');p.add_argument('registered');p.add_argument('quality');p.add_argument('output')
     p.add_argument('--config',default='/config/real.yaml');p.add_argument('--rate',type=float,default=2.)
     p.add_argument('--exercise-permission',action='store_true',help='Enable autonomous commands ONLY in the isolated driver-free test')
+    p.add_argument('--max-clouds',type=int,default=0,help='Short integration check; 0 replays the entire bag')
+    p.add_argument('--session-dir',default='',help='Optional isolated diagnostics output under /records')
     args=p.parse_args()
     quality=json.loads(Path(args.quality).read_text())
     rot=np.asarray(quality['raw_to_map_rotation']);shift=np.asarray(quality['raw_xy_shift'])
@@ -55,14 +57,14 @@ def main():
     log_path=Path(args.output).with_suffix('.log');log_path.parent.mkdir(parents=True,exist_ok=True)
     log=log_path.open('w')
     process=subprocess.Popen(['ros2','launch','hsl_real','robot.launch.py',
-        'drivers_enabled:=false','config_file:='+args.config],stdout=log,stderr=subprocess.STDOUT)
+        'drivers_enabled:=false','config_file:='+args.config,'session_dir:='+args.session_dir],stdout=log,stderr=subprocess.STDOUT)
     rows=[];published=0;ready_samples=0;enable_future=None;active_seen=False
     client=node.create_client(SetBool,'/match/allow_motion')
     try:
         startup=time.monotonic()+8.
         while time.monotonic()<startup:rclpy.spin_once(node,timeout_sec=.05)
         begin=time.monotonic();first=None
-        while reader.has_next():
+        while reader.has_next() and (not args.max_clouds or published<args.max_clouds):
             if process.poll() is not None:raise RuntimeError('Real launch exited; inspect replay log')
             topic,data,_=reader.read_next()
             if topic!='/livox/lidar':continue
@@ -109,7 +111,7 @@ def main():
             ready_before_sensor_loss=ready_before_loss,ready_after_sensor_loss=state['ready'],
             navigation_samples=len(rows),position_median_m=float(np.median(error)) if len(error) else None,
             position_p95_m=float(np.percentile(error,95)) if len(error) else None,
-            injected_final_odom_error_m=math.hypot(.3,.2),
+            injected_final_odom_error_m=math.hypot(.3,.2)*float(fraction),
             cmd_vel_publishers=[i.node_name for i in node.get_publishers_info_by_topic('/cmd_vel')],
             movement_active_after_sensor_loss=state['active'],
             permission_exercised=args.exercise_permission,active_seen=active_seen,
@@ -127,6 +129,13 @@ def main():
         except subprocess.TimeoutExpired:process.kill();process.wait()
         log.close();node.destroy_node()
         if rclpy.ok():rclpy.shutdown()
+
+    if args.session_dir:
+        metadata=Path(args.session_dir)/'bag/metadata.yaml'
+        if not metadata.is_file():raise RuntimeError('Diagnostic bag was not finalized')
+        report['diagnostic_bag_finalized']=True
+        Path(args.output).write_text(json.dumps(report,indent=2))
+        print('Diagnostic bag finalized: '+str(metadata))
 
 
 if __name__=='__main__':main()
