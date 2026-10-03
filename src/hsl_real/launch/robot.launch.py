@@ -29,10 +29,17 @@ def nodes(context):
     add('hsl_lidar_filter','real_lidar_filter', parameters=(
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
     add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization']=='amcl'}])
+    # Облако до детектора: фильтры (свой робот, высота, дальность) в
+    # base_footprint, затем сегментация земли linefit; детектор берёт облако
+    # препятствий, и его собственные фильтры выключены.
+    add('jr_perception','cloud_prefilter.py',parameters=[{'cloud_topic':cfg['lidar_topic']}])
+    add('linefit_ground_segmentation_ros','ground_segmentation_node',name='ground_segmentation',
+        parameters=[str(Path(get_package_share_directory('jr_launch'))/'config/perception/ground_segmentation.yaml')])
     add('jr_perception','robot_detector.py',parameters=[
         str(Path(get_package_share_directory('jr_perception'))/'config/real.yaml'),
         {'world':'','background_topic':'/map','world_frame':'map','base_frame':'base_footprint',
-         'pose_topic':'navigation/self','cloud_topic':cfg['lidar_topic']}])
+         'pose_topic':'navigation/self','cloud_topic':'/perception/obstacle_cloud',
+         'self_range':0.0,'floor_z':-1.0,'floor_noise':0.0,'ceiling_z':10.0,'max_range':0.0}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
     add('hsl_planning','trajectory_planner',parameters=[tuning['global'], {'role':role,'max_speed':speed,
@@ -71,7 +78,7 @@ def nodes(context):
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/opponent/foreground','/navigation/opponent_visible','/navigation/detector_diagnostics',
+            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/opponent/foreground','/perception/obstacle_cloud','/navigation/opponent_visible','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',

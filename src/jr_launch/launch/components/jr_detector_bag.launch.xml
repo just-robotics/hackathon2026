@@ -15,6 +15,12 @@
 
   <node pkg="jr_perception" exec="pose_relay.py" name="pose_relay" output="screen"/>
 
+  <!-- облако: фильтры и сегментация земли, детектор берёт облако препятствий -->
+  <include file="$(find-pkg-share jr_launch)/launch/components/jr_ground_segmentation.launch.xml">
+    <arg name="cloud_topic" value="/sensing/lidar/points_filtered"/>
+    <arg name="sim_time" value="true"/>
+  </include>
+
   <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector" output="screen">
     <param from="$(find-pkg-share jr_launch)/config/perception/detector_amcl.param.yaml"/>
   </node>

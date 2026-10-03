@@ -71,6 +71,12 @@
     </node>
   </group>
 
+  <!-- облако: фильтры и сегментация земли, детектор берёт облако препятствий -->
+  <include file="$(find-pkg-share jr_launch)/launch/components/jr_ground_segmentation.launch.xml">
+    <arg name="cloud_topic" value="/sensing/lidar/points_filtered"/>
+    <arg name="sim_time" value="$(var sim_time)"/>
+  </include>
+
   <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector" output="screen">
     <param from="$(find-pkg-share jr_launch)/config/perception/detector_fastlio.param.yaml"/>
   </node>

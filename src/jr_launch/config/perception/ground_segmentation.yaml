@@ -1,0 +1,35 @@
+# linefit_ground_segmentation (Himmelsbach et al., порт
+# linefit_ground_segmentation_ros2) для арены в помещении.
+# Облако приходит от jr_perception/cloud_prefilter.py уже в base_footprint:
+# z вверх, пол на z = 0, поэтому sensor_height 0 и gravity_aligned_frame
+# пустой (поворот в ноде порта не инициализирован, см. UPSTREAM.md).
+/**:
+  ros__parameters:
+    input_topic: "/perception/cloud_prefiltered"
+    ground_output_topic: "/perception/ground_cloud"
+    obstacle_output_topic: "/perception/obstacle_cloud"
+    gravity_aligned_frame: ""
+    sensor_height: 0.0
+
+    n_threads: 2
+    # полярная сетка вокруг оси базы: корзины ~10 см, секторы по 2 градуса
+    r_min: 0.3
+    r_max: 8.0
+    n_bins: 80
+    n_segments: 180
+
+    # Земля -- не дальше этого от линии по высоте. Корпус Kobuki начинается
+    # с 0.015 м: нижние 3 см уходят в землю, обод выше остаётся.
+    max_dist_to_line: 0.03
+    # пол ровный: линии почти горизонтальные
+    min_slope: 0.0
+    max_slope: 0.1
+    max_fit_error: 0.02
+    long_threshold: 1.0
+    max_long_height: 0.1
+    # новая линия начинается не выше этого над ожидаемым полом: коробка или
+    # робот у начала сектора землёй не станут
+    max_start_height: 0.1
+    line_search_angle: 0.1
+
+    visualize: false

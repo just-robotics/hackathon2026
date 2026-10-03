@@ -165,7 +165,8 @@ ground truth соперника доступен referee и оценке.
 
 | Данные | Кто использует |
 | --- | --- |
-| Сырое `/livox/lidar` | Детектор `jr_perception` напрямую |
+| Сырое `/livox/lidar` | `cloud_prefilter.py` → linefit → детектор `jr_perception` |
+| `/perception/obstacle_cloud` | Облако без своего робота и пола (linefit): вход детектора |
 | `navigation/self` | Детектор, decision manager, планирование |
 | `/opponent/odom` | Выбранный трек робота; decision manager и A* |
 | `/opponent/markers` | Все кластеры по классам, у отклонённых — причина |
@@ -227,6 +228,14 @@ helm stop_real              # закрыть движение и штатно з
 [REAL_ROBOT.md](docs/REAL_ROBOT.md).
 
 ## Детектор на бэгах
+
+Облако идёт в детектор через `jr_ground_segmentation.launch.xml`:
+`cloud_prefilter.py` в `base_footprint` вырезает свой робот цилиндром
+(`self_radius`, `self_height`), всё выше `max_height` и дальше `max_range`,
+затем `linefit_ground_segmentation_ros` (`src/linefit_ground_segmentation_ros2`,
+копия ROS 2-порта, см. UPSTREAM.md) отделяет пол: `/perception/ground_cloud`,
+`/perception/obstacle_cloud`. Собственные фильтры детектора в этой цепочке
+выключены. Так же устроен стек робота (`hsl_real/robot.launch.py`).
 
 Пакеты собираются в контейнере поверх образа, бэг играет с часами бэга
 (`--clock`). Сначала бэг на паузе (`--start-paused`), потом launch, потом

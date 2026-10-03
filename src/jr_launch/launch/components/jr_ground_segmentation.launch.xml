@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Облако лидара до детектора: фильтры и сегментация земли.
+
+     cloud_topic -> cloud_prefilter.py (в base_footprint: свой робот
+     цилиндром, высота, дальность) -> /perception/cloud_prefiltered ->
+     linefit_ground_segmentation -> /perception/obstacle_cloud (детектору) и
+     /perception/ground_cloud. -->
+<launch>
+  <arg name="cloud_topic" default="/sensing/lidar/points_filtered"/>
+  <arg name="sim_time" default="true" description="время бэга (false: живой робот)"/>
+
+  <node pkg="jr_perception" exec="cloud_prefilter.py" name="cloud_prefilter" output="screen">
+    <param name="cloud_topic" value="$(var cloud_topic)"/>
+    <param name="use_sim_time" value="$(var sim_time)"/>
+  </node>
+
+  <node pkg="linefit_ground_segmentation_ros" exec="ground_segmentation_node"
+        name="ground_segmentation" output="screen">
+    <param from="$(find-pkg-share jr_launch)/config/perception/ground_segmentation.yaml"/>
+    <param name="use_sim_time" value="$(var sim_time)"/>
+  </node>
+</launch>
