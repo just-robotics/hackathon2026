@@ -42,6 +42,7 @@ from jr_perception.segmentation import (
     RobotModel,
     arena_bounds,
     cluster_xy,
+    find_boxes,
     foreground_mask,
     inspect_cluster,
     split_clusters,
@@ -206,119 +207,253 @@ def track_to_odometry(header: Header, child_frame: str, track) -> Odometry:
     return message
 
 
-def make_markers(
-    header: Header,
-    clusters: list,
-    detections: list,
-    reasons: list,
-    tracks: list,
-    selected,
-    model: RobotModel,
-) -> MarkerArray:
-    """Отладочные маркеры: кластеры по классам, треки и курс соперника
+def floor_level(plane: np.ndarray, x: float, y: float) -> float:
+    """z пола world_frame в точке (x, y): высоты в маркерах -- над полом"""
+    a, b, c = plane
+    return float(a * x + b * y + c)
 
-    Кластеры: зелёный -- центр найден фитом обода, жёлтый -- похож на робота,
-    но обода не видно, серый -- не робот, над ним подпись с причиной.
-    Кластеры меньше min_points не рисуются: это шум. Треки: синий --
-    выбранный соперник, фиолетовый -- другие подтверждённые, серый --
-    неподтверждённые.
-    """
-    radius = model.radius
+
+def new_marker(header: Header, ns: str, index: int, kind: int, rgba: tuple) -> Marker:
+    marker = Marker()
+    marker.header = header
+    marker.ns = ns
+    marker.id = index
+    marker.type = kind
+    marker.pose.orientation.w = 1.0
+    marker.color.r, marker.color.g, marker.color.b, marker.color.a = (float(v) for v in rgba)
+    return marker
+
+
+# Шрифт подписей RViz без кириллицы, а пробел в нём шириной в несколько
+# букв: подписи маркеров -- латиницей и без пробелов, части -- строками.
+# Причины отказа из segmentation.inspect_cluster переводятся по словам.
+REASON_WORDS = (
+    ("широкий, внутри", "wide,inside"),
+    ("круга корпуса нет", "no_hull_circle"),
+    ("мало точек", "few_points"),
+    ("нет пробела", "no_gap"),
+    ("не окружность", "not_circle"),
+    ("невязка", "rms"),
+    ("на ней", "fit"),
+    (" из ", "of"),
+    ("против", "vs"),
+    ("широкий", "wide"),
+    ("высокий", "tall"),
+    ("низкий", "low"),
+    ("узкий", "narrow"),
+    ("прямая", "line"),
+    ("см", "cm"),
+)
+
+
+def marker_text(text: str) -> str:
+    """Подпись, которую RViz нарисует: латиница без пробелов"""
+    for russian, english in REASON_WORDS:
+        text = text.replace(russian, english)
+    text = text.replace(": ", ":").replace(", ", ",").replace(" ", "")
+    return text.encode("ascii", "replace").decode("ascii")
+
+
+def new_text(header: Header, ns: str, index: int, x: float, y: float, z: float, text: str) -> Marker:
+    marker = new_marker(header, ns, index, Marker.TEXT_VIEW_FACING, (0.95, 0.95, 0.95, 1.0))
+    marker.pose.position.x, marker.pose.position.y, marker.pose.position.z = x, y, z
+    marker.scale.z = 0.1
+    marker.text = marker_text(text)
+    return marker
+
+
+def clear_markers(header: Header) -> MarkerArray:
+    """MarkerArray, который первым делом стирает маркеры прошлого скана"""
     markers = MarkerArray()
-
     clear = Marker()
     clear.header = header
     clear.action = Marker.DELETEALL
     markers.markers.append(clear)
+    return markers
 
+
+def make_cluster_markers(
+    header: Header,
+    clusters: list,
+    detections: list,
+    reasons: list,
+    model: RobotModel,
+    plane: np.ndarray,
+) -> MarkerArray:
+    """Все кластеры скана по классам -- opponent/markers
+
+    Зелёный -- центр найден фитом обода, жёлтый -- похож на робота, но обода
+    не видно, серый -- не робот, над ним подпись с причиной. Кластеры меньше
+    min_points не рисуются: это шум.
+    """
+    markers = clear_markers(header)
     for i, (points, detection, reason) in enumerate(zip(clusters, detections, reasons)):
         if len(points) < model.min_points:
             continue
 
         low, high = points.min(axis=0), points.max(axis=0)
         middle = (low + high) / 2.0
-        size = np.maximum(high - low, 0.02)
-
-        marker = Marker()
-        marker.header = header
-        marker.ns = "clusters"
-        marker.id = i
-        marker.type = Marker.CUBE
-        marker.pose.position.x = float(middle[0])
-        marker.pose.position.y = float(middle[1])
-        marker.pose.position.z = float(middle[2])
-        marker.pose.orientation.w = 1.0
-        marker.scale.x, marker.scale.y, marker.scale.z = (float(s) for s in size)
+        floor = floor_level(plane, middle[0], middle[1])
         if detection is None:
             color = (0.6, 0.6, 0.6)
         elif detection.strong:
             color = (0.1, 0.8, 0.1)
         else:
             color = (0.9, 0.8, 0.1)
-        marker.color.r, marker.color.g, marker.color.b = color
-        marker.color.a = 0.4
+
+        marker = new_marker(header, "clusters", i, Marker.CUBE, (*color, 0.4))
+        marker.pose.position.x = float(middle[0])
+        marker.pose.position.y = float(middle[1])
+        marker.pose.position.z = float(middle[2]) + floor
+        size = np.maximum(high - low, 0.02)
+        marker.scale.x, marker.scale.y, marker.scale.z = (float(v) for v in size)
         markers.markers.append(marker)
 
         if reason:
-            text = Marker()
-            text.header = header
-            text.ns = "reasons"
-            text.id = i
-            text.type = Marker.TEXT_VIEW_FACING
-            text.pose.position.x = float(middle[0])
-            text.pose.position.y = float(middle[1])
-            text.pose.position.z = float(high[2]) + 0.1
-            text.pose.orientation.w = 1.0
-            text.scale.z = 0.08
-            text.color.r = text.color.g = text.color.b = 0.9
-            text.color.a = 1.0
-            text.text = reason
-            markers.markers.append(text)
+            markers.markers.append(
+                new_text(
+                    header, "reasons", i, float(middle[0]), float(middle[1]),
+                    float(high[2]) + floor + 0.1, reason,
+                )
+            )
+
+    return markers
+
+
+def make_robot_markers(
+    header: Header,
+    detections: list,
+    tracks: list,
+    selected,
+    model: RobotModel,
+    plane: np.ndarray,
+) -> MarkerArray:
+    """Всё, что детектор считает роботом -- opponent/robot_markers
+
+    Детекции скана -- окружность корпуса на высоте обода: зелёная -- центр по
+    фиту обода, жёлтая -- по краям облака (слабая). Треки -- цилиндры: синий
+    -- выбранный соперник, фиолетовый -- другие подтверждённые, серый --
+    неподтверждённые. Над подтверждёнными треками -- сильные/все детекции и
+    сдвиг от места рождения: по ним выбирается соперник. Стрелка -- курс.
+    """
+    radius = model.radius
+    markers = clear_markers(header)
+    circle = np.linspace(0.0, 2.0 * math.pi, 33)
+
+    for i, detection in enumerate(item for item in detections if item is not None):
+        x, y = (float(v) for v in detection.center)
+        floor = floor_level(plane, x, y)
+        color = (0.1, 0.8, 0.1) if detection.strong else (0.9, 0.8, 0.1)
+        ring = new_marker(header, "detections", i, Marker.LINE_STRIP, (*color, 1.0))
+        ring.scale.x = 0.015
+        ring.points = [
+            Point(
+                x=x + radius * math.cos(angle),
+                y=y + radius * math.sin(angle),
+                z=floor + model.rim_max_z / 2.0,
+            )
+            for angle in circle
+        ]
+        markers.markers.append(ring)
+
+        center = new_marker(header, "detection_centers", i, Marker.SPHERE, (*color, 1.0))
+        center.pose.position.x, center.pose.position.y = x, y
+        center.pose.position.z = floor + model.rim_max_z / 2.0
+        center.scale.x = center.scale.y = center.scale.z = 0.04
+        markers.markers.append(center)
 
     for i, track in enumerate(tracks):
-        x, y, theta = track.state[X], track.state[Y], track.state[THETA]
-
-        marker = Marker()
-        marker.header = header
-        marker.ns = "tracks"
-        marker.id = i
-        marker.type = Marker.CYLINDER
-        marker.pose.position.x = float(x)
-        marker.pose.position.y = float(y)
-        marker.pose.position.z = 0.2
-        marker.pose.orientation.w = 1.0
-        marker.scale.x = marker.scale.y = 2.0 * radius
-        marker.scale.z = 0.4
+        x, y, theta = (float(v) for v in (track.state[X], track.state[Y], track.state[THETA]))
+        floor = floor_level(plane, x, y)
         if track is selected:
             color, alpha = (0.1, 0.4, 1.0), 0.6
         elif track.confirmed:
             color, alpha = (0.8, 0.2, 0.8), 0.4
         else:
             color, alpha = (0.6, 0.6, 0.6), 0.3
-        marker.color.r, marker.color.g, marker.color.b = color
-        marker.color.a = alpha
+
+        marker = new_marker(header, "tracks", i, Marker.CYLINDER, (*color, alpha))
+        marker.pose.position.x, marker.pose.position.y = x, y
+        marker.pose.position.z = floor + 0.2
+        marker.scale.x = marker.scale.y = 2.0 * radius
+        marker.scale.z = 0.4
         markers.markers.append(marker)
 
+        if track.confirmed:
+            # сильные/все детекции и сдвиг от места рождения -- по ним
+            # трекер выбирает соперника
+            text = f"strong:{track.strong_hits}/{track.hits}\nmoved:{track.travel:.2f}m"
+            if track is selected:
+                text = f"OPPONENT\n({x:.2f},{y:.2f})\n{text}"
+            markers.markers.append(
+                new_text(header, "track_labels", i, x, y + radius + 0.25, floor + 0.6, text)
+            )
+
         if track is selected and track.heading_known:
-            arrow = Marker()
-            arrow.header = header
-            arrow.ns = "heading"
-            arrow.id = 0
-            arrow.type = Marker.ARROW
+            arrow = new_marker(header, "heading", 0, Marker.ARROW, (0.1, 0.4, 1.0, 1.0))
             arrow.points = [
-                Point(x=float(x), y=float(y), z=0.45),
+                Point(x=x, y=y, z=floor + 0.45),
                 Point(
-                    x=float(x + 0.5 * math.cos(theta)),
-                    y=float(y + 0.5 * math.sin(theta)),
-                    z=0.45,
+                    x=x + 0.5 * math.cos(theta),
+                    y=y + 0.5 * math.sin(theta),
+                    z=floor + 0.45,
                 ),
             ]
             arrow.scale.x = 0.03
             arrow.scale.y = 0.06
             arrow.scale.z = 0.1
-            arrow.color.r, arrow.color.g, arrow.color.b = (0.1, 0.4, 1.0)
-            arrow.color.a = 1.0
             markers.markers.append(arrow)
+
+    return markers
+
+
+def make_box_markers(header: Header, boxes: list, plane: np.ndarray) -> MarkerArray:
+    """Предметы на сцене -- opponent/box_markers
+
+    Каркас повёрнутого бокса от пола до верха предмета, полупрозрачная
+    заливка и подпись: центр, длина x ширина x высота.
+    """
+    markers = clear_markers(header)
+    color = (1.0, 0.55, 0.0)
+
+    for i, box in enumerate(boxes):
+        x, y = (float(v) for v in box.center)
+        floor = floor_level(plane, x, y)
+        length, width = (max(float(v), 0.02) for v in box.size)
+        height = max(box.top, 0.02)
+        cos, sin = math.cos(box.yaw), math.sin(box.yaw)
+
+        corners = []
+        for z in (floor, floor + height):
+            for u, v in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                du, dv = u * length / 2.0, v * width / 2.0
+                corners.append(Point(x=x + du * cos - dv * sin, y=y + du * sin + dv * cos, z=z))
+        frame = new_marker(header, "boxes", i, Marker.LINE_LIST, (*color, 1.0))
+        frame.scale.x = 0.015
+        for a, b in (
+            (0, 1), (1, 2), (2, 3), (3, 0),
+            (4, 5), (5, 6), (6, 7), (7, 4),
+            (0, 4), (1, 5), (2, 6), (3, 7),
+        ):
+            frame.points += [corners[a], corners[b]]
+        markers.markers.append(frame)
+
+        fill = new_marker(header, "box_fill", i, Marker.CUBE, (*color, 0.15))
+        fill.pose.position.x, fill.pose.position.y = x, y
+        fill.pose.position.z = floor + height / 2.0
+        fill.pose.orientation.z = math.sin(box.yaw / 2.0)
+        fill.pose.orientation.w = math.cos(box.yaw / 2.0)
+        fill.scale.x, fill.scale.y, fill.scale.z = length, width, height
+        markers.markers.append(fill)
+
+        # под боксом (по -y), чтобы не налезать на подписи треков
+        markers.markers.append(
+            new_text(
+                header, "box_labels", i, x, min(p.y for p in corners) - 0.15,
+                floor + height + 0.1,
+                f"box\n({x:.2f},{y:.2f})\n{length:.2f}x{width:.2f}x{height:.2f}",
+            )
+        )
 
     return markers
 
@@ -366,6 +501,9 @@ class RobotDetector(Node):
             "cluster_tolerance", 0.10
         ).value
         self.log_period = self.declare_parameter("log_period", 5.0).value
+        # Предмет на сцене (opponent/box_markers) -- кластер не робота с верхом
+        # не ниже этого; ниже -- шум у пола, м
+        self.box_min_height = self.declare_parameter("box_min_height", 0.10).value
         self.model = declare_dataclass(self, RobotModel, "robot")
         self.tracker = Tracker(declare_dataclass(self, TrackerConfig, "tracker"))
 
@@ -446,8 +584,16 @@ class RobotDetector(Node):
         self.foreground_publisher = self.create_publisher(
             PointCloud2, "opponent/foreground", qos_profile_sensor_data
         )
+        # Отладка в RViz, три слоя: все кластеры с причинами отказа, то, что
+        # считается роботом (детекции и треки), и предметы на сцене
         self.marker_publisher = self.create_publisher(
             MarkerArray, "opponent/markers", 10
+        )
+        self.robot_marker_publisher = self.create_publisher(
+            MarkerArray, "opponent/robot_markers", 10
+        )
+        self.box_marker_publisher = self.create_publisher(
+            MarkerArray, "opponent/box_markers", 10
         )
         # последняя карта; фон из неё строится в process, когда известно,
         # где робот
@@ -494,7 +640,8 @@ class RobotDetector(Node):
     @staticmethod
     def empty_stats() -> dict:
         return dict.fromkeys(
-            ("frames", "seconds", "points", "clusters", "candidates", "found"), 0
+            ("frames", "seconds", "points", "clusters", "candidates", "boxes", "found"),
+            0,
         )
 
     def on_map(self, message: OccupancyGrid):
@@ -702,15 +849,23 @@ class RobotDetector(Node):
         )
         self.foreground_publisher.publish(xyz_to_cloud(header, shown))
         self.marker_publisher.publish(
-            make_markers(
+            make_cluster_markers(
+                header, clusters, detections, reasons, self.model, self.floor_plane
+            )
+        )
+        self.robot_marker_publisher.publish(
+            make_robot_markers(
                 header,
-                clusters,
                 detections,
-                reasons,
                 self.tracker.tracks,
                 opponent,
                 self.model,
+                self.floor_plane,
             )
+        )
+        boxes = find_boxes(clusters, detections, self.model, self.box_min_height)
+        self.box_marker_publisher.publish(
+            make_box_markers(header, boxes, self.floor_plane)
         )
 
         stats = self.stats
@@ -720,6 +875,7 @@ class RobotDetector(Node):
         stats["clusters"] += len(clusters)
         stats["candidates"] += sum(detection is not None for detection in detections)
         stats["found"] += opponent is not None
+        stats["boxes"] += len(boxes)
         self.report(opponent)
 
     def report(self, opponent):
@@ -736,6 +892,7 @@ class RobotDetector(Node):
             f"переднего плана {stats['points'] / frames:.0f} точек, "
             f"кластеров {stats['clusters'] / frames:.1f}, "
             f"похожих на робота {stats['candidates'] / frames:.1f}, "
+            f"предметов {stats['boxes'] / frames:.1f}, "
             f"соперник найден в {100.0 * stats['found'] / frames:.0f}% сканов"
         )
         if opponent is not None:

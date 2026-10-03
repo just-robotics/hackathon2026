@@ -248,7 +248,9 @@ helm up tools    # Foxglove для отладочных топиков, Fixed Fr
 | --- | --- | --- |
 | `/<робот>/opponent/odom` | `nav_msgs/Odometry` | соперник во фрейме `world`: поза, `v` и `ω`, ковариации |
 | `/<робот>/opponent/foreground` | `sensor_msgs/PointCloud2` | облако после вычитания фона |
-| `/<робот>/opponent/markers` | `visualization_msgs/MarkerArray` | кластеры по классам, треки, курс |
+| `/<робот>/opponent/markers` | `visualization_msgs/MarkerArray` | все кластеры по классам, у отклонённых — причина |
+| `/<робот>/opponent/robot_markers` | `visualization_msgs/MarkerArray` | робот: окружности детекций, треки, выбранный соперник, курс |
+| `/<робот>/opponent/box_markers` | `visualization_msgs/MarkerArray` | предметы на сцене: повёрнутые боксы с центром и размерами |
 
 Сверка с ground truth печатает таблицу по дистанции: долю сканов, где
 соперник найден, ложные срабатывания, ошибку позиции и курса:
