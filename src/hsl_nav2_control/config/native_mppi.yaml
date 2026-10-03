@@ -14,11 +14,11 @@
       model_dt: 0.05
       batch_size: 1000
       iteration_count: 1
-      vx_std: 0.20
+      vx_std: 0.3
       vy_std: 0.0
       wz_std: 0.40
-      vx_max: 0.50
-      vx_min: -0.50
+      vx_max: 0.60
+      vx_min: -0.60
       vy_max: 0.0
       wz_max: 1.50
       temperature: 0.30
