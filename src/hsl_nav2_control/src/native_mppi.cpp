@@ -127,7 +127,7 @@ public:
         if (msg->poses.size() >= 2) {controller_.setPlan(*msg);}
       }));
     subscriptions_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
-      "navigation/obstacle_scan", rclcpp::SensorDataQoS(),
+      "navigation/scan", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {scan_stamp_ = msg->header.stamp;}));
     const double frequency = get_parameter("controller_frequency").as_double();
     if (frequency <= 0.0) {throw std::invalid_argument("controller_frequency must be positive");}
