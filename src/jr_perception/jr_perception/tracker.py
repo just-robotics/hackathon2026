@@ -67,6 +67,9 @@ class TrackerConfig:
     # робот встал, и его на миг закрыло. Иначе после потери выдавался угол
     # коробки, которого не было в фоне (mov_01 с фоном по mov_02).
     reacquire_radius: float = 0.35
+    # After losing the target, its old position stops restricting reacquisition.
+    reacquire_timeout: float = 1.5
+    reacquire_strong_hits: int = 3
 
 
 class Track:
@@ -92,6 +95,8 @@ class Track:
         self.last_position = self.birth.copy()
         self.hits = 1
         self.strong_hits = int(detection.strong)
+        self.strong_streak = int(detection.strong)
+        self.last_strong_update = time if detection.strong else -math.inf
         # Сдвиг считается только по надёжным детекциям: центр по центроиду
         # гуляет на ±10 см, и за минуту неподвижный предмет набрал бы
         # «движение» из одного шума.
@@ -207,6 +212,11 @@ class Track:
 
         self.hits += 1
         self.strong_hits += int(detection.strong)
+        if time - self.last_update > self.config.tentative_coast:
+            self.strong_streak = 0
+        self.strong_streak = self.strong_streak + 1 if detection.strong else 0
+        if detection.strong:
+            self.last_strong_update = time
         self.last_update = time
         self.last_position = self.mean[:2].copy()
         self._measure_travel(detection)
@@ -263,6 +273,7 @@ class Tracker:
         # где последний раз видели робота, опознанного по движению; None --
         # ещё не опознан
         self.robot_position = None
+        self.robot_last_seen = None
 
     def step(self, time: float, detections: list):
         """Продвинуть треки к моменту скана и учесть его детекции
@@ -277,8 +288,13 @@ class Tracker:
             self.tracks = []
             self.selected = None
             self.robot_position = None
+            self.robot_last_seen = None
         self.time = time
 
+        # Expired tracks must not be revived by a distant observation after
+        # their predicted covariance has grown. Reacquisition opens a new track.
+        self.tracks = [track for track in self.tracks if time-track.last_update <=
+                       (self.config.max_coast if track.confirmed else self.config.tentative_coast)]
         for track in self.tracks:
             track.predict(time)
 
@@ -321,36 +337,40 @@ class Tracker:
         return self._select()
 
     def _select(self):
-        """Выбрать среди подтверждённых треков соперника
+        """Удержать свежую цель и повторно выбрать после потери.
 
-        Выбранный трек держится, пока жив, -- чтобы оценка не прыгала между
-        треками. Сменить его может только сдвинувшийся трек, если сам
-        выбранный ни разу не двигался: мебель не ездит.
-
-        Когда робот уже опознан по движению и потерян, неподвижный трек
-        годится только рядом с местом потери. Новый трек в другом месте
-        выдаётся, лишь когда сам поедет.
+        Для нового выбора нужны последовательные сильные наблюдения.
+        Старое положение ограничивает захват лишь до reacquire_timeout;
+        после этого допускается подтверждённый неподвижный робот в другом месте.
         """
         self.selected = self._choose()
         if self.selected is not None and (
             self.selected.moved or self.robot_position is not None
         ):
             self.robot_position = self.selected.last_position.copy()
+            self.robot_last_seen = self.selected.last_update
         return self.selected
 
     def _choose(self):
         confirmed = [track for track in self.tracks if track.confirmed]
-        moving = [track for track in confirmed if track.moved]
         current = self.selected if self.selected in confirmed else None
-        if current is not None and (current.moved or not moving):
+        # Keep a recently supported target, including a stationary robot.
+        # A noisy candidate gaining "moved" must not automatically replace it.
+        # Weak fragments cannot keep the current target selected forever.
+        if current is not None and self.time-current.last_strong_update <= self.config.max_coast:
             return current
 
-        candidates = moving
+        reliable = [track for track in confirmed
+                    if track.strong_streak >= self.config.reacquire_strong_hits
+                    and self.time - track.last_update <= self.config.tentative_coast]
+        candidates = [track for track in reliable if track.moved]
         if not candidates:
             candidates = [
                 track
-                for track in confirmed
+                for track in reliable
                 if self.robot_position is None
+                or self.robot_last_seen is None
+                or self.time - self.robot_last_seen >= self.config.reacquire_timeout
                 or np.linalg.norm(track.birth - self.robot_position)
                 <= self.config.reacquire_radius
             ]

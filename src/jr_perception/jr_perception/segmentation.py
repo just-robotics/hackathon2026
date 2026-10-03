@@ -313,7 +313,7 @@ class RobotModel:
     contain_margin: float = 0.05
     min_points: int = 3
     # сколько точек обода нужно для фита окружности
-    min_rim_points: int = 4
+    min_rim_points: int = 12
     # точки обода дальше от окружности -- выбросы
     outlier: float = 0.05
     # предельная невязка фита окружности, м
@@ -434,11 +434,10 @@ def inspect_cluster(
     guess = edge_center(xy, rim, observer, model.radius)
 
     if len(rim) < model.min_rim_points:
-        # Для фита обода мало: вдали кольцо проходит над кромкой корпуса и
-        # ложится на верхнюю грань или пластину. Направление на центр по
-        # краям остаётся точным, а дальность -- с точностью до радиуса,
-        # отсюда большая СКО.
-        return Detection(guess, model.fallback_std, strong=False), ""
+        # Sparse wall fragments must not prolong an existing robot track
+        # through a weak centroid fallback. Require enough measured rim
+        # points before accepting either a strong or a weak observation.
+        return None, f"мало точек обода: {len(rim)} из {model.min_rim_points}"
 
     center, residual = fit_circle(rim, model.radius, guess)
     inliers = np.abs(residual) <= model.outlier

@@ -9,11 +9,11 @@ def load_config(path):
     config = yaml.safe_load(path.read_text())
     required = {'mission_file', 'kobuki_port', 'livox_config', 'localization', 'odom_topic',
                 'lidar_topic', 'lidar_mount', 'map_file', 'arena_bounds', 'ros_domain_id', 'rviz'}
-    optional = {'localization_file', 'lidar_filter_file', 'planning_file'}
+    optional = {'localization_file', 'lidar_filter_file', 'planning_file', 'fastlio_file'}
     if not isinstance(config, dict) or not required <= set(config) <= required | optional:
         raise ValueError('real.yaml fields must be ' + str(sorted(required)))
-    if config['localization'] not in ('odometry', 'external_tf', 'amcl'):
-        raise ValueError('localization must be odometry, external_tf or amcl')
+    if config['localization'] not in ('odometry', 'external_tf', 'amcl', 'fastlio'):
+        raise ValueError('localization must be odometry, external_tf, amcl or fastlio')
     if type(config['ros_domain_id']) is not int or not 0 <= config['ros_domain_id'] <= 232:
         raise ValueError('ros_domain_id must be in [0,232]')
     if type(config['rviz']) is not bool:
@@ -32,6 +32,8 @@ def load_config(path):
             raise ValueError(key + ' must be an absolute device/topic name')
     if config['localization'] == 'amcl' and (not config['map_file'] or not config.get('localization_file')):
         raise ValueError('amcl requires map_file and localization_file')
+    if config['localization'] == 'fastlio' and (not config['map_file'] or not config.get('fastlio_file')):
+        raise ValueError('fastlio requires map_file and fastlio_file')
     for key in ('mission_file', 'livox_config', 'map_file') + tuple(key for key in sorted(optional) if key in config):
         name = config[key]
         if key == 'map_file' and name == '':

@@ -2,8 +2,10 @@
 mission_file: real_match.yaml
 kobuki_port: /dev/kobuki
 livox_config: livox_mid360.json
-# AMCL matches the static map with LiDAR and publishes dynamic map -> odom.
-localization: amcl  # alternatively odometry or external_tf
+# FAST-LIO2 tracks LiDAR/IMU motion from robot.start in real_match.yaml.
+# Static-map matching remains available with localization: amcl.
+localization: fastlio  # alternatively amcl, odometry or external_tf
+fastlio_file: fastlio.yaml
 localization_file: localization.yaml
 odom_topic: /odom
 lidar_topic: /livox/lidar

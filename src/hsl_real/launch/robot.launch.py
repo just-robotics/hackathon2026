@@ -20,6 +20,7 @@ def nodes(context):
     motion = mission['motion']
     reverse = role == 'explorer' and motion['allow_reverse']
     speed, angular = motion['max_speed'], motion['max_angular_speed']
+    localized = cfg['localization'] in ('amcl', 'fastlio')
     processes = []
     def add(package, executable, parameters=None, **kwargs):
         node = Node(package=package, executable=executable, output='screen',
@@ -28,11 +29,13 @@ def nodes(context):
     processes.extend(hardware_nodes(cfg,mission,drivers=drivers))
     add('hsl_lidar_filter','real_lidar_filter', parameters=(
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
-    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization']=='amcl'}])
+    add('hsl_real','real_observations', parameters=[{'odom_topic':'/localization/fastlio/odometry' if cfg['localization']=='fastlio' else cfg['odom_topic'],
+        'lidar_topic':'/sensing/lidar/points_filtered','require_localization':localized}])
     add('jr_perception','robot_detector.py',parameters=[
         str(Path(get_package_share_directory('jr_perception'))/'config/real.yaml'),
         {'world':'','background_topic':'/map','world_frame':'map','base_frame':'base_footprint',
-         'pose_topic':'navigation/self','cloud_topic':cfg['lidar_topic']}])
+         'pose_topic':'/localization/fastlio/odometry' if cfg['localization']=='fastlio' else 'navigation/self',
+         'cloud_topic':'/sensing/lidar/points_filtered' if cfg['localization']=='fastlio' else cfg['lidar_topic']}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
     add('hsl_planning','trajectory_planner',parameters=[tuning['global'], {'role':role,'max_speed':speed,
@@ -46,7 +49,7 @@ def nodes(context):
         'MPPI.GoalCritic.cost_weight':15. if role=='guardian' else 5.,
         'costmap.plugins':['static_layer','inflation_layer']}])
     add('hsl_debug_control','motion_gate',parameters=[{'require_match_active':True}],name='hsl_motion_gate')
-    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':cfg['localization']=='amcl','role':role,'goal_center':mission['opponent']['start'][:2]}])
+    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':localized,'role':role,'goal_center':mission['opponent']['start'][:2]}])
     if cfg['localization']=='amcl':
         localization = cfg['localization_file']
         add('pointcloud_to_laserscan','pointcloud_to_laserscan_node',name='localization_scan',
@@ -56,6 +59,16 @@ def nodes(context):
             'initial_pose.x':x,'initial_pose.y':y,'initial_pose.z':0.,'initial_pose.yaw':yaw}],
             remappings=[('scan','/localization/scan')])
         add('hsl_real','localization_monitor',parameters=[localization,{'odom_topic':cfg['odom_topic']}])
+    if cfg['localization']=='fastlio':
+        x,y,yaw = mission['robot']['start']
+        add('jr_perception','livox_custom.py',name='livox_custom',
+            parameters=[{'cloud_topic':cfg['lidar_topic']}])
+        add('fast_lio','fastlio_mapping',name='laser_mapping',parameters=[cfg['fastlio_file']])
+        add('jr_perception','fastlio_bridge.py',name='fastlio_bridge',parameters=[{
+            'x':x,'y':y,'yaw':yaw,'publish_tf':True}])
+        add('hsl_real','localization_monitor',parameters=[{
+            'mode':'fastlio','odom_topic':cfg['odom_topic'],
+            'lidar_topic':cfg['lidar_topic']}])
     if cfg['map_file']:
         add('nav2_map_server','map_server', name='map_server', parameters=[{'yaml_filename':cfg['map_file']}])
         add('nav2_lifecycle_manager','lifecycle_manager', name='map_lifecycle_manager',parameters=[{
@@ -70,8 +83,9 @@ def nodes(context):
         if not directory.is_relative_to('/records'):raise ValueError('session_dir must be under /records')
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
+            '/Odometry','/localization/fastlio/odometry','/livox/lidar_custom',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/opponent/foreground','/navigation/opponent_visible','/navigation/detector_diagnostics',
+            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/opponent/robot_markers','/opponent/box_markers','/opponent/foreground','/navigation/opponent_visible','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',

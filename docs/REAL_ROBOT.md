@@ -11,9 +11,10 @@
 
 ```text
 Kobuki USB → /odom → map-поза → decision → global planner → Nav2 MPPI → gate → /cmd_vel → Kobuki
-Livox → /livox/lidar → real_lidar_filter → /sensing/lidar/points_filtered
+Livox → /livox/lidar ┬→ jr_perception → /opponent/odom, /opponent/markers
+                    └→ real_lidar_filter → /sensing/lidar/points_filtered
                                             ├→ LaserScan → AMCL
-                                            └→ cloud в map → planner / MPPI / detector
+                                            └→ cloud в map → /navigation/scan → decision / planner / MPPI / gate
 ```
 
 Все узлы работают по системному времени (`use_sim_time=false`). Gazebo,
@@ -420,3 +421,24 @@ InflationLayer; результаты детектора её не обновля
 `local.MPPI.time_steps` — целое20..120; default60шагов при model_dt0,05с.
 Длина прогноза меняется при следующем запуске. Весь прогноз проверяется
 на столкновение полным контуром; изменение горизонта не выключает эту проверку.
+
+## FAST-LIO2 — основной режим start_real
+
+После обновления пересоберите реальный образ: `helm build_real`.
+В `config/real.yaml`: `localization: fastlio`, `fastlio_file: fastlio.yaml`.
+В `config/real_match.yaml` задайте фактический `robot.start` на карте.
+Далее: `helm start_real`, `helm enable_real`; пауза — `helm pause_real`,
+штатное завершение и сохранение bag — `helm stop_real`.
+
+Raw LiDAR и IMU кормят FAST-LIO2. `/localization/fastlio/odometry` кормит
+детектор напрямую и через real_observations — `/navigation/self` для decision,
+A* и MPPI. Очищенное облако используется детектором и навигацией.
+Колёсный `/odom` остаётся отдельным. AMCL в этом режиме выключен.
+При отсутствии свежих позы/TF/IMU/LiDAR/колёсной одометрии разрешение закрыто.
+
+FAST-LIO2 ведёт относительную LiDAR/IMU-локализацию от заданного старта;
+с maze_bag_v1 не сопоставляется и дрейф по ней не исправляет.
+`localization: amcl` возвращает прежний режим со статической картой.
+Bag записывает также `/Odometry`, `/localization/fastlio/odometry`,
+`/livox/lidar_custom` и новые слои маркеров детектора.
+Текущий перенос не проверялся по просьбе пользователя.

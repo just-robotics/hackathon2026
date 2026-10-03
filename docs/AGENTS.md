@@ -82,8 +82,11 @@ cmd_vel — motion_gate. Отсутствие безопасного MPPI озн
 `jr_map/sdf_geometry.py`. Экспорт `tools/export_sdf_map.py`.
 Старты `[0.5,0.5,0]`/`[0.5,3.5,0]`, map_origin_world `[-0.468,-0.582]`.
 Ноль map внутри нижнего левого угла стен, yaw 0 вправо.
-Real использует отдельную maze_bag_v1 и AMCL: wheel odom + LiDAR LaserScan
-→ map→odom → navigation/self. Потеря localization/ready закрывает движение.
+Real использует maze_bag_v1 для планирования и FAST-LIO2 для позы:
+raw LiDAR + IMU → /Odometry → fastlio_bridge → /localization/fastlio/odometry
+→ real_observations → navigation/self. Мост публикует map→odom.
+Старт — robot.start; коррекции дрейфа по статической карте у FAST-LIO2 нет.
+AMCL доступен через localization: amcl, одновременно не запускается. Потеря localization/ready закрывает движение.
 Не переносить sim truth/map/referee или смещение мира в hardware-стек.
 
 - `/map` и `navigation/known_grid` статические, входы детектора и StaticLayer.
@@ -110,19 +113,27 @@ Real использует отдельную maze_bag_v1 и AMCL: wheel odom + L
   новое измерение. `navigation/detector_diagnostics.stamp_s` показывает
   успешную обработку скана, даже без выбранного соперника. Без карты,
   timestamped собственной позы или sensor TF обработка не готова.
+- В feature/egor-detector-fix минимальная поддержка обода — 12 точек;
+  недостаточный обод не обновляет трек слабой детекцией. Центры кандидатов
+  и публикуемых треков проверяются по occupied-клеткам /map (>=50), без
+  инфляции. Unknown/outside не блокируются. Проверяется видимая поверхность
+  обода (>=50%, запас 8 см); закрытая линия до центра сама по себе допустима.
+  Повторный захват требует 3 последовательных strong; память места — 1,5 с.
 - Старые C++ detector, SmallBoxFilter, obstacle memory и semantic layer
   удалены. Маркеры новой ветки не классифицируют размеры коробок.
 - `config/simulation_obstacles.yaml`: 3 узкие и 1 широкая подвижные коробки.
   Физические коллизии сохранены, mass/friction приблизительные.
   Ни одна коробка вне статической карты не обновляет occupancy.
 
-Real LiDAR: raw `/livox/lidar` → `jr_perception` напрямую.
+Real FAST-LIO2: raw `/livox/lidar` → livox_custom → FAST-LIO2 вместе с IMU.
+Детектор получает очищенное облако и позу FAST-LIO2 напрямую.
 Параллельно raw → C++ hsl_lidar_filter → `/sensing/lidar/points_filtered`
 → AMCL и real_observations → navigation/scan. Сырое облако не подавать в AMCL.
 Python фильтр сохранён как offline oracle; фильтр отдельно не замерять.
 `jr_perception/SOURCE.md` описывает происхождение и ограничения адаптации.
-Последнее указание пользователя: после подключения детектора прогоны
-не запускать; новую проверку bag/Gazebo согласовать отдельно.
+Пользователь разрешил полноценную проверку текущего стека; затем приоритет
+перенесён на диагностику работающего реального робота по SSH. Изменения
+алгоритма/параметров распознавания по-прежнему требуют согласования.
 
 ## Испытания и передача
 
@@ -145,3 +156,9 @@ MCAP в hsl2026Extra read-only, артефакты в ignored results. Нет р
 коробок/соперника — число гипотез не precision/recall. Offline и модульные
 проверки не подтверждают физическое достижение цели/поимку. Исторические
 серии старого мира/контроллера/детектора не оценивают текущую версию.
+
+FAST-LIO2 vendored в src/fast_lio; COLCON_IGNORE исключает его из sim.
+Dockerfile.real удаляет маркер и собирает пакет. Параметры config/fastlio.yaml.
+Монитор готовности FAST-LIO2 проверяет свежесть позы/TF/IMU/LiDAR/odom,
+не выдаёт номинальную covariance моста за точность привязки к карте.
+Последний перенос в main-based дерево сделан без проверок по просьбе пользователя.

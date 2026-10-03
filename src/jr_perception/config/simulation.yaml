@@ -38,7 +38,7 @@
       max_height: 0.43
       max_extent: 0.42
       min_points: 3
-      min_rim_points: 4
+      min_rim_points: 12
       outlier: 0.05
       fit_rms_max: 0.035
       line_ratio: 0.7
@@ -62,3 +62,7 @@
       move_threshold: 0.3
       move_min_hits: 10
       reacquire_radius: 0.35
+      reacquire_timeout: 1.5
+      reacquire_strong_hits: 3
+    map_visibility_min_fraction: 0.5
+    map_visibility_endpoint_margin: 0.08
