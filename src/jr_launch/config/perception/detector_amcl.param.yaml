@@ -12,7 +12,8 @@
     # свой робот, высота и дальность отфильтрованы до неё, пол -- linefit.
     # Свои фильтры детектора поэтому выключены.
     cloud_topic: "/perception/obstacle_cloud"
-    self_range: 0.0
+    # обрезка входного облака: точки ближе 0.5 м от base_footprint -- прочь
+    self_range: 0.5
     floor_z: -1.0
     floor_noise: 0.0
     ceiling_z: 10.0
