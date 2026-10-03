@@ -15,10 +15,10 @@ def test_recorded_six_point_wall_fragment_is_not_a_measurement():
     fixture=json.loads((Path(__file__).parent/'fixtures/detector_wall_fragment.json').read_text())
     points=np.array(fixture['points']);observer=np.array(fixture['observer'])[:2]
     # Verify that the fixture reproduces the original failure.
-    old,_=inspect_cluster(points,observer,real_model(min_rim_points=4))
+    old,_=inspect_cluster(points,observer,real_model(min_rim_points=4,plane_ratio=0.))
     assert old is not None and old.strong
     detection,reason=inspect_cluster(points,observer,real_model())
-    assert detection is None and 'мало точек обода' in reason
+    assert detection is None and ('мало точек обода' in reason or 'плоскость' in reason)
 
 
 def test_dense_visible_body_arc_remains_a_strong_measurement():

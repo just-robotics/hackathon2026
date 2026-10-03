@@ -39,6 +39,9 @@
       max_extent: 0.42
       min_points: 3
       min_rim_points: 12
+      plane_ratio: 0.8
+      plane_min_improvement: 0.015
+      plane_min_arc: 1.5707963267948966
       outlier: 0.05
       fit_rms_max: 0.035
       line_ratio: 0.7

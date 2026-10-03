@@ -321,6 +321,13 @@ class RobotModel:
     # окружность должна описывать обод заметно лучше прямой: прямой кусок
     # грани коробки описывается прямой не хуже
     line_ratio: float = 0.7
+    # Reject shapes better explained by flat box faces than a Kobuki circle.
+    # Zero disables the check for comparison on identical recorded inputs.
+    plane_ratio: float = 0.8
+    # Flat faces must improve RMS by more than the LiDAR noise allowance (m).
+    plane_min_improvement: float = 0.015
+    # A partially hidden short arc cannot reliably distinguish these models.
+    plane_min_arc: float = math.pi / 2.0
     # СКО центра: по фиту окружности и по центроиду без обода, м
     measurement_std: float = 0.03
     fallback_std: float = 0.10
@@ -384,6 +391,27 @@ def find_circle(
     counts = (np.abs(distance - radius) <= tolerance).sum(axis=1)
     best = int(np.argmax(counts))
     return centers[best], int(counts[best])
+
+
+def plane_test(xy: np.ndarray, guess: np.ndarray, model: RobotModel) -> tuple:
+    """Лежат ли точки на вертикальных гранях лучше, чем на корпусе робота
+
+    :xy (N, 2) точки одного обода после удаления выбросов
+    :guess (2,) найденный центр окружности корпуса
+    :model радиус, пороги преимущества граней и видимого угла
+
+    :return (planar, faces, circle): предмет ли это, невязки граней и
+    окружности радиуса radius, м
+    """
+    faces = rectangle_fit(xy)[3]
+    _, residual = fit_circle(xy, model.radius, guess)
+    circle = math.sqrt(float(np.mean(residual ** 2)))
+    angles = np.sort(np.mod(np.arctan2(xy[:, 1]-guess[1],xy[:, 0]-guess[0]),2*math.pi))
+    span = 2*math.pi-float(np.max(np.diff(np.r_[angles,angles[0]+2*math.pi])))
+    planar = (span >= model.plane_min_arc and
+              faces < model.plane_ratio * circle and
+              circle-faces >= model.plane_min_improvement)
+    return planar, faces, circle
 
 
 def inspect_cluster(
@@ -451,6 +479,13 @@ def inspect_cluster(
     rms = math.sqrt(float(np.mean(residual ** 2)))
     if rms > model.fit_rms_max:
         return None, f"не окружность: невязка {100 * rms:.1f} см"
+
+    # Both models see the same inlier rim, not upper plates and supports.
+    # Small fit differences and short visible arcs do not veto a robot.
+    if model.plane_ratio > 0.0:
+        planar, faces, circle = plane_test(arc, center, model)
+        if planar:
+            return None, f"плоскость: {100 * faces:.1f} против окружности {100 * circle:.1f} см"
 
     straight = line_rms(arc)
     if rms > model.line_ratio * straight:
@@ -572,6 +607,79 @@ def oriented_rectangle(xy: np.ndarray) -> tuple:
         size = size[::-1]
         yaw += math.pi / 2.0
     return center, size, yaw
+
+
+def rectangle_fit(xy: np.ndarray) -> tuple:
+    """Повёрнутый прямоугольник вокруг точек (N, 2), стороны -- по граням
+
+    Направления-кандидаты -- стороны выпуклой оболочки. Лидар видит у коробки
+    одну-две грани, и берётся направление, при котором точки в среднем ближе
+    всего к сторонам прямоугольника: грани ложатся на стороны. Наименьшая
+    площадь тут не годится: оболочка двух граней -- прямоугольный
+    треугольник, и рамка по гипотенузе у него той же площади, что по
+    катетам.
+
+    Невязка -- СКО расстояния точек до ближайшей стороны. У вертикальных
+    граней (коробка, стена) это шум дальности: точки одной-двух граней лежат
+    на сторонах. У дуги корпуса робота точки между касаниями отходят от
+    сторон на сантиметры. Стороны для невязки -- по 2-му и 98-му перцентилям,
+    чтобы одиночный выброс не отодвигал сторону от грани.
+
+    :return (center, size, yaw, rms): центр (2,), длина вдоль yaw и ширина,
+    yaw, невязка, м
+    """
+    hull = convex_hull(xy)
+    if len(hull) < 3:
+        # все точки на одной прямой: прямоугольник вырождается в отрезок
+        if len(hull) == 1:
+            return hull[0].astype(float), np.zeros(2), 0.0, 0.0
+        edge = hull[-1] - hull[0]
+        yaw = math.atan2(edge[1], edge[0])
+        return hull.mean(axis=0), np.array([float(np.linalg.norm(edge)), 0.0]), yaw, 0.0
+
+    edges = np.diff(np.vstack([hull, hull[:1]]), axis=0)
+    # Прямоугольник с осью angle тот же, что с angle + pi/2. К сторонам
+    # оболочки добавлена сетка через 1 градус: короткие рёбра на шумной грани
+    # уводят направление на несколько градусов.
+    angles = np.unique(
+        np.concatenate(
+            [
+                np.mod(np.arctan2(edges[:, 1], edges[:, 0]), math.pi / 2.0),
+                np.radians(np.arange(0.0, 90.0, 1.0)),
+            ]
+        )
+    )
+    along = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+    across = np.stack([-np.sin(angles), np.cos(angles)], axis=1)
+    # Направление выбирается по точкам, прореженным до сетки 1 см: в плотном
+    # кластере их в разы меньше, а среднее расстояние до сторон то же.
+    # Координаты в осях каждого кандидата, (точки, кандидаты).
+    sparse = np.unique(np.round(xy / 0.01), axis=0) * 0.01
+    u, v = sparse @ along.T, sparse @ across.T
+    low_u, high_u, low_v, high_v = u.min(axis=0), u.max(axis=0), v.min(axis=0), v.max(axis=0)
+    to_side = np.minimum.reduce([u - low_u, high_u - u, v - low_v, high_v - v])
+    # при равенстве -- меньшая площадь
+    score = to_side.mean(axis=0) + 1e-6 * (high_u - low_u) * (high_v - low_v)
+    best = int(np.argmin(score))
+
+    # границы -- по всем точкам
+    u, v = xy @ along[best], xy @ across[best]
+    center = (u.max() + u.min()) / 2.0 * along[best] + (v.max() + v.min()) / 2.0 * across[best]
+    yaw = float(angles[best])
+    size = np.array([u.max() - u.min(), v.max() - v.min()])
+
+    low_u, high_u = np.percentile(u, [2.0, 98.0])
+    low_v, high_v = np.percentile(v, [2.0, 98.0])
+    to_side = np.minimum.reduce(
+        [np.abs(u - low_u), np.abs(high_u - u), np.abs(v - low_v), np.abs(high_v - v)]
+    )
+    rms = math.sqrt(float(np.mean(to_side ** 2)))
+
+    if size[1] > size[0]:
+        # длинная сторона -- вдоль yaw
+        size = size[::-1]
+        yaw += math.pi / 2.0
+    return center, size, yaw, rms
 
 
 def find_boxes(

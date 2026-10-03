@@ -230,6 +230,8 @@ def new_marker(header: Header, ns: str, index: int, kind: int, rgba: tuple) -> M
 # букв: подписи маркеров -- латиницей и без пробелов, части -- строками.
 # Причины отказа из segmentation.inspect_cluster переводятся по словам.
 REASON_WORDS = (
+    ("плоскость", "planes"),
+    ("окружности", "circle"),
     ("широкий, внутри", "wide,inside"),
     ("круга корпуса нет", "no_hull_circle"),
     ("мало точек", "few_points"),
