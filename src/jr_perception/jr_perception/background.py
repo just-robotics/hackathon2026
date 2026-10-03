@@ -2,7 +2,8 @@
 
 Для сцен, которых нет в .world: комната, реальный полигон. Файл пишет
 record_background.py по бэгу с неподвижного лидара, читает robot_detector.py
-(параметр background_file).
+(параметр background_file). Для едущего робота тот же фон строится в
+рантайме из карты занятости (from_occupancy, параметр map_topic).
 
 Ячейка считается фоном, если выше пола в ней были точки хотя бы в доле share
 сканов. У Mid-360 неповторяющийся паттерн: редкий дальний предмет попадает не
@@ -139,6 +140,78 @@ def covered(
     index = np.clip(np.searchsorted(grid["keys"], keys), 0, len(grid["keys"]) - 1)
     inside = grid["keys"][index] == keys
     return inside & (heights <= grid["tops"][index] + margin)
+
+
+def _flood(free: np.ndarray, row: int, col: int) -> np.ndarray:
+    """Свободные клетки, связанные с (row, col) по сторонам"""
+    reached = np.zeros_like(free)
+    stack = [(row, col)]
+    while stack:
+        r, c = stack.pop()
+        if 0 <= r < free.shape[0] and 0 <= c < free.shape[1] and free[r, c] and not reached[r, c]:
+            reached[r, c] = True
+            stack += [(r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)]
+    return reached
+
+
+def from_occupancy(
+    values: np.ndarray,
+    resolution: float,
+    origin: tuple,
+    seed: np.ndarray,
+    dilate: int,
+    pad: int,
+    frame: str,
+) -> tuple:
+    """Фон из карты занятости: всё, кроме арены, где стоит робот
+
+    Арена -- свободные клетки, связанные с клеткой seed. Остальное -- стены,
+    неизвестные клетки, свободные пятна за стенами и pad клеток за краем
+    карты -- фон на любой высоте. Фон наращивается на dilate клеток внутрь
+    арены: на неточность карты и локализации.
+
+    :values (H, W) значения nav_msgs/OccupancyGrid, строка 0 -- у origin:
+    -1 неизвестно, 0..100 занятость
+    :resolution шаг карты, м
+    :origin (x, y) угла карты, поворот не поддерживается
+    :seed (2,) точка внутри арены, обычно положение робота
+    :dilate запас вокруг стен, клеток
+    :pad фон за краем карты, клеток
+    :frame фрейм карты
+
+    :return (grid, found): фон в формате load и нашлась ли арена. Если seed
+    не в свободной клетке, ареной считаются все свободные клетки
+    """
+    free = (values >= 0) & (values < 25)
+    row = int(np.floor((seed[1] - origin[1]) / resolution))
+    col = int(np.floor((seed[0] - origin[0]) / resolution))
+    found = 0 <= row < free.shape[0] and 0 <= col < free.shape[1] and bool(free[row, col])
+    arena = _flood(free, row, col) if found else free
+
+    taken = np.pad(~arena, pad, constant_values=True)
+    for _ in range(dilate):
+        grown = taken.copy()
+        grown[1:] |= taken[:-1]
+        grown[:-1] |= taken[1:]
+        grown[:, 1:] |= taken[:, :-1]
+        grown[:, :-1] |= taken[:, 1:]
+        taken = grown
+
+    # центры клеток карты -- в ключи общей сетки фона с тем же шагом
+    rows, cols = np.nonzero(taken)
+    centers = np.c_[
+        origin[0] + (cols - pad + 0.5) * resolution,
+        origin[1] + (rows - pad + 0.5) * resolution,
+    ]
+    keys = np.unique(cell_keys(centers, resolution))
+    grid = {
+        "keys": keys,
+        "tops": np.full(len(keys), np.inf),
+        "cell": resolution,
+        "plane": np.zeros(3),
+        "frame": frame,
+    }
+    return grid, found
 
 
 def save(

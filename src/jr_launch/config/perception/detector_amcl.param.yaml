@@ -1,0 +1,28 @@
+# robot_detector.py на бэгах с едущего робота, поза от AMCL
+# (jr_detector_bag.launch.xml).
+# Лидар едет вместе с роботом: поза base_footprint во фрейме map -- от
+# pose_relay.py (/odom + map -> odom AMCL), лидар относительно базы -- из
+# /tf_static. /navigation/self не годится: в бэгах у него дыры до 10 с.
+# Фон -- карта занятости из /map (map_server на роботе или запись в бэге),
+# строится детектором в рантайме.
+# Пороги робота -- как у бэгов с реального Kobuki (jr_perception/config/real.yaml).
+/**:
+  ros__parameters:
+    # Облако после real_lidar_filter (lidar_filter.yaml сессии): в сыром
+    # /livox/lidar фантомы от своих стоек до ~1 м, и трекер принимал их за
+    # соперника, едущего перед роботом.
+    cloud_topic: "/sensing/lidar/points_filtered"
+    pose_topic: "/detector/self_pose"
+    world_frame: "map"
+    base_frame: "base_footprint"
+    opponent_frame: "opponent"
+    world: ""
+    background_topic: "/map"
+    # запас фона у стен: облако смещено относительно карты на 5-10 см
+    map_margin: 0.15
+    max_range: 6.0
+    robot:
+      max_height: 0.50
+      min_top: 0.25
+      min_points: 10
+      min_extent: 0.22

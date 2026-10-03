@@ -475,3 +475,138 @@ def detect_robot(
 ) -> "Detection | None":
     """То же, что inspect_cluster, без причины отказа"""
     return inspect_cluster(points, observer, model)[0]
+
+
+@dataclass
+class Box:
+    """Предмет на сцене: повёрнутый прямоугольник вокруг его точек"""
+
+    # центр на плоскости, м
+    center: np.ndarray
+    # длина вдоль yaw и ширина поперёк, м
+    size: np.ndarray
+    # поворот длинной стороны, рад
+    yaw: float
+    # высота верха над полом, м
+    top: float
+    points: int
+
+
+def convex_hull(xy: np.ndarray) -> np.ndarray:
+    """Выпуклая оболочка точек (N, 2), обход Эндрю
+
+    :return вершины оболочки против часовой стрелки, (M, 2)
+    """
+    unique = np.unique(xy, axis=0)
+    if len(unique) < 3:
+        return unique
+
+    def half(points):
+        chain = []
+        for point in points:
+            while len(chain) >= 2:
+                (ax, ay), (bx, by) = chain[-2], chain[-1]
+                if (bx - ax) * (point[1] - ay) - (by - ay) * (point[0] - ax) > 0.0:
+                    break
+                chain.pop()
+            chain.append(point)
+        return chain[:-1]
+
+    # np.unique уже отсортировал точки по x, потом по y
+    points = unique.tolist()
+    return np.array(half(points) + half(points[::-1]))
+
+
+def oriented_rectangle(xy: np.ndarray) -> tuple:
+    """Повёрнутый прямоугольник вокруг точек (N, 2), стороны -- по граням
+
+    Направления-кандидаты -- стороны выпуклой оболочки. Лидар видит у коробки
+    одну-две грани, и берётся направление, при котором точки в среднем ближе
+    всего к сторонам прямоугольника: грани ложатся на стороны. Наименьшая
+    площадь тут не годится: оболочка двух граней -- прямоугольный
+    треугольник, и рамка по гипотенузе у него той же площади, что по
+    катетам.
+
+    :return (center, size, yaw): центр (2,), длина вдоль yaw и ширина, yaw
+    """
+    hull = convex_hull(xy)
+    if len(hull) < 3:
+        # все точки на одной прямой: прямоугольник вырождается в отрезок
+        if len(hull) == 1:
+            return hull[0].astype(float), np.zeros(2), 0.0
+        edge = hull[-1] - hull[0]
+        yaw = math.atan2(edge[1], edge[0])
+        return hull.mean(axis=0), np.array([float(np.linalg.norm(edge)), 0.0]), yaw
+
+    edges = np.diff(np.vstack([hull, hull[:1]]), axis=0)
+    # Прямоугольник с осью angle тот же, что с angle + pi/2. К сторонам
+    # оболочки добавлена сетка через 1 градус: короткие рёбра на шумной грани
+    # уводят направление на несколько градусов.
+    angles = np.unique(
+        np.concatenate(
+            [
+                np.mod(np.arctan2(edges[:, 1], edges[:, 0]), math.pi / 2.0),
+                np.radians(np.arange(0.0, 90.0, 1.0)),
+            ]
+        )
+    )
+    along = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+    across = np.stack([-np.sin(angles), np.cos(angles)], axis=1)
+    # Направление выбирается по точкам, прореженным до сетки 1 см: в плотном
+    # кластере их в разы меньше, а среднее расстояние до сторон то же.
+    # Координаты в осях каждого кандидата, (точки, кандидаты).
+    sparse = np.unique(np.round(xy / 0.01), axis=0) * 0.01
+    u, v = sparse @ along.T, sparse @ across.T
+    low_u, high_u, low_v, high_v = u.min(axis=0), u.max(axis=0), v.min(axis=0), v.max(axis=0)
+    to_side = np.minimum.reduce([u - low_u, high_u - u, v - low_v, high_v - v])
+    # при равенстве -- меньшая площадь
+    score = to_side.mean(axis=0) + 1e-6 * (high_u - low_u) * (high_v - low_v)
+    best = int(np.argmin(score))
+
+    # границы -- по всем точкам
+    u, v = xy @ along[best], xy @ across[best]
+    center = (u.max() + u.min()) / 2.0 * along[best] + (v.max() + v.min()) / 2.0 * across[best]
+    yaw = float(angles[best])
+    size = np.array([u.max() - u.min(), v.max() - v.min()])
+    if size[1] > size[0]:
+        # длинная сторона -- вдоль yaw
+        size = size[::-1]
+        yaw += math.pi / 2.0
+    return center, size, yaw
+
+
+def find_boxes(
+    clusters: list,
+    detections: list,
+    model: RobotModel,
+    min_height: float,
+) -> list:
+    """Предметы на сцене: кластеры, которые не робот
+
+    Робот, прижавшийся к предмету, сливается с ним в один кластер шире
+    робота. Тогда предмет -- точки кластера вне круга корпуса.
+
+    :clusters список массивов (M, 3), z -- высота над полом
+    :detections для каждого кластера Detection или None
+    :model параметры робота: min_points, radius, max_extent
+    :min_height верх предмета не ниже этого: ниже -- шум у пола, м
+
+    :return список Box
+    """
+    boxes = []
+    for points, detection in zip(clusters, detections):
+        if detection is not None:
+            if len(points) < model.min_points or major_extent(points[:, :2]) <= model.max_extent:
+                continue
+            outside = (
+                np.linalg.norm(points[:, :2] - detection.center, axis=1)
+                > model.radius + model.contain_margin
+            )
+            points = points[outside]
+
+        if len(points) < model.min_points or points[:, 2].max() < min_height:
+            continue
+
+        center, size, yaw = oriented_rectangle(points[:, :2])
+        boxes.append(Box(center, size, yaw, float(points[:, 2].max()), len(points)))
+    return boxes

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Локализация робота для сырых бэгов (сессии *-bag): только /livox/lidar,
+     /odom, /tf, /tf_static. Повторяет то, что на роботе поднимает
+     hsl_real/robot.launch.py при localization: amcl, на времени бэга:
+     фильтр лидара -> /sensing/lidar/points_filtered, срез в скан
+     /localization/scan, map_server с картой -> /map, AMCL -> map -> odom.
+     Конфиги берутся из каталога config: config/ репозитория или папка
+     autonomous-сессии того же дня.
+
+     Узлы на времени бэга, поэтому порядок такой: бэг на паузе (ключи clock и
+     start-paused), потом этот launch, потом детектор, потом пробел в
+     терминале бэга. Если запустить их до бэга, при старте часов у них
+     прыжок времени назад, и буфер TF стирает статические трансформы, которые
+     бэг публикует один раз. Старт робота берётся из initial_pose.py (ros2 run jr_perception initial_pose.py): без него
+     AMCL на коротких записях не сходится. Нужны пакеты ros-humble-nav2-amcl,
+     ros-humble-nav2-map-server, ros-humble-nav2-lifecycle-manager и
+     ros-humble-pointcloud-to-laserscan. -->
+<launch>
+  <arg name="config" description="каталог с lidar_filter.yaml, localization.yaml и maps/"/>
+  <arg name="map" default="$(var config)/maps/maze_bag_v1.yaml"/>
+  <!-- старт робота в map, как robot.start в real_match.yaml -->
+  <arg name="x" default="0.5"/>
+  <arg name="y" default="0.5"/>
+  <arg name="yaw" default="0.0"/>
+
+  <node pkg="hsl_lidar_filter" exec="real_lidar_filter" name="real_lidar_filter" output="screen">
+    <param from="$(var config)/lidar_filter.yaml"/>
+    <param name="lidar_topic" value="/livox/lidar"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <!-- Пакет pointcloud_to_laserscan из ROS (ros-humble-pointcloud-to-laserscan),
+       как на роботе. В образе Autoware есть свой пакет с тем же именем и
+       другими топиками, и он перекрывает ROS-пакет и по пути, и по
+       библиотеке-компоненту, поэтому путь полный, а LD_LIBRARY_PATH только из ROS. -->
+  <executable name="localization_scan" output="screen"
+              cmd="env LD_LIBRARY_PATH=/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib
+                   /opt/ros/humble/lib/pointcloud_to_laserscan/pointcloud_to_laserscan_node
+                   --ros-args -r __node:=localization_scan
+                   --params-file $(var config)/localization.yaml -p use_sim_time:=true
+                   -r cloud_in:=/sensing/lidar/points_filtered -r scan:=/localization/scan"/>
+
+  <node pkg="nav2_amcl" exec="amcl" name="amcl" output="screen">
+    <param from="$(var config)/localization.yaml"/>
+    <param name="initial_pose.x" value="$(var x)"/>
+    <param name="initial_pose.y" value="$(var y)"/>
+    <param name="initial_pose.z" value="0.0"/>
+    <param name="initial_pose.yaw" value="$(var yaw)"/>
+    <param name="use_sim_time" value="true"/>
+    <remap from="scan" to="/localization/scan"/>
+  </node>
+
+  <node pkg="nav2_map_server" exec="map_server" name="map_server" output="screen">
+    <param name="yaml_filename" value="$(var map)"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="map_lifecycle_manager" output="screen">
+    <param name="autostart" value="true"/>
+    <param name="node_names" value="[map_server, amcl]"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+</launch>

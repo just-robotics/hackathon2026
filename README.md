@@ -151,8 +151,10 @@ helm enter_real       # терминал
 `наблюдения → детектор/decision manager → A* → Nav2 C++ MPPI → motion_gate → cmd_vel`
 
 MPPI — единственный контроллер движения. MPC и Python MPPI удалены;
-прежние варианты доступны в истории Git. Детектор — исходный Python-пакет
-`jr_perception` из `feature/detector` (b985515). Старые `hsl_perception`,
+прежние варианты доступны в истории Git. Детектор — Python-пакет
+`jr_perception` из `feature/detector`: фон из `/map` строится по арене
+вокруг робота с запасом 15 см у стен, отладочные маркеры разнесены по трём
+топикам. Старые `hsl_perception`,
 `hsl_perception_cpp` и фильтр/классификатор коробок удалены.
 В симуляции точная поза используется для собственного робота;
 ground truth соперника доступен referee и оценке.
@@ -162,7 +164,9 @@ ground truth соперника доступен referee и оценке.
 | Сырое `/livox/lidar` | Детектор `jr_perception` напрямую |
 | `navigation/self` | Детектор, decision manager, планирование |
 | `/opponent/odom` | Выбранный трек робота; decision manager и A* |
-| `/opponent/markers` | MarkerArray с кластерами объектов, включая коробки, и треками |
+| `/opponent/markers` | Все кластеры по классам, у отклонённых — причина |
+| `/opponent/robot_markers` | То, что считается роботом: детекции, треки, курс |
+| `/opponent/box_markers` | Предметы на сцене: повёрнутые боксы с центром и размерами |
 | `/map`, `navigation/known_grid` | Статический фон детектора, A*, StaticLayer MPPI |
 | `navigation/scan` | Свежесть LiDAR для планирования и диагностика |
 | `navigation/obstacle_grid` | Диагностическая копия статической карты |
@@ -217,6 +221,63 @@ helm stop_real              # закрыть движение и штатно з
 `config/recording.yaml`. Сценария картографирования нет. Автономный `start_real`
 также автоматически пишет диагностический bag. Подробности:
 [REAL_ROBOT.md](docs/REAL_ROBOT.md).
+
+## Детектор на бэгах
+
+Пакеты собираются в контейнере поверх образа, бэг играет с часами бэга
+(`--clock`). Сначала бэг на паузе (`--start-paused`), потом launch, потом
+пробел в терминале бэга: иначе у узлов на времени бэга прыжок времени назад
+стирает статический TF. Каталог `config` — `config/` репозитория или папка
+сессии (`lidar_filter.yaml`, `localization.yaml`, `maps/`).
+
+**Неподвижный лидар** (фон записан `record_background.py`):
+
+```bash
+ros2 launch jr_launch jr_perception_bag.launch.xml background_file:=<фон.npz>
+```
+
+**Едущий робот, поза от AMCL.** В autonomous-записях AMCL уже в `/tf`:
+
+```bash
+ros2 bag play <сессия>/bag --clock --start-paused \
+  --topics /livox/lidar /sensing/lidar/points_filtered /odom /tf /tf_static /map
+ros2 launch jr_launch jr_detector_bag.launch.xml
+```
+
+В ручных записях (`*-bag`: только лидар, IMU, одометрия, TF) AMCL
+поднимается заново — фильтр лидара, срез в скан, `map_server`, `nav2_amcl`
+(пакеты `ros-humble-nav2-amcl`, `-nav2-map-server`, `-nav2-lifecycle-manager`,
+`-pointcloud-to-laserscan`) — со стартом по первым сканам:
+
+```bash
+ros2 run jr_perception initial_pose.py <сессия>/bag config/maps/maze_bag_v1.yaml  # -> x y yaw
+ros2 bag play <сессия>/bag --clock --start-paused --topics /livox/lidar /odom /tf /tf_static
+ros2 launch jr_launch jr_raw_localization.launch.xml config:=config x:=… y:=… yaw:=…
+ros2 launch jr_launch jr_detector_bag.launch.xml
+```
+
+**Едущий робот, поза от FAST-LIO2** вместо AMCL. `livox_custom.py`
+переводит облако в `CustomMsg` на лету, `fastlio_bridge.py` переводит позу
+FAST-LIO2 в позу `base_footprint` во фрейме `map`
+(`/localization/fastlio/odometry`) и публикует TF `map -> odom`. FAST-LIO2
+карту не знает: старт на карте задают `x y yaw` от `initial_pose.py`.
+
+```bash
+git clone --depth 1 -b ROS2 --recursive https://github.com/hku-mars/FAST_LIO.git
+colcon build --base-paths FAST_LIO --cmake-args -DCMAKE_BUILD_TYPE=Release  # с CC=gcc CXX=g++
+ros2 bag play <сессия>/bag --clock --start-paused --topics /livox/lidar /livox/imu /tf /tf_static
+ros2 launch jr_launch jr_detector_fastlio.launch.xml config:=config x:=… y:=… yaw:=… \
+  map:=config/maps/maze_bag_v1.yaml
+```
+
+В autonomous-записях `/map` есть в бэге (добавьте в `--topics`, `map:=` не
+нужен), а `map -> odom` от AMCL уже в `/tf`: `publish_tf:=false`. Повтор бэга
+по кругу не годится — FAST-LIO2 продолжит с конца прошлого прохода.
+`config/perception/fastlio_view.rviz` в `jr_launch` показывает сам FAST-LIO2:
+облако, сшитое по его позе, и траекторию.
+
+На `20261003T094119` поза моста отличается от AMCL робота в среднем на 4 см
+(максимум 8 см), курс — на 1.3°.
 
 ## Проверки и текущее состояние
 

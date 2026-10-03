@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Детектор соперника и RViz на бэгах с едущего робота, поза от AMCL.
+
+     pose_relay.py склеивает /odom и map -> odom AMCL из /tf в позу
+     base_footprint во фрейме map (/detector/self_pose): у /navigation/self
+     в ранних бэгах дыры до 10 с. Фон — карта из /map.
+
+     Бэг проигрывается отдельно, с часами бэга (ключ clock у ros2 bag play),
+     нужны топики /sensing/lidar/points_filtered, /odom, /tf, /tf_static и
+     /map (/livox/lidar нужен только для показа сырого облака в RViz). В
+     ручных записях без AMCL перед этим launch поднимается
+     jr_raw_localization.launch.xml. -->
+<launch>
+  <arg name="rviz" default="true"/>
+
+  <node pkg="jr_perception" exec="pose_relay.py" name="pose_relay" output="screen"/>
+
+  <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector" output="screen">
+    <param from="$(find-pkg-share jr_launch)/config/perception/detector_amcl.param.yaml"/>
+  </node>
+
+  <!-- время бэга: на повторе (-l) RViz сбрасывает TF, а не отбрасывает его как старый -->
+  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz2"
+        args="-d $(find-pkg-share jr_launch)/config/perception/detector_map.rviz">
+    <param name="use_sim_time" value="true"/>
+  </node>
+</launch>

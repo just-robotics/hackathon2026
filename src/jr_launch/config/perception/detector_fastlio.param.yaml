@@ -1,0 +1,26 @@
+# robot_detector.py с локализацией FAST-LIO2 (jr_detector_fastlio.launch.xml).
+# Локализация -- FAST-LIO2: поза base_footprint во фрейме map от
+# fastlio_bridge.py, лидар относительно базы -- из /tf_static.
+# Фон -- карта занятости из /map (map_server на роботе или запись в бэге),
+# строится детектором в рантайме.
+# Пороги робота -- как у бэгов с реального Kobuki (jr_perception/config/real.yaml).
+/**:
+  ros__parameters:
+    # Облако после real_lidar_filter (lidar_filter.yaml сессии): в сыром
+    # /livox/lidar фантомы от своих стоек до ~1 м, и трекер принимал их за
+    # соперника, едущего перед роботом.
+    cloud_topic: "/sensing/lidar/points_filtered"
+    pose_topic: "/localization/fastlio/odometry"
+    world_frame: "map"
+    base_frame: "base_footprint"
+    opponent_frame: "opponent"
+    world: ""
+    background_topic: "/map"
+    # запас фона у стен: облако смещено относительно карты на 5-10 см
+    map_margin: 0.15
+    max_range: 6.0
+    robot:
+      max_height: 0.50
+      min_top: 0.25
+      min_points: 10
+      min_extent: 0.22

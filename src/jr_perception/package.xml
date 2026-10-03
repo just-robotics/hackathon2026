@@ -21,6 +21,10 @@
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>jr_map</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <!-- livox_custom.py: CustomMsg для FAST-LIO2 -->
+  <exec_depend>livox_ros_driver2</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

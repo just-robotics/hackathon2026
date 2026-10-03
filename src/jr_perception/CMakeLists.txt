@@ -12,6 +12,10 @@ install(
     jr_perception/robot_detector.py
     jr_perception/detector_eval.py
     jr_perception/record_background.py
+    jr_perception/initial_pose.py
+    jr_perception/pose_relay.py
+    jr_perception/livox_custom.py
+    jr_perception/fastlio_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
