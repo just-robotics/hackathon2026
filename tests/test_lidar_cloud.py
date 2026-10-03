@@ -1,4 +1,5 @@
 """ROS serialization checks; run inside the real image with unittest."""
+from array import array
 import struct
 import unittest
 
@@ -29,6 +30,7 @@ class LidarCloudTest(unittest.TestCase):
                                                 ('tag', 12, 2), ('timestamp', 13, 8)]]
                 filtered, diag = filter_cloud(cloud, dict(DEFAULT_PARAMETERS,
                     self_occlusion_max_range=0.))
+                self.assertIsInstance(filtered.data, array)
                 self.assertEqual(bytes(filtered.data), records[0] + records[2] + records[3])
                 self.assertEqual(filtered.header, cloud.header)
                 self.assertEqual(filtered.fields, cloud.fields)

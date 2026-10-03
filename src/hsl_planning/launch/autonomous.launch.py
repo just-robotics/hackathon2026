@@ -8,12 +8,14 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from hsl_planning.configuration import load_planning
 
 
 def nodes(context):
     values = {name: LaunchConfiguration(name).perform(context) for name in (
         "robot_namespace", "role", "random_seed", "arena_bounds", "allow_reverse", "max_speed", "max_angular_speed")}
-    params = {"role": values["role"]}
+    tuning = load_planning(LaunchConfiguration("planning_config").perform(context) or None)
+    params = dict(tuning["global"], role=values["role"])
     allow_reverse = values["role"] == "explorer" and values["allow_reverse"].lower() == "true"
     speed = float(values["max_speed"])
     angular = float(values["max_angular_speed"])
@@ -25,7 +27,7 @@ def nodes(context):
     config = os.path.join(get_package_share_directory("hsl_nav2_control"),
                           "config", "native_mppi.yaml")
     result.append(Node(package="hsl_nav2_control", executable="native_mppi",
-                       namespace=values["robot_namespace"], parameters=[config, {
+                       namespace=values["robot_namespace"], parameters=[config, tuning["local"], {
                            "role": values["role"],
                            # Only the explorer may reverse; guardian capture
                            # always approaches with forward translation.
@@ -47,7 +49,7 @@ def nodes(context):
 
 
 def generate_launch_description():
-    defaults = {"robot_namespace": "", "role": "explorer", "random_seed": "0",
+    defaults = {"planning_config": "", "robot_namespace": "", "role": "explorer", "random_seed": "0",
                 "arena_bounds": "[-0.025,-0.025,3.065,4.05]",
                 "allow_reverse": "true",
                 "max_speed": "0.5", "max_angular_speed": "1.5"}

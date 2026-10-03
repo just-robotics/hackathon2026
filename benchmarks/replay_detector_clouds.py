@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys
 import numpy as np
 sys.path.insert(0, str(ROOT/'src/hsl_perception'))
-from hsl_perception.core import Detector, StaticBackground
-from hsl_perception.segmentation import RobotModel
+from hsl_perception.geometry import StaticBackground
+from native_detector import NativeReplay
 
 
 def main():
@@ -27,6 +27,8 @@ def main():
     parser.add_argument('--line-ratio', type=float, default=.35)
     parser.add_argument('--arc-span', type=float, default=90.)
     parser.add_argument('--rectangle-ratio', type=float, default=.70)
+    parser.add_argument('--inlier-fraction', type=float, default=.95)
+    parser.add_argument('--min-extent', type=float, default=0.)
     args = parser.parse_args()
     if not math.isfinite(args.height) or not 0.08 <= args.height <= 0.60:
         parser.error("height must be within [0.08, 0.60]")
@@ -49,7 +51,7 @@ def main():
         grid = dict(grid, origin_x=grid['origin'][0], origin_y=grid['origin'][1])
     static = StaticBackground(grid['resolution'], [grid['origin_x'],grid['origin_y']],
                               grid['width'],grid['height'],grid['data'])
-    detectors = [Detector(RobotModel(max_height=args.height, max_gap_share=args.max_gap_share, line_ratio=args.line_ratio), strong_arc_min_span_deg=args.arc_span, allow_merged_strong=False, strong_min_inlier_fraction=.95, strong_rectangle_ratio=args.rectangle_ratio) for _ in range(2)]
+    detectors = [NativeReplay("simulation", max_height=args.height, max_gap_share=args.max_gap_share, line_ratio=args.line_ratio, arc_span=args.arc_span, inlier_fraction=args.inlier_fraction, rectangle_ratio=args.rectangle_ratio, min_extent=args.min_extent) for _ in range(2)]
     clouds = data['cloud_samples'] if not full_clouds else [
         dict(observer=s['observer'], stamp_sim_s=s['stamp'], own_xy=s['own'],
              sensor=s['sensor'], peer_truth_xy=s['peer'], points=s['points'])
@@ -59,11 +61,15 @@ def main():
         track, diagnostic = detectors[int(sample['observer']=='peer_scan')].step(
             sample['points'], sample.get('sensor', [*sample['own_xy'], .374]), static, sample['stamp_sim_s'])
         detected = track is not None and abs(track.last_update-sample['stamp_sim_s']) < 1e-6
-        outputs.append(None if not detected else (track.mean[0],track.mean[1],track.hits))
+        outputs.append((None if not detected else (track.mean[0],track.mean[1],track.hits),diagnostic))
     rows=[]
     counts=collections.Counter()
-    for sample, output in zip(clouds, outputs):
-        row = dict(observer=sample['observer'], stamp_sim_s=sample['stamp_sim_s'])
+    for sample, (output,diagnostic) in zip(clouds, outputs):
+        points=np.asarray(sample['points']).reshape(-1,3)
+        near=points[np.linalg.norm(points[:,:2]-sample['peer_truth_xy'],axis=1)<.23]
+        row = dict(observer=sample['observer'], stamp_sim_s=sample['stamp_sim_s'],
+                   diagnostics=diagnostic,peer_region_points=len(near),
+                   peer_region_rim_points=int(np.sum((near[:,2]>=.02)&(near[:,2]<=.115))))
         if output is None:
             row['label']='no_detection'
         else:

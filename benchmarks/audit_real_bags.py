@@ -16,9 +16,9 @@ import numpy as np
 import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src/hsl_perception'))
-from hsl_perception.core import Detector, StaticBackground
-from hsl_perception.segmentation import RobotModel, cluster_xy, split_clusters
-from hsl_perception.profiles import real_detector
+from hsl_perception.geometry import StaticBackground
+from hsl_perception.geometry import cluster_xy, split_clusters
+from native_detector import NativeReplay
 
 
 def stamp(msg):
@@ -45,14 +45,15 @@ def messages(path, topics):
         yield topic, deserialize_message(data, classes[topic]), time*1e-9
 
 
-def xyz(msg):
+def xyz(msg, point_limit=6000):
     fields={f.name:f for f in msg.fields}
     if any(name not in fields or fields[name].datatype!=7 for name in ('x','y','z')):
         raise ValueError('Expected FLOAT32 XYZ fields')
     arrays=[np.ndarray((msg.height,msg.width), dtype=('>' if msg.is_bigendian else '<')+'f4',
                        buffer=msg.data, offset=fields[name].offset,
                        strides=(msg.row_step,msg.point_step)).ravel() for name in ('x','y','z')]
-    return np.column_stack(arrays).astype(float)[::max(1,msg.width*msg.height//6000)]
+    stride=max(1,msg.width*msg.height//point_limit) if point_limit else 1
+    return np.column_stack(arrays).astype(float)[::stride]
 
 
 def transform(points, tf):
@@ -73,7 +74,7 @@ def intervals(rows, predicate):
     return result
 
 
-def audit(session, output, cloud_period, filter_lidar=False):
+def audit(session, output, cloud_period, filter_lidar=False, cloud_points=6000):
     import rclpy
     from rclpy.duration import Duration
     from rclpy.time import Time
@@ -130,9 +131,9 @@ def audit(session, output, cloud_period, filter_lidar=False):
             report['active_measured_speed_mps']=float(np.sum(.5*(abs(b[1:,4])+abs(b[:-1,4]))[valid]*dt[valid])/np.sum(dt[valid])) if valid.any() else None
             report['speed_time_coverage_s']=float(dt[valid].sum())
     samples=[]; chunks=[]; tf_fail=0; last=-math.inf
-    detector=Detector(RobotModel(max_height=.46))
-    real=real_detector()
-    strict=Detector(RobotModel(max_height=.46,max_gap_share=.12,line_ratio=.35),strong_arc_min_span_deg=90,allow_merged_strong=False,strong_min_inlier_fraction=.95)
+    detector=NativeReplay("default", max_height=.46)
+    real=NativeReplay("real")
+    strict=NativeReplay("simulation", max_height=.46, rectangle_ratio=0.)
     for file in files:
         for _,msg,time in messages(file,['/livox/lidar']):
             t=stamp(msg.header.stamp)
@@ -145,7 +146,7 @@ def audit(session, output, cloud_period, filter_lidar=False):
                 from hsl_real.lidar_filter import filter_cloud
                 from hsl_real.lidar_filter_core import DEFAULT_PARAMETERS
                 msg, _ = filter_cloud(msg, DEFAULT_PARAMETERS)
-            points=transform(xyz(msg),trans)
+            points=transform(xyz(msg, cloud_points),trans)
             sensor=np.array([trans.transform.translation.x,trans.transform.translation.y,trans.transform.translation.z])
             points=points[np.isfinite(points).all(axis=1)&(np.linalg.norm(points[:,:2]-sensor[:2],axis=1)>=.25)]
             tracks={}
@@ -162,7 +163,7 @@ def audit(session, output, cloud_period, filter_lidar=False):
                                  'height':np.percentile(c[:,2],[5,50,95,100]).tolist()})
             samples.append({'t':t,'sensor':sensor.tolist(),'tracks':tracks,'clusters':clusters,'chunk':len(chunks)})
             chunks.append(points.astype(np.float32))
-    report['replay']={'lidar_filter_applied':filter_lidar,'period_s':cloud_period,'tf_missing_scans':tf_fail,'samples':samples,
+    report['replay']={'lidar_filter_applied':filter_lidar,'period_s':cloud_period,'point_limit':cloud_points,'tf_missing_scans':tf_fail,'samples':samples,
                        'scope':'subsampled at recorded TF; not full-rate tracker validation'}
     output.mkdir(parents=True,exist_ok=True)
     if chunks:
@@ -174,13 +175,15 @@ def audit(session, output, cloud_period, filter_lidar=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--output',type=Path,required=True);p.add_argument('--period',type=float,default=.5);p.add_argument('--session',action='append')
     p.add_argument('--filter-lidar',action='store_true',help='apply current real self-return filter before reconstruction')
+    p.add_argument('--cloud-points',type=int,default=6000,help='XYZ subsampling target; 0 keeps every measured point')
     args=p.parse_args()
+    if args.cloud_points<0:p.error('--cloud-points must be nonnegative')
     import rclpy
     rclpy.init()
     reports=[]
     for session in sorted(args.root.iterdir()):
         if not session.is_dir() or (args.session and session.name not in args.session):continue
-        try:report=audit(session,args.output,args.period,args.filter_lidar)
+        try:report=audit(session,args.output,args.period,args.filter_lidar,args.cloud_points)
         except Exception as e:report={'session':session.name,'error':str(e)}
         reports.append(report);print(json.dumps(report),flush=True)
     args.output.mkdir(parents=True,exist_ok=True)

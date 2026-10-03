@@ -1,5 +1,6 @@
 """Small PointCloud2 XYZ reader/writer and rigid transform helper."""
 
+from array import array
 import struct
 from math import isfinite
 
@@ -53,5 +54,5 @@ def make_cloud(header, points):
     msg.point_step = 12
     msg.row_step = 12 * len(points)
     msg.is_dense = True
-    msg.data = b"".join(struct.pack("<fff", *point) for point in points)
+    msg.data = array("B", b"".join(struct.pack("<fff", *point) for point in points))
     return msg

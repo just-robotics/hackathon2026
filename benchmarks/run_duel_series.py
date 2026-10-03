@@ -233,10 +233,10 @@ def runtime_snapshot(env, config):
                               for name, cid, image in (line.split() for line in images.splitlines())}}
     paths = []
     for package in ("hsl_planning", "hsl_decision", "hsl_sim_adapter", "hsl_debug_control",
-                    "hsl_interfaces", "hsl_nav2_control", "hsl_perception", "sim_kobuki", "jr_map"):
+                    "hsl_interfaces", "hsl_nav2_control", "hsl_lidar_filter", "hsl_perception_cpp", "hsl_perception", "sim_kobuki", "jr_map"):
         paths.extend(path for path in (ROOT / "src" / package).rglob("*")
                      if path.is_file() and path.suffix in
-                     (".py", ".yaml", ".cpp", ".hpp", ".msg", ".world", ".xacro"))
+                     (".py", ".yaml", ".cpp", ".hpp", ".msg", ".world", ".xacro", ".xml"))
     paths = sorted(paths)
     expected = {"/autoware/" + str(path.relative_to(ROOT)):
                 hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
@@ -254,6 +254,13 @@ def runtime_snapshot(env, config):
         "/autoware/simulation_obstacles.yaml"], env, timeout=10).split()[0]
     if mounted_hash != obstacle_hash:
         raise RuntimeError("simulation obstacle configuration differs from mounted file")
+    planning_file = ROOT / "config/planning.yaml"
+    planning_hash = hashlib.sha256(planning_file.read_bytes()).hexdigest()
+    for container in ("docker-hsl-planning-1", "docker-hsl-opponent-planning-1"):
+        if command(["docker", "exec", container, "sha256sum", "/autoware/planning.yaml"], env, timeout=10).split()[0] != planning_hash:
+            raise RuntimeError("planning configuration differs from mounted file")
+    runtime["planning_config"] = __import__('yaml').safe_load(planning_file.read_text())
+    runtime["planning_config_sha256"] = planning_hash
     runtime["simulation_obstacles"] = __import__('yaml').safe_load(obstacle_file.read_text())
     runtime["simulation_obstacles_sha256"] = obstacle_hash
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
@@ -310,6 +317,18 @@ def finish_traces(traces):
                 process.wait()
         finally:
             output.close()
+
+
+def start_detector_capture(series_dir, index, env):
+    command(["docker", "cp", str(ROOT / "benchmarks/capture_detector_clouds.py"),
+             "docker-hsl-adapter-1:/tmp/hsl_capture_detector.py"], env, timeout=15)
+    destination = series_dir / f"{index:02d}-detector-clouds.jsonl"
+    output = destination.open("w")
+    process = subprocess.Popen(["docker", "exec", container_name("docker-hsl-adapter-1", env),
+        "bash", "-lc", "source /autoware/install/setup.bash && python3 /tmp/hsl_capture_detector.py "
+        "--stream --stop-after-match --wall-seconds 1200"], cwd=ROOT, env=env,
+        stdout=output, stderr=subprocess.PIPE)
+    return process, output, destination
 
 
 def start_obstacle_trial(series_dir, index, run_id, config, env, record_scans=False, obstacle_height=0.8):
@@ -446,7 +465,7 @@ def main():
     parser.add_argument("--obstacle-height", type=float, default=0.8,
                         help="unmapped fixture height in metres, at least 0.15; requires unknown-obstacle")
     parser.add_argument("--record-detector-scans", action="store_true",
-                        help="save clouds of both observers for offline detector replay; requires unknown-obstacle")
+                        help="save clouds of both observers for offline detector replay; requires isolation")
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
@@ -459,8 +478,8 @@ def main():
         parser.error("obstacle-height must be finite and at least 0.15 m")
     if args.obstacle_height != 0.8 and not args.unknown_obstacle:
         parser.error("obstacle-height requires unknown-obstacle")
-    if args.record_detector_scans and not args.unknown_obstacle:
-        parser.error("record-detector-scans requires unknown-obstacle")
+    if args.record_detector_scans and not args.isolated_project:
+        parser.error("record-detector-scans requires an isolated evaluation project")
     if args.unknown_obstacle and not args.isolated_project:
         parser.error("unknown-obstacle requires an isolated evaluation project")
     config = load_config(args.config)
@@ -534,6 +553,8 @@ def main():
             record["runtime_snapshot"] = f"{index:02d}-runtime.json"
             if args.trace:
                 traces = start_traces(series_dir, index, env)
+            if args.record_detector_scans and not args.unknown_obstacle:
+                traces.append(start_detector_capture(series_dir, index, env))
             if args.probe_status:
                 probes = start_probes(series_dir, index, args.probe_status, env)
             if args.audit_start:

@@ -20,6 +20,8 @@
 #include "nav2_controller/plugins/simple_goal_checker.hpp"
 #include "nav2_costmap_2d/footprint_collision_checker.hpp"
 #include "nav2_util/node_thread.hpp"
+#include "nav2_util/line_iterator.hpp"
+#include "nav2_costmap_2d/costmap_layer.hpp"
 #include "nav2_util/node_utils.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "hsl_interfaces/msg/planning_intent.hpp"
@@ -92,6 +94,7 @@ public:
       prefix.empty() ? "base_footprint" : prefix.substr(1) + "/base_footprint");
     // Keep live LiDAR obstacles in Nav2 obstacle_layer so ray/footprint
     // clearing can remove them. The static layer reads the original /map.
+    overrides.emplace_back("obstacle_layer.ignored_topic", prefix + "/navigation/ignored_obstacles");
     overrides.emplace_back("obstacle_layer.cloud.topic", prefix + "/navigation/nav2_scan");
     rclcpp::NodeOptions costmap_options;
     costmap_options.use_global_arguments(false).parameter_overrides(overrides).arguments(
@@ -221,10 +224,64 @@ private:
       json << ",\"rejected_x_m\":" << rejected_x_
         << ",\"rejected_y_m\":" << rejected_y_
         << ",\"rejected_cost\":" << rejected_cost_
-        << ",\"rejected_trajectory_index\":" << rejected_index_;
+        << ",\"rejected_trajectory_index\":" << rejected_index_
+        << ",\"rejected_cells\":" << rejected_cells_;
     }
     json << "}";
     std_msgs::msg::String diag; diag.data = json.str(); diag_pub_->publish(diag);
+  }
+
+  // Diagnostic only: use the same rasterized polygon edges as Nav2's checker.
+  // Record layer costs at each blocked cell without changing collision decisions.
+  std::string rejected_cells(double x, double y, double yaw,
+    const nav2_costmap_2d::Footprint & footprint)
+  {
+    auto * grid = costmap_->getCostmap();
+    std::ostringstream json;
+    json << "[";
+    std::vector<unsigned int> recorded;
+    for (size_t i = 0; i < footprint.size() && recorded.size() < 8; ++i) {
+      const auto & a = footprint[i];
+      const auto & b = footprint[(i + 1) % footprint.size()];
+      unsigned int ax, ay, bx, by;
+      if (!grid->worldToMap(x + a.x * std::cos(yaw) - a.y * std::sin(yaw),
+          y + a.x * std::sin(yaw) + a.y * std::cos(yaw), ax, ay) ||
+        !grid->worldToMap(x + b.x * std::cos(yaw) - b.y * std::sin(yaw),
+          y + b.x * std::sin(yaw) + b.y * std::cos(yaw), bx, by)) {continue;}
+      for (nav2_util::LineIterator line(ax, ay, bx, by);
+        line.isValid() && recorded.size() < 8; line.advance())
+      {
+        const unsigned int mx = line.getX(), my = line.getY();
+        const auto index = grid->getIndex(mx, my);
+        if (grid->getCost(mx, my) < nav2_costmap_2d::LETHAL_OBSTACLE ||
+          std::find(recorded.begin(), recorded.end(), index) != recorded.end()) {continue;}
+        double wx, wy;
+        grid->mapToWorld(mx, my, wx, wy);
+        if (!recorded.empty()) {json << ",";}
+        recorded.push_back(index);
+        json << "{\"x\":" << wx << ",\"y\":" << wy
+          << ",\"master\":" << static_cast<int>(grid->getCost(mx, my))
+          << ",\"layers\":{";
+        bool first = true;
+        for (const auto & layer : *costmap_->getLayeredCostmap()->getPlugins()) {
+          auto * layer_grid = dynamic_cast<nav2_costmap_2d::CostmapLayer *>(layer.get());
+          if (!layer_grid) {continue;}
+          // Do not wait for a layer while holding the master grid mutex.
+          std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> guard(
+            *layer_grid->getMutex(), std::try_to_lock);
+          if (!first) {json << ",";}
+          first = false;
+          json << "\"" << layer->getName() << "\":";
+          unsigned int lx, ly;
+          if (guard.owns_lock() && layer_grid->worldToMap(wx, wy, lx, ly)) {
+            json << static_cast<int>(layer_grid->getCost(lx, ly));
+          } else {json << "null";}
+        }
+        json << "}}";
+      }
+    }
+    json << "]";
+    return json.str();
   }
 
   bool swept_safe(const nav_msgs::msg::Path & path)
@@ -252,6 +309,7 @@ private:
           rejected_y_ = a.position.y + fraction * (b.position.y - a.position.y);
           rejected_cost_ = cost;
           rejected_index_ = i;
+          rejected_cells_ = rejected_cells(rejected_x_, rejected_y_, yaw + fraction * dyaw, footprint);
           return false;
         }
       }
@@ -314,7 +372,13 @@ private:
         point.pose.orientation = tf2::toMsg(quaternion);
         path.poses.push_back(point);
       }
-      if (!swept_safe(path)) {publish_stop("NO_LOCAL_PATH", "swept_collision"); return;}
+      if (!swept_safe(path)) {
+        // MPPI has shifted its warm-start sequence as if its command were
+        // executed. We publish zero instead, so discard that speculative
+        // sequence before solving again from the measured pose/velocity.
+        controller_.reset();
+        publish_stop("NO_LOCAL_PATH", "swept_collision"); return;
+      }
       nav_msgs::msg::Path prefix;
       prefix.header = path.header; prefix.poses.push_back(path.poses.front());
       double length = 0.0;
@@ -354,6 +418,7 @@ private:
   double rejected_x_{0.0}, rejected_y_{0.0}, rejected_cost_{0.0};
   size_t rejected_index_{0};
   std::string role_, global_status_;
+  std::string rejected_cells_{"[]"};
   bool active_{false};
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr path_pub_;

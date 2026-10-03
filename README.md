@@ -151,8 +151,9 @@ helm enter_real       # терминал
 `наблюдения → детектор/decision manager → A* → Nav2 C++ MPPI → motion_gate → cmd_vel`
 
 MPPI — единственный контроллер движения. MPC и Python MPPI удалены;
-прежние варианты доступны в истории Git. Детектор — Python/NumPy-адаптация
-сегментации и Kalman-трекера из `feature/detector`. В симуляции точная поза
+прежние варианты доступны в истории Git. Детектор — C++/Eigen-адаптация
+сегментации и Kalman-трекера из `feature/detector`. Python-детектор и oracle удалены; `hsl_perception` содержит только общую
+геометрию препятствий, декодирование облаков и константы конфигурации. В симуляции точная поза
 используется только для собственного робота; ground truth соперника доступен
 referee и оценке, а навигация использует LiDAR-трек.
 
@@ -235,3 +236,11 @@ python3 benchmarks/run_duel_series.py --runs 3 --start-seed 0 --active-s 90 --tr
 | [NAV2_MPPI_ADAPTATION.md](docs/NAV2_MPPI_ADAPTATION.md) | Границы интеграции штатного MPPI |
 | [OFFLINE_MAPPING.md](docs/OFFLINE_MAPPING.md) | Получение статической карты из bag |
 | [config/maps/README.md](config/maps/README.md) | Карты и их системы координат |
+
+Параметры A*/запаса контура и мягких штрафов MPPI вынесены в
+[`config/planning.yaml`](config/planning.yaml), общие для sim/real. После
+редактирования перезапусти стек; пересборка для YAML не нужна. Фильтр LiDAR
+и детектор в основном запуске — C++ (`hsl_lidar_filter`, `hsl_perception_cpp`).
+Текущие проверки/неустранённые отказы — в `docs/PROJECT_STATUS.md`.
+`local.MPPI.time_steps` задаёт длину прогноза: по умолчанию60шагов по0,05с
+(3с). Проверка движущегося контура охватывает весь выбранный прогноз.

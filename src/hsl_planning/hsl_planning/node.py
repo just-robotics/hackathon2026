@@ -12,13 +12,14 @@ from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Bool, Float32, String
 
 from .obstacle_memory import ObstacleMemory
 from .obstacle_filter import SmallBoxFilter
 from hsl_sim_adapter.cloud import make_cloud
+from hsl_perception.cloud import cloud_xyz
 
 from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_target, reachable_frontier_route,
                    reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
@@ -81,7 +82,7 @@ class TrajectoryPlanner(Node):
     def __init__(self):
         super().__init__("trajectory_planner")
         self.declare_parameter("planning_frame", "map")
-        self.declare_parameter("resolution", 0.15)
+        self.declare_parameter("resolution", 0.10)
         self.declare_parameter("robot_radius", 0.23)
         self.declare_parameter("pose_timeout", 1.2)
         self.declare_parameter("scan_timeout", 1.8)
@@ -95,7 +96,7 @@ class TrajectoryPlanner(Node):
         self.role = self.get_parameter("role").value
         if self.role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
-        self.local_safety_margin = 0.0  # robot_radius already includes .052 m clearance
+        self.local_safety_margin = float(self.declare_parameter("local_safety_margin", 0.0).value)
         self.pose_timeout = self.get_parameter("pose_timeout").value
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
@@ -128,8 +129,10 @@ class TrajectoryPlanner(Node):
         self.arena_bounds = (tuple(configured_bounds)
                              if configured_bounds != default_arena_bounds else None)
         self.scan_points = []
-        self.obstacle_memory = ObstacleMemory()
-        self.small_box_filter = SmallBoxFilter()
+        self.obstacle_memory = ObstacleMemory(lifetime=float(
+            self.declare_parameter("obstacle_memory_lifetime", 8.0).value))
+        self.small_box_filter = SmallBoxFilter(float(
+            self.declare_parameter("small_box_confirmation_window", 1.2).value))
         self.static_grid = None
         self.dirty = True
         self.global_path = []
@@ -147,14 +150,18 @@ class TrajectoryPlanner(Node):
         self.recovery_attempt = 0
         self.recovery_goal = None
         self.recovery_origin = None
-        self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
-        self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
-        self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 10)
+        # These are current states, not an event log. Avoid spending a second
+        # draining old poses/intents after a costly planning/scan callback.
+        latest_sensor = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.create_subscription(Odometry, "navigation/self", self.on_own, 1)
+        self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 1)
+        self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 1)
         self.create_subscription(PointCloud2, "navigation/map_points", self.on_map,
                                  qos_profile_sensor_data)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
-                                 qos_profile_sensor_data)
+                                 latest_sensor)
         grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.ignored_scan_pub = self.create_publisher(PointCloud2, "navigation/ignored_obstacles", qos_profile_sensor_data)
         self.obstacle_scan_pub = self.create_publisher(PointCloud2, "navigation/obstacle_scan", qos_profile_sensor_data)
         self.obstacle_filter_diag_pub = self.create_publisher(String, "navigation/obstacle_filter_diagnostics", 10)
         self.obstacle_grid_pub = self.create_publisher(OccupancyGrid, "navigation/obstacle_grid", grid_qos)
@@ -209,13 +216,14 @@ class TrajectoryPlanner(Node):
 
     def on_scan(self, msg):
         if msg.header.frame_id == self.frame:
-            raw = read_xyz(msg, 5000)
+            raw = cloud_xyz(msg)
             scan_stamp = seconds(msg.header.stamp)
             protected = ([[self.opponent[0].x, self.opponent[0].y]]
                 if self.opponent and 0 <= scan_stamp-self.opponent[1] <= .3 else [])
             points, diagnostic = self.small_box_filter.filter(raw, scan_stamp, protected)
             self.scan_points = points.tolist()
             self.obstacle_memory.forget(self.small_box_filter.ignored)
+            self.ignored_scan_pub.publish(make_cloud(msg.header, self.small_box_filter.ignored.tolist()))
             self.obstacle_scan_pub.publish(make_cloud(msg.header, self.scan_points))
             self.obstacle_filter_diag_pub.publish(String(data=json.dumps(dict(
                 stamp_s=seconds(msg.header.stamp), **diagnostic))))
