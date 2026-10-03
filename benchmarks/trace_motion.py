@@ -168,6 +168,7 @@ def main():
             "mppi_rejected_y_m": diagnostics.get("rejected_y_m"),
             "mppi_rejected_cost": diagnostics.get("rejected_cost"),
             "mppi_rejected_trajectory_index": diagnostics.get("rejected_trajectory_index"),
+            "mppi_rejected_cells": diagnostics.get("rejected_cells"),
             "planner_status": (status[0].data if status and
                                t - status[2] <= 1.0 else None),
             "behavior": (int(intent[0].behavior) if intent and

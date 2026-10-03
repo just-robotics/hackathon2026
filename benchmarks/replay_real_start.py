@@ -80,9 +80,9 @@ def main():
     subscriptions.append(node.create_subscription(Costmap,'/native_mppi/costmap_raw',costmap_sample,10))
     environment=os.environ.copy()
     environment['PYTHONPATH']=':'.join(str(ROOT/'src'/p) for p in ('hsl_real','hsl_planning','hsl_perception','hsl_sim_adapter'))+':'+environment.get('PYTHONPATH','')
-    commands=[['python3','-c','from hsl_real.lidar_filter import main; main()'],
+    commands=[[str(Path(get_package_prefix('hsl_lidar_filter'))/'lib/hsl_lidar_filter/real_lidar_filter')],
         ['python3','-c','from hsl_real.observations import main; main()','--ros-args','-p','lidar_topic:=/sensing/lidar/points_filtered'],
-        ['python3','-c','from hsl_perception.node import main; main()'],
+        [str(Path(get_package_prefix('hsl_perception_cpp'))/'lib/hsl_perception_cpp/opponent_detector')],
         ['python3','-c','from hsl_planning.node import main; main()','--ros-args','-p','role:=explorer'],
         [str(Path(get_package_prefix('hsl_nav2_control'))/'lib/hsl_nav2_control/native_mppi'),'--ros-args','--params-file',str(ROOT/'src/hsl_nav2_control/config/native_mppi.yaml'),'-p','use_sim_time:=false',
          '-p','costmap.obstacle_layer.cloud.marking:=true']]

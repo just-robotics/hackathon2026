@@ -1,0 +1,5 @@
+<library path="semantic_obstacle_layer">
+  <class type="hsl_nav2_control::SemanticObstacleLayer" base_class_type="nav2_costmap_2d::Layer">
+    <description>Nav2 ObstacleLayer with explicit removal of sensor-classified small boxes.</description>
+  </class>
+</library>

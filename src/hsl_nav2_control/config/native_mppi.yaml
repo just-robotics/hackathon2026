@@ -106,7 +106,7 @@
         map_subscribe_transient_local: true
         subscribe_to_updates: true
       obstacle_layer:
-        plugin: nav2_costmap_2d::ObstacleLayer
+        plugin: hsl_nav2_control::SemanticObstacleLayer
         observation_sources: cloud
         cloud:
           data_type: PointCloud2

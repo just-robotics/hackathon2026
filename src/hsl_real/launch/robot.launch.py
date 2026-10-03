@@ -10,12 +10,14 @@ from ament_index_python.packages import get_package_share_directory
 from hsl_real.config import load_config, start_polygon
 from hsl_real.hardware import hardware_nodes
 from hsl_perception.profiles import REAL_PARAMETERS
+from hsl_planning.configuration import load_planning
 
 
 def nodes(context):
     cfg, mission = load_config(LaunchConfiguration('config_file').perform(context))
     drivers = LaunchConfiguration('drivers_enabled').perform(context).lower() == 'true'
     role = mission['robot']['role']
+    tuning = load_planning(cfg.get('planning_file'))
     motion = mission['motion']
     reverse = role == 'explorer' and motion['allow_reverse']
     speed, angular = motion['max_speed'], motion['max_angular_speed']
@@ -25,18 +27,18 @@ def nodes(context):
                     parameters=[{'use_sim_time': False}] + (parameters or []), **kwargs)
         processes.append(node)
     processes.extend(hardware_nodes(cfg,mission,drivers=drivers))
-    add('hsl_real','real_lidar_filter', parameters=(
+    add('hsl_lidar_filter','real_lidar_filter', parameters=(
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
     add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization']=='amcl'}])
-    add('hsl_perception','opponent_detector', parameters=[dict(REAL_PARAMETERS,
+    add('hsl_perception_cpp','opponent_detector', parameters=[dict(REAL_PARAMETERS,
         opponent_max_height=float(mission['perception']['opponent_max_height']),
         sensor_frame='livox')])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
-    add('hsl_planning','trajectory_planner',parameters=[{'role':role,'max_speed':speed,
+    add('hsl_planning','trajectory_planner',parameters=[tuning['global'], {'role':role,'max_speed':speed,
         'random_seed':mission['match']['seed'],'arena_bounds':cfg['arena_bounds'],'require_match_active':True}])
     native = str(Path(get_package_share_directory('hsl_nav2_control'))/'config/native_mppi.yaml')
-    add('hsl_nav2_control','native_mppi',parameters=[native, {'use_sim_time':False,
+    add('hsl_nav2_control','native_mppi',parameters=[native, tuning['local'], {'use_sim_time':False,
         'role':role,'random_seed':mission['match']['seed'], 'MPPI.vx_max':speed,
         'MPPI.vx_min':-speed if reverse else 0., 'MPPI.wz_max':angular,
         'MPPI.PathAngleCritic.forward_preference':not reverse,
@@ -69,7 +71,7 @@ def nodes(context):
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/scan','/navigation/obstacle_scan','/navigation/obstacle_grid','/navigation/obstacle_filter_diagnostics','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
+            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_scan','/navigation/ignored_obstacles','/navigation/obstacle_grid','/navigation/obstacle_filter_diagnostics','/navigation/opponent','/navigation/opponent_visible','/navigation/detector_cycle_ms','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',

@@ -32,6 +32,7 @@ def main():
     ap.add_argument('--origin',type=float,nargs=2,default=[-.468,-.582])
     ap.add_argument('--active-s',type=float,default=45.)
     args=ap.parse_args()
+    args.output.parent.mkdir(parents=True,exist_ok=True)
     rclpy.init();n=Node('push_box_trial',parameter_overrides=[Parameter('use_sim_time',value=True)])
     qos=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
     state={};diag=[];mppi_diag=[];contacts=[];samples=[]

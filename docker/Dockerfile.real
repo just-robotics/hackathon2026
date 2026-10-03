@@ -24,10 +24,12 @@ COPY src/hsl_interfaces /solution/src/hsl_interfaces
 COPY src/hsl_decision /solution/src/hsl_decision
 COPY src/hsl_planning /solution/src/hsl_planning
 COPY src/hsl_perception /solution/src/hsl_perception
+COPY src/hsl_perception_cpp /solution/src/hsl_perception_cpp
 COPY src/hsl_nav2_control /solution/src/hsl_nav2_control
 COPY src/hsl_debug_control /solution/src/hsl_debug_control
 # Shared cloud/grid utilities are imported by real_observations; no simulator nodes run.
 COPY src/hsl_sim_adapter /solution/src/hsl_sim_adapter
+COPY src/hsl_lidar_filter /solution/src/hsl_lidar_filter
 COPY src/hsl_real /solution/src/hsl_real
 WORKDIR /solution
 RUN source /workspace/install/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \

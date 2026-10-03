@@ -14,3 +14,5 @@ map_file: maps/maze_bag_v1.yaml
 arena_bounds: [-0.35, -0.50, 3.35, 4.30]
 ros_domain_id: 26
 rviz: false
+
+planning_file: planning.yaml

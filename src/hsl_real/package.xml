@@ -9,7 +9,7 @@
   <exec_depend>nav_msgs</exec_depend><exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend><exec_depend>hsl_sim_adapter</exec_depend>
   <exec_depend>hsl_decision</exec_depend><exec_depend>hsl_planning</exec_depend>
-  <exec_depend>hsl_nav2_control</exec_depend><exec_depend>hsl_perception</exec_depend>
+  <exec_depend>hsl_lidar_filter</exec_depend><exec_depend>hsl_nav2_control</exec_depend><exec_depend>hsl_perception</exec_depend><exec_depend>hsl_perception_cpp</exec_depend>
   <exec_depend>hsl_debug_control</exec_depend><exec_depend>python3-yaml</exec_depend>
   <exec_depend>nav2_amcl</exec_depend><exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend><exec_depend>pointcloud_to_laserscan</exec_depend>

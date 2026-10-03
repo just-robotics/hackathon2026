@@ -9,7 +9,7 @@ def load_config(path):
     config = yaml.safe_load(path.read_text())
     required = {'mission_file', 'kobuki_port', 'livox_config', 'localization', 'odom_topic',
                 'lidar_topic', 'lidar_mount', 'map_file', 'arena_bounds', 'ros_domain_id', 'rviz'}
-    optional = {'localization_file', 'lidar_filter_file'}
+    optional = {'localization_file', 'lidar_filter_file', 'planning_file'}
     if not isinstance(config, dict) or not required <= set(config) <= required | optional:
         raise ValueError('real.yaml fields must be ' + str(sorted(required)))
     if config['localization'] not in ('odometry', 'external_tf', 'amcl'):

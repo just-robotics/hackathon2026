@@ -59,6 +59,6 @@ for namespace in ('', 'opponent'):
     observations.nodes(context)
     detectors = [n for n in observed if n['executable'] == 'opponent_detector']
     assert len(detectors) == 1 and detectors[0]['namespace'] == namespace
-    assert detectors[0]['package'] == 'hsl_perception'
-    assert detectors[0]['parameters'] == [{'use_sim_time': True, 'opponent_max_height': 0.49, 'robot.max_gap_share': 0.12, 'robot.line_ratio': 0.35, 'strong_arc_min_span_deg': 90.0, 'allow_merged_strong': False, 'strong_min_inlier_fraction': 0.95}]
+    assert detectors[0]['package'] == 'hsl_perception_cpp'
+    assert detectors[0]['parameters'] == [{'use_sim_time': True, 'opponent_max_height': 0.49, 'robot.max_gap_share': 0.12, 'robot.line_ratio': 0.35, 'strong_arc_min_span_deg': 90.0, 'allow_merged_strong': False, 'strong_min_inlier_fraction': 0.95, 'strong_rectangle_ratio': 0.70}]
 print(json.dumps(dict(observation_launch_shape_detector=True, passed=True)))

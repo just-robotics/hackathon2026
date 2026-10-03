@@ -72,7 +72,7 @@ def test_known_box_partial_view_can_continue_but_does_not_initialize():
     f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
     kept,_=f.filter(partial,0.)
     assert len(kept)==len(partial)
-    f.filter(full,.1);kept,diag=f.filter(partial,.2)
+    f.filter(full,.1);f.filter(full,.2);f.filter(full,.3);kept,diag=f.filter(partial,.4)
     assert len(kept)==0
     kept,_=f.filter(partial,9.)
     assert len(kept)==len(partial)
@@ -81,7 +81,7 @@ def test_known_box_partial_view_can_continue_but_does_not_initialize():
 def test_noisy_box_faces_are_ignored_without_dropping_round_body():
     rng=np.random.default_rng(3)
     noisy=faces(.15,.15,.4,np.pi/4)
-    noisy[:,:2]+=rng.normal(0,.018,noisy[:,:2].shape)
+    noisy[:,:2]+=rng.normal(0,.012,noisy[:,:2].shape)
     assert classify_cluster(noisy)[0]
 
 
@@ -90,17 +90,120 @@ def test_sparse_contact_returns_maintain_box_but_cannot_initialize():
     f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
     sparse=points[[10]]
     assert len(f.filter(sparse,0)[0])==1
-    f.filter(points,.1)
-    assert len(f.filter(sparse,.2)[0])==0
+    f.filter(points,.1);f.filter(points,.2);f.filter(points,.3)
+    assert len(f.filter(sparse,.4)[0])==0
     assert len(f.filter(sparse,9)[0])==1
 
 
 def test_current_tracked_robot_is_preserved_even_if_shape_or_cache_says_box():
     cloud=faces(.15,.15,.4)
     f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
-    f.filter(cloud,0.)
-    kept,diag=f.filter(cloud,.1,protected_centers=[[1,1]])
+    f.filter(cloud,0.);f.filter(cloud,.1);f.filter(cloud,.2)
+    kept,diag=f.filter(cloud,.3,protected_centers=[[1,1]])
     assert len(kept)==len(cloud) and diag['ignored_points']==0
     assert diag['clusters'][0]['reason']=='tracked_robot'
-    # An unrelated observed robot does not prevent this box being ignored.
-    assert len(f.filter(cloud,.2,protected_centers=[[2,2]])[0])==0
+    # The conflicting box identity was invalidated. An unrelated robot does
+    # not prevent a fresh three-view confirmation of this actual box.
+    assert len(f.filter(cloud,.4,protected_centers=[[2,2]])[0])==len(cloud)
+    f.filter(cloud,.5,protected_centers=[[2,2]])
+    assert len(f.filter(cloud,.6,protected_centers=[[2,2]])[0])==0
+
+
+@pytest.mark.parametrize('yaw',[0,.4,np.pi/4,1.2])
+def test_long_flat_fragment_cannot_become_small_square_by_rotating_fit(yaw):
+    x=np.linspace(-.115,.115,60)
+    xy=np.column_stack((x,np.zeros_like(x)))
+    rotation=np.array([[np.cos(yaw),-np.sin(yaw)],[np.sin(yaw),np.cos(yaw)]])
+    xy=xy@rotation.T+[1,1]
+    points=np.concatenate([np.column_stack((xy,np.full(len(xy),z))) for z in np.linspace(.08,.40,8)])
+    assert not classify_cluster(points)[0]
+
+
+def test_blurred_faces_remain_obstacle_until_shape_is_confident():
+    points=faces(.15,.15,.4,np.pi/4)
+    points[:,:2]+=np.random.default_rng(3).normal(0,.018,points[:,:2].shape)
+    assert not classify_cluster(points)[0]
+
+
+def test_transient_or_repeated_same_scan_does_not_establish_box_identity():
+    cloud=faces(.15,.15,.4)
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    assert len(f.filter(cloud,0.)[0])==len(cloud)
+    assert len(f.filter(cloud,0.)[0])==len(cloud)
+    assert len(f.filter(cloud,.1)[0])==len(cloud)
+    assert len(f.filter(cloud,.2)[0])==0
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    f.filter(cloud,0.)
+    assert len(f.filter(cloud,1.)[0])==len(cloud)
+
+
+def test_robot_observation_invalidates_cached_box_before_track_expires():
+    cloud=faces(.15,.15,.4)
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    for t in [0.,.1,.2]:f.filter(cloud,t)
+    assert f.boxes
+    f.filter(cloud,.3,protected_centers=[[1,1]])
+    assert not f.boxes and not f.pending
+    # A weak fragment after loss cannot resurrect the old box decision.
+    sparse=cloud[[10]]
+    kept,diag=f.filter(sparse,.7)
+    assert len(kept)==1 and diag['ignored_points']==0
+
+
+def test_independent_box_fragments_must_have_consistent_combined_shape():
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    # Individually identical plausible fragments moving across the scene do
+    # not prove a stationary small box before contact/identity is established.
+    for t,x in [(0.,1.),(.1,1.05),(.2,1.10)]:
+        cloud=faces(.15,.15,.4,center=(x,1.))
+        assert classify_cluster(cloud)[0]
+        kept,diag=f.filter(cloud,t)
+        assert len(kept)==len(cloud)
+    assert diag['clusters'][0]['reason']=='small_box_inconsistent_views'
+    assert not f.boxes
+    # Old inconsistent evidence expires; a now stable box can be confirmed.
+    for t in [2.,2.1,2.2]:kept,diag=f.filter(cloud,t)
+    assert len(kept)==0
+
+
+def test_established_pushable_box_identity_can_move_after_confirmation():
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    for t in [0.,.1,.2]:f.filter(faces(.15,.15,.4),t)
+    for t,x in [(.3,1.05),(.4,1.1),(.5,1.15)]:
+        cloud=faces(.15,.15,.4,center=(x,1.))
+        assert len(f.filter(cloud,t)[0])==0
+
+
+def test_three_consistent_scans_can_confirm_at_real_processed_cadence():
+    cloud=faces(.15,.15,.4)
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    assert len(f.filter(cloud,0.)[0])==len(cloud)
+    assert len(f.filter(cloud,.4)[0])==len(cloud)
+    assert len(f.filter(cloud,.8)[0])==0
+
+
+@pytest.mark.parametrize('length,width,height',[(.35,.35,.4),(.4,.6,.2),(.15,.15,.6)])
+def test_fuller_non_box_view_cancels_identity_before_sparse_view(length,width,height):
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    fragment=faces(.15,.15,.4)
+    for t in [0.,.1,.2]:f.filter(fragment,t)
+    assert f.boxes
+    full=faces(length,width,height)
+    kept,diag=f.filter(full,.3)
+    assert len(kept)==len(full)
+    assert not f.boxes
+    assert any(c.get('invalidated_box_hypotheses',0)>0 for c in diag['clusters'])
+    # Partial returns must not resurrect a disproven box identity.
+    sparse=fragment[[10]]
+    assert len(f.filter(sparse,.4)[0])==len(sparse)
+
+
+def test_disproved_pending_fragment_needs_three_new_views():
+    f=SmallBoxFilter();f.set_grid(.05,[0,0],80,80,[0]*6400)
+    fragment=faces(.15,.15,.4)
+    f.filter(fragment,0.);f.filter(fragment,.1)
+    f.filter(faces(.4,.6,.2),.2)
+    assert not f.pending
+    assert len(f.filter(fragment,.3)[0])==len(fragment)
+    assert len(f.filter(fragment,.4)[0])==len(fragment)
+    assert len(f.filter(fragment,.5)[0])==0
