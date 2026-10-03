@@ -35,4 +35,12 @@ WORKDIR /solution
 RUN source /workspace/install/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
     colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 RUN echo 'source /solution/install/setup.bash' >> /root/.bashrc
+# GUI apps (rviz2) need the host's live Xwayland auth cookie; /run/user/1000 is
+# bind-mounted read-only from the host, and its filename suffix changes every
+# GNOME session, so resolve it fresh on every shell login instead of baking in a path.
+RUN printf '%s\n' \
+    'export DISPLAY=:0' \
+    'xauth_file=$(ls /run/user/1000/.mutter-Xwaylandauth.* 2>/dev/null | head -1)' \
+    '[ -n "$xauth_file" ] && export XAUTHORITY="$xauth_file"' \
+    >> /root/.bashrc
 CMD ["bash"]

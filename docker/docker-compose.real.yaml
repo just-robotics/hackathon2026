@@ -22,7 +22,8 @@ services:
       - /dev:/dev
       - ${HSL_REAL_DATA_DIR:-../recordings}:/records
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      - ${HSL_REAL_CONFIG_DIR:-../config}:/config:ro
+      - /run/user/1000:/run/user/1000:ro
+      - ${HSL_REAL_CONFIG_DIR:-../config}:/config:rw
     command: [bash, -lc, 'source /solution/install/setup.bash && exec ros2 launch hsl_real ${HSL_REAL_LAUNCH:-robot.launch.py} config_file:=/config/${HSL_REAL_CONFIG_NAME:-real.yaml} ${HSL_REAL_LAUNCH_ARGS:-}']
     stop_signal: SIGINT
     stop_grace_period: 90s
