@@ -102,6 +102,9 @@ RUN apt-get update -y && \
     rm -rf /var/lib/apt/lists/*
 
 COPY src ${WORKDIR}/src
+# FAST-LIO2 (src/fast_lio помечен COLCON_IGNORE, чтобы обычная сборка его не трогала):
+# в симуляции работает в тени стека, профиль fastlio-sim.
+RUN rm -f ${WORKDIR}/src/fast_lio/COLCON_IGNORE
 
 RUN source ${SOURCE} && CMAKE_BUILD_PARALLEL_LEVEL=1 colcon build --parallel-workers 2 --symlink-install --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -DCMAKE_BUILD_TYPE=Release
 

@@ -173,6 +173,17 @@ services:
         profiles:
             - duel
 
+    # FAST-LIO2 в симуляции в тени стека (ничего не публикует в TF): поза
+    # в /localization/fastlio_sim, ошибка относительно Gazebo -- в логе сервиса
+    # и /localization/fastlio_sim_error. Запускать при работающем duel.
+    hsl-fastlio-sim:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_fastlio_sim.launch.xml"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - fastlio-sim
+
     hsl-map:
         command: $CMD "source /autoware/install/setup.bash && ros2 run jr_map sdf_map_server.py --ros-args -p world:=/autoware/install/sim_kobuki/share/sim_kobuki/worlds/${MAP:-polygon_rosbag}.world -p resolution:=${MAP_RESOLUTION:-0.05} -p spawn_x:=${MAP_ORIGIN_X:--0.468} -p spawn_y:=${MAP_ORIGIN_Y:--0.582} -p use_sim_time:=true"
         extends:

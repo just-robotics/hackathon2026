@@ -99,6 +99,9 @@ class FastLioBridge(Node):
         # TF map -> odom датируется вперёд на столько, как transform_tolerance AMCL
         self.tf_tolerance = self.declare_parameter("tf_tolerance", 0.1).value
         self.max_wheel_tf_age = self.declare_parameter("max_wheel_tf_age", 0.1).value
+        # симуляция: старт берётся из TF этого фрейма (точная поза Gazebo) на
+        # первой одометрии FAST-LIO2, пока робот стоит; пусто -- параметры x, y, yaw
+        self.start_frame = self.declare_parameter("start_from_tf_frame", "").value
 
         x, y, yaw = start
         self.map_from_start = matrix((x, y, 0.0), (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)))
@@ -129,6 +132,17 @@ class FastLioBridge(Node):
             return False
         tr, q = t.transform.translation, t.transform.rotation
         base_from_lidar = matrix((tr.x, tr.y, tr.z), (q.x, q.y, q.z, q.w))
+        if self.start_frame:
+            try:
+                s = self.tf_buffer.lookup_transform(self.start_frame, self.base_frame, Time())
+            except TransformException as error:
+                self.get_logger().warning(
+                    f"Нет TF {self.start_frame} -> {self.base_frame}: {error}",
+                    throttle_duration_sec=5.0,
+                )
+                return False
+            tr, q = s.transform.translation, s.transform.rotation
+            self.map_from_start = matrix((tr.x, tr.y, tr.z), (q.x, q.y, q.z, q.w))
         body_from_lidar = np.eye(4)
         body_from_lidar[:3, 3] = self.extrinsic
         self.body_from_base = body_from_lidar @ np.linalg.inv(base_from_lidar)

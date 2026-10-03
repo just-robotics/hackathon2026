@@ -15,6 +15,8 @@ install(
     jr_perception/initial_pose.py
     jr_perception/pose_relay.py
     jr_perception/livox_custom.py
+    jr_perception/sim_livox_cloud.py
+    jr_perception/fastlio_sim_check.py
     jr_perception/fastlio_bridge.py
     jr_perception/cloud_prefilter.py
   DESTINATION lib/${PROJECT_NAME}

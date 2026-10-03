@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FAST-LIO2 в симуляции, в тени стека: ничего не публикует в TF и не
+     влияет на управление, поза идёт в /localization/fastlio_sim и
+     сравнивается с точной позой Gazebo (fastlio_sim_check).
+     Облако ray-лидара Gazebo -> формат Livox (sim_livox_cloud) -> CustomMsg
+     (livox_custom). IMU встроен в лидар (тот же фрейм), поэтому extrinsic_T = 0.
+     Старт берётся из TF map -> base_footprint при первой позе FAST-LIO2:
+     робот до начала матча стоит. -->
+<launch>
+  <arg name="lidar_frame" default="livox_frame"/>
+
+  <node pkg="jr_perception" exec="sim_livox_cloud.py" name="sim_livox_cloud" output="screen">
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="jr_perception" exec="livox_custom.py" name="livox_custom" output="screen">
+    <param name="cloud_topic" value="/livox/lidar_livox"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="fast_lio" exec="fastlio_mapping" name="laser_mapping" output="screen">
+    <param from="$(find-pkg-share jr_launch)/config/perception/fastlio_sim.param.yaml"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="jr_perception" exec="fastlio_bridge.py" name="fastlio_bridge" output="screen">
+    <param name="map_frame" value="map"/>
+    <param name="lidar_frame" value="$(var lidar_frame)"/>
+    <param name="extrinsic_t" value="0.0,0.0,0.0" value-sep=","/>
+    <param name="publish_tf" value="false"/>
+    <param name="start_from_tf_frame" value="map"/>
+    <param name="odometry_topic" value="/localization/fastlio_sim"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="jr_perception" exec="fastlio_sim_check.py" name="fastlio_sim_check" output="screen">
+    <param name="use_sim_time" value="true"/>
+  </node>
+</launch>
