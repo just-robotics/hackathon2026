@@ -259,27 +259,31 @@ ros2 launch jr_launch jr_raw_localization.launch.xml config:=config x:=… y:=�
 ros2 launch jr_launch jr_detector_bag.launch.xml
 ```
 
-**Едущий робот, поза от FAST-LIO2** вместо AMCL. `livox_custom.py`
-переводит облако в `CustomMsg` на лету, `fastlio_bridge.py` переводит позу
-FAST-LIO2 в позу `base_footprint` во фрейме `map`
-(`/localization/fastlio/odometry`) и публикует TF `map -> odom`. FAST-LIO2
-карту не знает: старт на карте задают `x y yaw` от `initial_pose.py`.
+**Едущий робот, FAST-LIO2 с коррекцией по статической карте.**
+FAST-LIO2 оценивает движение по raw LiDAR и IMU; AMCL сопоставляет очищенный
+скан с картой. `fastlio_bridge` публикует `/localization/lio_odometry` и
+TF `lio_odom → odom`, AMCL — `map → lio_odom`. Итоговая поза —
+`/localization/kinematic_state`. Старт `x y yaw` — начальное приближение.
+При replay исключите записанные TF локализации (map→odom/map→lio_odom),
+оставив колёсные TF и tf_static; иначе появляются конкурирующие родители.
+FAST-LIO2 уже находится в `src/fast_lio` и собирается реальным образом.
 
 ```bash
-git clone --depth 1 -b ROS2 --recursive https://github.com/hku-mars/FAST_LIO.git
-colcon build --base-paths FAST_LIO --cmake-args -DCMAKE_BUILD_TYPE=Release  # с CC=gcc CXX=g++
+helm build_real
 ros2 bag play <сессия>/bag --clock --start-paused --topics /livox/lidar /livox/imu /tf /tf_static
 ros2 launch jr_launch jr_detector_fastlio.launch.xml config:=config x:=… y:=… yaw:=… \
   map:=config/maps/maze_bag_v1.yaml
 ```
 
 В autonomous-записях `/map` есть в бэге (добавьте в `--topics`, `map:=` не
-нужен), а `map -> odom` от AMCL уже в `/tf`: `publish_tf:=false`. Повтор бэга
+нужен). Записанные рёбра локализации нужно исключить из `/tf`; простой
+выбор топика `/tf` этого не делает. `publish_tf:=true` требуется для новой
+цепочки AMCL. Повтор бэга
 по кругу не годится — FAST-LIO2 продолжит с конца прошлого прохода.
 `config/perception/fastlio_view.rviz` в `jr_launch` показывает сам FAST-LIO2:
 облако, сшитое по его позе, и траекторию.
 
-На `20261003T094119` поза моста отличается от AMCL робота в среднем на 4 см
+В исторической проверке прежнего моста на `20261003T094119` его поза отличалась от AMCL робота в среднем на 4 см
 (максимум 8 см), курс — на 1.3°.
 
 ## Проверки и текущее состояние
@@ -316,39 +320,36 @@ python3 benchmarks/run_duel_series.py --runs 3 --start-seed 0 --active-s 90 --tr
 `local.MPPI.time_steps` задаёт длину прогноза: по умолчанию60шагов по0,05с
 (3с). Проверка движущегося контура охватывает весь выбранный прогноз.
 
-## Основная локализация реального стека: FAST-LIO2
+## Основная локализация реального стека: FAST-LIO2 + карта
 
-`config/real.yaml` по умолчанию задаёт `localization: fastlio` и
-`fastlio_file: fastlio.yaml`. `start_real` запускает драйверы, преобразование
-raw PointCloud2 в Livox CustomMsg, FAST-LIO2 и мост в систему координат карты.
-AMCL одновременно с FAST-LIO2 не запускается.
+`config/real.yaml`: `localization: fastlio`, `fastlio_file: fastlio.yaml`,
+`localization_file: localization.yaml`, `map_file: maps/maze_bag_v1.yaml`.
+`robot.start` в `real_match.yaml` задаёт начальное приближение на карте.
 
-Цепочка позы: `/Odometry` → `fastlio_bridge` →
-`/localization/fastlio/odometry` → `real_observations` → `/navigation/self` →
-decision manager, глобальный планировщик и MPPI. Детектор получает позу
-непосредственно из `/localization/fastlio/odometry` и очищенное облако.
-Мост — единственный источник TF `map → odom`; колёсный `/odom` сохраняется.
-Готовность требует свежих позы FAST-LIO2, LiDAR, IMU, колёсной одометрии и TF.
+FAST-LIO2 получает raw LiDAR + IMU. AMCL получает очищенный 2D-скан и
+одометрию FAST-LIO через TF, исправляя привязку к статической карте.
+TF: `map → lio_odom → odom → base_footprint`; AMCL и мост имеют разные рёбра.
+Колёсный `/odom` и драйверный TF сохраняются.
 
-FAST-LIO2 считает перемещение от стартовой позы `robot.start` в
-`config/real_match.yaml`; статическую карту он не использует для коррекции
-дрейфа. Она остаётся входом навигации и фоном детектора. Стартовую позу
-нужно задать по фактическому положению робота на карте.
+`/Odometry` → bridge → `/localization/lio_odometry` → коррекция AMCL →
+**`/localization/kinematic_state`** (`nav_msgs/Odometry`, frame `map`,
+child `base_footprint`) → детектор и real_observations → `/navigation/self`
+→ decision manager, планировщик и MPPI.
+Скорость в итоговом сообщении берётся из FAST-LIO, а не из скачков коррекции.
 
-```bash
-helm build_real
-helm start_real
-helm enable_real
-helm pause_real
-helm stop_real
-```
+Начальная поза подаётся однократно в `/initialpose` после активации AMCL
+с ненулевой covariance: `initial_position_std` и `initial_yaw_std` в
+`localization.yaml`. Это позволяет уточнять старт даже без движения.
 
-Исходники FAST-LIO2 и ikd-Tree включены в `src/fast_lio` с зафиксированными
-версиями, без загрузки submodules при сборке. Пакет собирается только в
-реальном образе. Параметры читаются из внешнего `config/fastlio.yaml`.
-Для возврата к AMCL задайте `localization: amcl` в `config/real.yaml`.
-`start_match` сохраняет симуляционную локализацию.
-Эта интеграция после переноса не проверялась по просьбе пользователя.
+Готовность требует свежих итоговой позы, LiDAR, IMU, колёсной одометрии и TF,
+а также свежей оценки AMCL с допустимой неопределённостью. Без схождения
+AMCL итоговая поза не публикуется, движение остаётся закрытым.
+Covariance — приближённая оценка AMCL с локальной добавкой, не гарантия точности.
+Режим `localization: amcl` использует прежнюю колёсную одометрию.
+Симуляция по-прежнему использует точную позу Gazebo.
+
+Пересборка: `helm build_real`; запуск: `helm start_real`, затем
+`helm enable_real`; пауза: `helm pause_real`; остановка: `helm stop_real`.
 
 ### Проверка плоских фрагментов в детекторе
 

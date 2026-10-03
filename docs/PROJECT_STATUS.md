@@ -4665,3 +4665,52 @@ planning.yaml=.20м оставлен; дефолт native=.21м тоже не м
 не влияет на offline detector replay и не проверялось движением.
 Следующий шаг: разметить наблюдаемые robot/box эпизоды, разобрать длинные
 паузы на собственных позах и затем проверить тот же detector на FAST-LIO2.
+
+
+## 03.10.2026 — FAST-LIO2 с коррекцией по статической карте и kinematic_state
+
+Запрос: полноценная локализация на FAST-LIO, единый выход
+/localization/kinematic_state и проверка сборки. Предыдущий bridge только
+привязывал относительное движение к robot.start, без коррекции по карте.
+
+Решение: FAST-LIO2 даёт локальное движение в lio_odom; AMCL сопоставляет
+очищенный 2D-скан со статической картой. TF: map→lio_odom (AMCL),
+lio_odom→odom (bridge), odom→base_footprint (драйвер). map_kinematic_state
+применяет timestamped TF к /localization/lio_odometry и публикует
+/localization/kinematic_state в map. Twist остаётся локальной скоростью
+FAST-LIO, коррекции карты не создают ложную скорость. Детектор и
+real_observations переключены; bag пишет локальный и итоговый выходы.
+Алгоритм детектора и MPPI не менялись, симуляция сохраняет Gazebo truth.
+
+Готовность требует свежей AMCL-оценки, допустимой covariance, свежих
+kinematic_state/TF/LiDAR/IMU/wheel odom. Итоговая поза не публикуется без
+свежей уверенной коррекции и TF на время измерения. Дополнительная covariance
+локальной одометрии — приближение, не доказанная статистическая точность.
+
+Изолированная ROS-проверка обнаружила дефект прежнего параметрического
+старта AMCL Humble: set_initial_pose создаёт сообщение с нулевой covariance.
+На неподвижном роботе это не позволяло исправить ошибку старта. Теперь
+монитор ждёт карту/активацию и однократно отправляет initialpose с std
+0.25м/0.35рад. Повторные nomotion update позволяют сходиться без движения.
+Стартовые std и пороги задаются config/localization.yaml.
+
+Проверки: 19 tests/test_real_robot.py passed, Compose real config valid,
+Python compileall и XML parsing passed. Изолированная ROS-проверка
+tests/ros_fastlio_map_check.py: статическая maze_bag_v1, синтетический
+raycast скан, неподвижная LIO-поза (0.5,0.5), старт AMCL (0.62,0.57,0.1).
+Ошибка 13.89см→3.39см, 47 итоговых сообщений, готовность появлялась;
+после выключения сканов вывод прекратился (5.71с от последнего сообщения
+до окончания проверки), ready снят. Это synthetic integration, не real
+LiDAR replay и не измеренная аппаратная точность. Истинная FAST-LIO оценка
+движения в этом тесте заменена заданной позой, её качество не проверено.
+
+Финальная реальная Docker-сборка с initialpose-fix прошла: 11 solution
+пакетов собраны, включая FAST-LIO2. Образ jr_real_image:latest,
+sha256:b677777ab450f84911ff1aee14108c432b22a2ba21cf5941b479c20523b3fe78.
+Импорты установленных новых узлов, load_config и launch --show-args прошли. Команда docker compose -f
+docker/docker-compose.real.yaml build real. ROS check выполнялся в отдельном
+контейнере --network none, ROS_DOMAIN_ID=163, без драйверов/cmd_vel.
+Логи: results/fastlio-map-20261003/. README/REAL_ROBOT/AGENTS актуализированы.
+Следующий шаг: real bag replay всей цепочки с исключением старых TF
+локализации, оценка наложения стен/дрейфа, затем проверка на оборудовании.
+SSH/аппаратных/Gazebo запусков, коммита и пуша не было.

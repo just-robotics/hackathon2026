@@ -20,8 +20,8 @@ amcl:
     robot_model_type: nav2_amcl::DifferentialMotionModel
     tf_broadcast: true
     transform_tolerance: 0.5
-    set_initial_pose: true
-    always_reset_initial_pose: true
+    set_initial_pose: false
+    always_reset_initial_pose: false
     min_particles: 500
     max_particles: 2000
     max_beams: 120
@@ -43,7 +43,17 @@ amcl:
     recovery_alpha_slow: 0.0
 localization_monitor:
   ros__parameters:
+    initial_position_std: 0.25
+    initial_yaw_std: 0.35
     max_position_std: 0.20
     max_yaw_std: 0.35
     max_pose_age: 3.0
     max_sensor_age: 1.0
+
+# Map output interpolates the FAST-LIO pose using timestamped AMCL correction.
+map_kinematic_state:
+  ros__parameters:
+    max_pose_age: 3.0
+    max_input_age: 0.8
+    max_position_std: 0.20
+    max_yaw_std: 0.35

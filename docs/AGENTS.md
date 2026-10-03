@@ -39,7 +39,7 @@ Real: отдельный CPU-образ `jr_real_image` на базе конте
 `planning.yaml` (общий для sim/real, читается при запуске).
 `start_real_bag_record` — драйверы, raw MCAP и клавиатура через watchdog;
 автономных издателей команд в этом режиме нет. Сценария построения карты,
-LIO-SAM/FAST-LIO и submodules нет. [REAL_ROBOT.md](REAL_ROBOT.md) — руководство.
+LIO-SAM и submodules нет; FAST-LIO2 vendored в src/fast_lio. [REAL_ROBOT.md](REAL_ROBOT.md) — руководство.
 
 ## Приоритет проверок на реальных данных
 
@@ -83,10 +83,11 @@ cmd_vel — motion_gate. Отсутствие безопасного MPPI озн
 Старты `[0.5,0.5,0]`/`[0.5,3.5,0]`, map_origin_world `[-0.468,-0.582]`.
 Ноль map внутри нижнего левого угла стен, yaw 0 вправо.
 Real использует maze_bag_v1 для планирования и FAST-LIO2 для позы:
-raw LiDAR + IMU → /Odometry → fastlio_bridge → /localization/fastlio/odometry
-→ real_observations → navigation/self. Мост публикует map→odom.
-Старт — robot.start; коррекции дрейфа по статической карте у FAST-LIO2 нет.
-AMCL доступен через localization: amcl, одновременно не запускается. Потеря localization/ready закрывает движение.
+raw LiDAR + IMU → /Odometry → fastlio_bridge → /localization/lio_odometry
+→ AMCL map correction → /localization/kinematic_state → real_observations
+→ navigation/self. AMCL публикует map→lio_odom, мост lio_odom→odom.
+Старт robot.start — начальное приближение; очищенный скан сопоставляется
+со статической картой AMCL. Режим amcl использует колёсную одометрию. Потеря localization/ready закрывает движение.
 Не переносить sim truth/map/referee или смещение мира в hardware-стек.
 
 - `/map` и `navigation/known_grid` статические, входы детектора и StaticLayer.
@@ -160,7 +161,10 @@ MCAP в hsl2026Extra read-only, артефакты в ignored results. Нет р
 FAST-LIO2 vendored в src/fast_lio; COLCON_IGNORE исключает его из sim.
 Dockerfile.real удаляет маркер и собирает пакет. Параметры config/fastlio.yaml.
 Монитор готовности FAST-LIO2 проверяет свежесть позы/TF/IMU/LiDAR/odom,
-не выдаёт номинальную covariance моста за точность привязки к карте.
+требует свежую AMCL-оценку с допустимой covariance и итоговый kinematic_state;
+после активации однократно подаёт robot.start через initialpose с ненулевой
+covariance, а set_initial_pose=false избегает нулевой поддержки старта;
+номинальная covariance нескорректированного моста не означает точность карты.
 Последний перенос в main-based дерево сделан без проверок по просьбе пользователя.
 
 Проверка граней после согласования адаптирована только к ободу/inliers:

@@ -1,25 +1,13 @@
 #!/usr/bin/env python3
-"""Мост FAST-LIO2 -> одометрия base_footprint во фрейме карты и TF map -> odom.
+"""FAST-LIO2 -> base_footprint in lio_odom; TF lio_odom -> wheel odom.
 
-FAST-LIO2 публикует /Odometry: позу своего body (IMU лидара) во фрейме
-camera_init -- это body на момент старта. Лидар на роботе висит вверх
-ногами, поэтому и camera_init перевёрнут. Мост переводит это в позу
-base_footprint (как у AMCL) во фрейме карты:
+AMCL owns map -> lio_odom. hsl_real/map_kinematic_state publishes the
+map-corrected /localization/kinematic_state; this bridge is local odometry.
 
-    T_map_base(t) = T_map_base0 * T_base_body * T_ci_body(t) * T_body_base
-
-  T_map_base0  -- поза base_footprint на карте при старте (параметры x, y, yaw;
-                  точно -- от initial_pose.py), робот стоит ровно;
-  T_body_base  -- из /tf_static (base_frame -> lidar_frame) и смещения
-                  лидара в IMU из конфига FAST-LIO2 (extrinsic_T, поворот
-                  единичный).
-
-Публикует:
-  odometry_topic  nav_msgs/Odometry, frame map, child base_footprint; скорости
-                  в base_footprint по разности поз;
-  TF map -> odom  такой, чтобы map -> odom -> ... -> base_link давал позу
-                  FAST-LIO2 (как делает AMCL). Сразу map -> base_footprint
-                  нельзя: у него уже есть родитель (odom).
+FAST-LIO2 estimates motion in camera_init (initial LiDAR IMU body).
+The fixed extrinsics and robot.start anchor convert this to local lio_odom.
+AMCL supplies the independent static-map correction above this frame.
+The bridge never broadcasts map -> odom in the real FAST-LIO mode.
 """
 
 import math
@@ -93,8 +81,8 @@ class FastLioBridge(Node):
     def __init__(self):
         super().__init__("fastlio_bridge")
         source = self.declare_parameter("fastlio_topic", "/Odometry").value
-        target = self.declare_parameter("odometry_topic", "/localization/fastlio/odometry").value
-        self.map_frame = self.declare_parameter("map_frame", "map").value
+        target = self.declare_parameter("odometry_topic", "/localization/lio_odometry").value
+        self.map_frame = self.declare_parameter("map_frame", "lio_odom").value
         self.odom_frame = self.declare_parameter("odom_frame", "odom").value
         self.base_frame = self.declare_parameter("base_frame", "base_footprint").value
         self.lidar_frame = self.declare_parameter("lidar_frame", "livox").value
@@ -110,6 +98,7 @@ class FastLioBridge(Node):
         self.publish_tf = self.declare_parameter("publish_tf", True).value
         # TF map -> odom датируется вперёд на столько, как transform_tolerance AMCL
         self.tf_tolerance = self.declare_parameter("tf_tolerance", 0.1).value
+        self.max_wheel_tf_age = self.declare_parameter("max_wheel_tf_age", 0.1).value
 
         x, y, yaw = start
         self.map_from_start = matrix((x, y, 0.0), (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)))
@@ -204,6 +193,9 @@ class FastLioBridge(Node):
                     throttle_duration_sec=5.0,
                 )
                 return
+        if abs(stamp_seconds(stamp)-stamp_seconds(t.header.stamp)) > self.max_wheel_tf_age:
+            self.get_logger().warning("Wheel TF too old for FAST-LIO bridge", throttle_duration_sec=5.0)
+            return
         tr, q = t.transform.translation, t.transform.rotation
         odom_from_base = matrix((tr.x, tr.y, tr.z), (q.x, q.y, q.z, q.w))
         map_from_odom = map_from_base @ np.linalg.inv(odom_from_base)

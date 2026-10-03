@@ -12,7 +12,7 @@ from hsl_real.config import load_config,start_polygon
 
 def fixture(tmp_path):
     cfg=yaml.safe_load((ROOT/'config/real.yaml').read_text())
-    for name in ('match.yaml','real_match.yaml','localization.yaml','lidar_filter.yaml','planning.yaml'):
+    for name in ('match.yaml','real_match.yaml','localization.yaml','lidar_filter.yaml','planning.yaml','fastlio.yaml'):
         shutil.copy2(ROOT/'config'/name,tmp_path/name)
     shutil.copytree(ROOT/'config/maps',tmp_path/'maps')
     (tmp_path/'livox_mid360.json').write_text((ROOT/'config/livox_mid360.json').read_text())
@@ -24,7 +24,7 @@ def fixture(tmp_path):
 def test_real_config_uses_no_simulation_map_or_opponent_truth(tmp_path):
     _,path=fixture(tmp_path)
     cfg,mission=load_config(path)
-    assert cfg['map_file']==str(tmp_path/'maps/maze_bag_v1.yaml') and cfg['localization']=='amcl'
+    assert cfg['map_file']==str(tmp_path/'maps/maze_bag_v1.yaml') and cfg['localization']=='fastlio'
     assert 'simulation' not in mission
     assert cfg['ros_domain_id']==26
     assert mission['motion']['max_speed']==.5
@@ -104,6 +104,7 @@ def test_stop_bag_uses_running_session_without_reading_config(monkeypatch,tmp_pa
 
 def test_amcl_requires_map_and_parameters(tmp_path):
     cfg,path=fixture(tmp_path)
+    cfg['localization']='amcl'
     cfg['map_file']=''
     path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError,match='amcl requires'):load_config(path)
@@ -123,3 +124,10 @@ def test_localization_rejects_rotated_large_uncertainty():
     assert namespace['uncertainty_ok'](cov,.2,.35)
     cov[0]=float('nan')
     assert not namespace['uncertainty_ok'](cov,.2,.35)
+
+
+def test_fastlio_requires_static_map_registration_config(tmp_path):
+    cfg,path=fixture(tmp_path)
+    cfg.pop('localization_file')
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError,match='fastlio requires'):load_config(path)

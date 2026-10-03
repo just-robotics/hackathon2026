@@ -32,8 +32,8 @@ def load_config(path):
             raise ValueError(key + ' must be an absolute device/topic name')
     if config['localization'] == 'amcl' and (not config['map_file'] or not config.get('localization_file')):
         raise ValueError('amcl requires map_file and localization_file')
-    if config['localization'] == 'fastlio' and (not config['map_file'] or not config.get('fastlio_file')):
-        raise ValueError('fastlio requires map_file and fastlio_file')
+    if config['localization'] == 'fastlio' and (not config['map_file'] or not config.get('fastlio_file') or not config.get('localization_file')):
+        raise ValueError('fastlio requires map_file, fastlio_file and localization_file')
     for key in ('mission_file', 'livox_config', 'map_file') + tuple(key for key in sorted(optional) if key in config):
         name = config[key]
         if key == 'map_file' and name == '':

@@ -10,7 +10,7 @@
     # /livox/lidar фантомы от своих стоек до ~1 м, и трекер принимал их за
     # соперника, едущего перед роботом.
     cloud_topic: "/sensing/lidar/points_filtered"
-    pose_topic: "/localization/fastlio/odometry"
+    pose_topic: "/localization/kinematic_state"
     world_frame: "map"
     base_frame: "base_footprint"
     opponent_frame: "opponent"

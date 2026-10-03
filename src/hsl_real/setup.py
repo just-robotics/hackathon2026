@@ -11,4 +11,5 @@ setup(name='hsl_real', version='0.1.0', packages=['hsl_real'],
       entry_points={'console_scripts': ['real_observations=hsl_real.observations:main',
                                        'real_match=hsl_real.match:main',
                                        'localization_monitor=hsl_real.localization:main',
+                                       'map_kinematic_state=hsl_real.kinematic_state:main',
                                        'real_manual_gate=hsl_real.manual:main']})

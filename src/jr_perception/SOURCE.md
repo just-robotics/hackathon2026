@@ -15,7 +15,7 @@
   Свежая цель удерживается, слабые фрагменты не поддерживают её бесконечно.
 
 В реальном FAST-LIO2-стеке вход — `/sensing/lidar/points_filtered` и
-`/localization/fastlio/odometry`; источником FAST-LIO2 остаются raw облако и IMU.
+`/localization/kinematic_state`; источником FAST-LIO2 остаются raw облако и IMU.
 `opponent/odom` содержит выбранный трек; markers, robot_markers и box_markers
 сохраняют разделение новой версии main. Детектор не обновляет costmap.
 Профили real/simulation и bag AMCL/FAST-LIO2 содержат согласованные параметры.
