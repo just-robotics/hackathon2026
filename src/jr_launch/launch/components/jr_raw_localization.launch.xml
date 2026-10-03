@@ -42,6 +42,7 @@
 
   <node pkg="nav2_amcl" exec="amcl" name="amcl" output="screen">
     <param from="$(var config)/localization.yaml"/>
+    <param name="set_initial_pose" value="false"/>
     <param name="initial_pose.x" value="$(var x)"/>
     <param name="initial_pose.y" value="$(var y)"/>
     <param name="initial_pose.z" value="0.0"/>
@@ -58,6 +59,13 @@
   <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="map_lifecycle_manager" output="screen">
     <param name="autostart" value="true"/>
     <param name="node_names" value="[map_server, amcl]"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+  <node pkg="hsl_real" exec="localization_monitor" name="localization_monitor" output="screen">
+    <param from="$(var config)/localization.yaml"/>
+    <param name="initial_x" value="$(var x)"/>
+    <param name="initial_y" value="$(var y)"/>
+    <param name="initial_yaw" value="$(var yaw)"/>
     <param name="use_sim_time" value="true"/>
   </node>
 </launch>

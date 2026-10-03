@@ -28,4 +28,14 @@
       max_height: 0.50
       min_top: 0.25
       min_points: 10
+      min_rim_points: 12
+      plane_ratio: 0.8
+      plane_min_improvement: 0.015
+      plane_min_arc: 1.5707963267948966
       min_extent: 0.22
+
+    map_visibility_min_fraction: 0.5
+    map_visibility_endpoint_margin: 0.08
+    tracker:
+      reacquire_timeout: 1.5
+      reacquire_strong_hits: 3

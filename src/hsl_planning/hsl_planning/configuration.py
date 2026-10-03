@@ -14,9 +14,9 @@ LOCAL_DEFAULTS = {
     'MPPI.ObstaclesCritic.repulsion_weight': 1.,
     'MPPI.ObstaclesCritic.critical_weight': 10.,
     'MPPI.ObstaclesCritic.collision_margin_distance': .02,
-    'MPPI.ObstaclesCritic.inflation_radius': .40,
+    'MPPI.ObstaclesCritic.inflation_radius': .45,
     'MPPI.ObstaclesCritic.cost_scaling_factor': 8.,
-    'costmap.inflation_layer.inflation_radius': .40,
+    'costmap.inflation_layer.inflation_radius': .45,
     'costmap.inflation_layer.cost_scaling_factor': 8.,
 }
 

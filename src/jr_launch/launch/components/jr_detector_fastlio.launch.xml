@@ -1,33 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Детектор соперника с локализацией FAST-LIO2 вместо AMCL.
-
-     /livox/lidar (PointCloud2) идёт в два места:
-       real_lidar_filter -> /sensing/lidar/points_filtered -> детектор;
-       livox_custom.py -> /livox/lidar_custom (CustomMsg) -> FAST-LIO2 вместе с /livox/imu.
-     fastlio_bridge.py переводит позу FAST-LIO2 в позу base_footprint во фрейме
-     map (/localization/fastlio/odometry, её берёт детектор) и публикует
-     TF map -> odom.
-
-     Стартовая поза робота на карте — x, y, yaw: FAST-LIO2 карту не знает
-     и считает от точки старта. Точно её даёт initial_pose.py по первым
-     сканам бэга (ros2 run jr_perception initial_pose.py).
-
-     На бэгах (sim_time, по умолчанию): бэг на паузе с ключами clock и
-     start-paused, потом этот launch, потом пробел в терминале бэга. В бэге
-     нужны /livox/lidar, /livox/imu, /tf, /tf_static и /map; если /map нет
-     (ручные записи), задайте map. Повтор бэга по кругу не годится: FAST-LIO2
-     продолжит с конца прошлого прохода. В autonomous-записях в /tf уже есть
-     map -> odom от AMCL робота, поэтому там publish_tf:=false.
-
-     Нужен собранный пакет fast_lio, а для map — пакеты nav2 map_server и
-     lifecycle_manager. -->
+<!-- FAST-LIO2 odometry + AMCL static-map correction.
+     TF: map -> lio_odom (AMCL) -> odom (bridge) -> base_footprint (Kobuki).
+     Output: /localization/kinematic_state.
+     Replay raw LiDAR/IMU/wheel odom and wheel TF only: exclude recorded
+     map->odom or map->lio_odom localization TF to avoid competing publishers.
+     A static /map is required, from bag or the map argument. -->
 <launch>
   <arg name="config" description="каталог с lidar_filter.yaml (и maps/): config/ репозитория или папка сессии"/>
   <arg name="x" default="0.5" description="старт base_footprint на карте, м"/>
   <arg name="y" default="0.5"/>
   <arg name="yaw" default="0.0" description="рад"/>
   <arg name="map" default="" description="карта Nav2 .yaml, если /map нет в бэге"/>
-  <arg name="publish_tf" default="true" description="TF map -> odom от моста"/>
+  <arg name="publish_tf" default="true" description="TF lio_odom -> odom от моста; требуется для AMCL"/>
   <arg name="sim_time" default="true" description="время бэга (false -- живой робот)"/>
   <arg name="rviz" default="true"/>
 
@@ -56,6 +40,8 @@
     <param name="y" value="$(var y)"/>
     <param name="yaw" value="$(var yaw)"/>
     <param name="publish_tf" value="$(var publish_tf)"/>
+    <param name="map_frame" value="lio_odom"/>
+    <param name="odometry_topic" value="/localization/lio_odometry"/>
     <param name="use_sim_time" value="$(var sim_time)"/>
   </node>
 
@@ -66,16 +52,47 @@
     </node>
     <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="map_lifecycle_manager" output="screen">
       <param name="autostart" value="true"/>
-      <param name="node_names" value="[map_server]"/>
+      <param name="node_names" value="[map_server, amcl]"/>
       <param name="use_sim_time" value="$(var sim_time)"/>
     </node>
   </group>
 
-  <!-- облако: фильтры и сегментация земли, детектор берёт облако препятствий -->
-  <include file="$(find-pkg-share jr_launch)/launch/components/jr_ground_segmentation.launch.xml">
-    <arg name="cloud_topic" value="/sensing/lidar/points_filtered"/>
-    <arg name="sim_time" value="$(var sim_time)"/>
-  </include>
+  <node pkg="pointcloud_to_laserscan" exec="pointcloud_to_laserscan_node" name="localization_scan" output="screen">
+    <param from="$(var config)/localization.yaml"/>
+    <param name="use_sim_time" value="$(var sim_time)"/>
+    <remap from="cloud_in" to="/sensing/lidar/points_filtered"/>
+    <remap from="scan" to="/localization/scan"/>
+  </node>
+  <node pkg="nav2_amcl" exec="amcl" name="amcl" output="screen">
+    <param from="$(var config)/localization.yaml"/>
+    <param name="odom_frame_id" value="lio_odom"/>
+    <param name="set_initial_pose" value="false"/>
+    <param name="initial_pose.x" value="$(var x)"/>
+    <param name="initial_pose.y" value="$(var y)"/>
+    <param name="initial_pose.yaw" value="$(var yaw)"/>
+    <param name="use_sim_time" value="$(var sim_time)"/>
+    <remap from="scan" to="/localization/scan"/>
+  </node>
+  <group if="$(eval '\'$(var map)\' == \'\'')">
+    <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="map_lifecycle_manager" output="screen">
+      <param name="autostart" value="true"/>
+      <param name="node_names" value="[amcl]"/>
+      <param name="use_sim_time" value="$(var sim_time)"/>
+    </node>
+  </group>
+  <node pkg="hsl_real" exec="localization_monitor" name="localization_monitor" output="screen">
+    <param from="$(var config)/localization.yaml"/>
+    <param name="mode" value="fastlio"/>
+    <param name="initial_x" value="$(var x)"/>
+    <param name="initial_y" value="$(var y)"/>
+    <param name="initial_yaw" value="$(var yaw)"/>
+    <param name="use_sim_time" value="$(var sim_time)"/>
+  </node>
+
+  <node pkg="hsl_real" exec="map_kinematic_state" name="map_kinematic_state" output="screen">
+    <param from="$(var config)/localization.yaml"/>
+    <param name="use_sim_time" value="$(var sim_time)"/>
+  </node>
 
   <node pkg="jr_perception" exec="robot_detector.py" name="robot_detector" output="screen">
     <param from="$(find-pkg-share jr_launch)/config/perception/detector_fastlio.param.yaml"/>

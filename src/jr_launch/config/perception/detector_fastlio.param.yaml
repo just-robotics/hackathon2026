@@ -6,15 +6,11 @@
 # Пороги робота -- как у бэгов с реального Kobuki (jr_perception/config/real.yaml).
 /**:
   ros__parameters:
-    # Облако -- выход сегментации земли (jr_ground_segmentation.launch.xml):
-    # свой робот, высота и дальность отфильтрованы до неё, пол -- linefit.
-    # Свои фильтры детектора поэтому выключены.
-    cloud_topic: "/perception/obstacle_cloud"
-    self_range: 0.0
-    floor_z: -1.0
-    floor_noise: 0.0
-    ceiling_z: 10.0
-    pose_topic: "/localization/fastlio/odometry"
+    # Облако после real_lidar_filter (lidar_filter.yaml сессии): в сыром
+    # /livox/lidar фантомы от своих стоек до ~1 м, и трекер принимал их за
+    # соперника, едущего перед роботом.
+    cloud_topic: "/sensing/lidar/points_filtered"
+    pose_topic: "/localization/kinematic_state"
     world_frame: "map"
     base_frame: "base_footprint"
     opponent_frame: "opponent"
@@ -22,8 +18,19 @@
     background_topic: "/map"
     # запас фона у стен: облако смещено относительно карты на 5-10 см
     map_margin: 0.15
+    max_range: 6.0
     robot:
       max_height: 0.50
       min_top: 0.25
       min_points: 10
+      min_rim_points: 12
+      plane_ratio: 0.8
+      plane_min_improvement: 0.015
+      plane_min_arc: 1.5707963267948966
       min_extent: 0.22
+
+    map_visibility_min_fraction: 0.5
+    map_visibility_endpoint_margin: 0.08
+    tracker:
+      reacquire_timeout: 1.5
+      reacquire_strong_hits: 3

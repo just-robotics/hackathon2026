@@ -13,9 +13,10 @@
   <exec_depend>hsl_debug_control</exec_depend><exec_depend>python3-yaml</exec_depend>
   <exec_depend>nav2_amcl</exec_depend><exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend><exec_depend>pointcloud_to_laserscan</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend><exec_depend>std_msgs</exec_depend>
   <export><build_type>ament_python</build_type></export>
-  <exec_depend>jr_perception</exec_depend><exec_depend>jr_launch</exec_depend>
-  <exec_depend>linefit_ground_segmentation_ros</exec_depend><exec_depend>fast_lio</exec_depend>
+  <exec_depend>jr_perception</exec_depend>
+  <exec_depend>fast_lio</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
 </package>

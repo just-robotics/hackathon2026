@@ -44,7 +44,7 @@
         collision_cost: 100000.0
         collision_margin_distance: 0.02
         near_goal_distance: 0.35
-        inflation_radius: 0.40
+        inflation_radius: 0.45
         cost_scaling_factor: 8.0
       GoalCritic:
         enabled: true
@@ -107,5 +107,5 @@
         subscribe_to_updates: true
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.40
+        inflation_radius: 0.45
         cost_scaling_factor: 8.0

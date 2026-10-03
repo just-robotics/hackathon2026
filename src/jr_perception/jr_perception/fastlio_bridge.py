@@ -1,39 +1,21 @@
 #!/usr/bin/env python3
-"""Мост FAST-LIO2 -> одометрия base_footprint во фрейме карты и TF map -> odom.
+"""FAST-LIO2 -> base_footprint in lio_odom; TF lio_odom -> wheel odom.
 
-FAST-LIO2 публикует /Odometry: позу своего body (IMU лидара) во фрейме
-camera_init -- это body на момент старта. Лидар на роботе висит вверх
-ногами, поэтому и camera_init перевёрнут. Мост переводит это в позу
-base_footprint (как у AMCL) во фрейме карты:
+AMCL owns map -> lio_odom. hsl_real/map_kinematic_state publishes the
+map-corrected /localization/kinematic_state; this bridge is local odometry.
 
-    T_map_base(t) = T_map_base0 * T_base_body * T_ci_body(t) * T_body_base
-
-  T_map_base0  -- поза base_footprint на карте при старте (параметры x, y, yaw;
-                  точно -- от initial_pose.py), робот стоит ровно;
-  T_body_base  -- из /tf_static (base_frame -> lidar_frame) и смещения
-                  лидара в IMU из конфига FAST-LIO2 (extrinsic_T, поворот
-                  единичный).
-
-Публикует:
-  odometry_topic  nav_msgs/Odometry, frame map, child base_footprint; скорости
-                  в base_footprint по разности поз;
-  TF map -> odom  такой, чтобы map -> odom -> ... -> base_link давал позу
-                  FAST-LIO2 (как делает AMCL). Сразу map -> base_footprint
-                  нельзя: у него уже есть родитель (odom).
-  /localization/ready, /localization/status (publish_ready) -- готовность
-                  для стека робота вместо монитора AMCL: поза FAST-LIO2
-                  свежая и TF map -> odom опубликован.
+FAST-LIO2 estimates motion in camera_init (initial LiDAR IMU body).
+The fixed extrinsics and robot.start anchor convert this to local lio_odom.
+AMCL supplies the independent static-map correction above this frame.
+The bridge never broadcasts map -> odom in the real FAST-LIO mode.
 """
 
-import json
 import math
-import time
 
 import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool, String
 from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -99,8 +81,8 @@ class FastLioBridge(Node):
     def __init__(self):
         super().__init__("fastlio_bridge")
         source = self.declare_parameter("fastlio_topic", "/Odometry").value
-        target = self.declare_parameter("odometry_topic", "/localization/fastlio/odometry").value
-        self.map_frame = self.declare_parameter("map_frame", "map").value
+        target = self.declare_parameter("odometry_topic", "/localization/lio_odometry").value
+        self.map_frame = self.declare_parameter("map_frame", "lio_odom").value
         self.odom_frame = self.declare_parameter("odom_frame", "odom").value
         self.base_frame = self.declare_parameter("base_frame", "base_footprint").value
         self.lidar_frame = self.declare_parameter("lidar_frame", "livox").value
@@ -116,12 +98,7 @@ class FastLioBridge(Node):
         self.publish_tf = self.declare_parameter("publish_tf", True).value
         # TF map -> odom датируется вперёд на столько, как transform_tolerance AMCL
         self.tf_tolerance = self.declare_parameter("tf_tolerance", 0.1).value
-        # Готовность для стека робота (localization: fastlio): поза и TF не
-        # старше max_age по часам ноды
-        self.publish_ready = self.declare_parameter("publish_ready", False).value
-        self.max_age = self.declare_parameter("max_age", 0.5).value
-        self.last_pose = None
-        self.last_tf = None
+        self.max_wheel_tf_age = self.declare_parameter("max_wheel_tf_age", 0.1).value
 
         x, y, yaw = start
         self.map_from_start = matrix((x, y, 0.0), (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)))
@@ -134,10 +111,6 @@ class FastLioBridge(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.publisher = self.create_publisher(Odometry, target, 50)
         self.create_subscription(Odometry, source, self.on_odometry, 50)
-        if self.publish_ready:
-            self.ready_publisher = self.create_publisher(Bool, "/localization/ready", 10)
-            self.status_publisher = self.create_publisher(String, "/localization/status", 10)
-            self.create_timer(0.1, self.publish_readiness)
         self.get_logger().info(
             f"{source} -> {target} ({self.map_frame} -> {self.base_frame}), "
             f"старт ({x:.3f}, {y:.3f}, {math.degrees(yaw):.1f} град)"
@@ -200,7 +173,6 @@ class FastLioBridge(Node):
             t.angular.x, t.angular.y, t.angular.z = (float(v) for v in angular)
         self.last = (moment, map_from_base)
         self.publisher.publish(out)
-        self.last_pose = time.monotonic()
 
         if self.publish_tf:
             self.publish_map_to_odom(message.header.stamp, map_from_base)
@@ -221,6 +193,9 @@ class FastLioBridge(Node):
                     throttle_duration_sec=5.0,
                 )
                 return
+        if abs(stamp_seconds(stamp)-stamp_seconds(t.header.stamp)) > self.max_wheel_tf_age:
+            self.get_logger().warning("Wheel TF too old for FAST-LIO bridge", throttle_duration_sec=5.0)
+            return
         tr, q = t.transform.translation, t.transform.rotation
         odom_from_base = matrix((tr.x, tr.y, tr.z), (q.x, q.y, q.z, q.w))
         map_from_odom = map_from_base @ np.linalg.inv(odom_from_base)
@@ -239,19 +214,6 @@ class FastLioBridge(Node):
             out.transform.rotation.w,
         ) = (float(v) for v in quaternion(map_from_odom[:3, :3]))
         self.tf_broadcaster.sendTransform(out)
-        self.last_tf = time.monotonic()
-
-    def publish_readiness(self):
-        now = time.monotonic()
-        pose_fresh = self.last_pose is not None and now - self.last_pose <= self.max_age
-        transform_fresh = not self.publish_tf or (
-            self.last_tf is not None and now - self.last_tf <= self.max_age
-        )
-        ready = pose_fresh and transform_fresh
-        self.ready_publisher.publish(Bool(data=ready))
-        self.status_publisher.publish(String(data=json.dumps(dict(
-            ready=ready, source="fastlio", pose_fresh=pose_fresh,
-            transform_fresh=transform_fresh))))
 
 
 def main():

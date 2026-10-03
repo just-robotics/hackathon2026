@@ -11,9 +11,10 @@
 
 ```text
 Kobuki USB → /odom → map-поза → decision → global planner → Nav2 MPPI → gate → /cmd_vel → Kobuki
-Livox → /livox/lidar → real_lidar_filter → /sensing/lidar/points_filtered
+Livox → /livox/lidar ┬→ jr_perception → /opponent/odom, /opponent/markers
+                    └→ real_lidar_filter → /sensing/lidar/points_filtered
                                             ├→ LaserScan → AMCL
-                                            └→ cloud в map → planner / MPPI / detector
+                                            └→ cloud в map → /navigation/scan → decision / planner / MPPI / gate
 ```
 
 Все узлы работают по системному времени (`use_sim_time=false`). Gazebo,
@@ -420,3 +421,37 @@ InflationLayer; результаты детектора её не обновля
 `local.MPPI.time_steps` — целое20..120; default60шагов при model_dt0,05с.
 Длина прогноза меняется при следующем запуске. Весь прогноз проверяется
 на столкновение полным контуром; изменение горизонта не выключает эту проверку.
+
+## FAST-LIO2 с коррекцией по статической карте
+
+Пересобрать: `helm build_real`. В `real.yaml` нужны `localization: fastlio`,
+`fastlio_file`, `localization_file` и `map_file`. В `real_match.yaml`
+`robot.start` задаёт начальную оценку положения, которую уточняет AMCL.
+Запуск: `helm start_real`, разрешение: `helm enable_real`,
+пауза: `helm pause_real`, завершение/сохранение bag: `helm stop_real`.
+
+FAST-LIO2 (raw LiDAR + IMU) даёт относительное движение. AMCL получает
+очищенный скан и сопоставляет его с готовой картой, корректируя дрейф и старт.
+TF: `map → lio_odom` от AMCL, `lio_odom → odom` от моста,
+`odom → base_footprint` от драйвера. Колёсный `/odom` сохранён.
+
+**`/localization/kinematic_state`** — итоговый `nav_msgs/Odometry` в `map`,
+child `base_footprint`. Его получают детектор и real_observations;
+последний передаёт `/navigation/self` decision manager, A* и MPPI.
+Внутренняя нескорректированная поза — `/localization/lio_odometry`,
+исходный результат FAST-LIO — `/Odometry`. Все три записываются в bag.
+Старый live-топик `/localization/fastlio/odometry` больше не используется.
+
+После активации AMCL монитор однократно отправляет `/initialpose`
+с неопределённостью старта из `localization.yaml` (0,25 м и 0,35 рад).
+Параметрический старт AMCL с нулевой covariance отключён.
+
+Без свежей и достаточно уверенной AMCL-оценки итоговая поза не выдаётся.
+Монитор дополнительно проверяет свежесть LiDAR, IMU, колёсной одометрии и TF.
+Пороговые значения — в `config/localization.yaml`. Маленькая covariance
+не доказывает правильный выбор симметричного участка лабиринта; стартовая
+оценка должна быть достаточно близка к фактической.
+
+При offline replay исключите записанные TF локализации, сохранив TF
+драйвера и монтажа. Нельзя одновременно воспроизводить старый map→odom
+и запускать новую цепочку map→lio_odom→odom.
