@@ -38,34 +38,15 @@ Visualization Manager:
       Alpha: 0.7
 
     # Потенциальное поле атакующего. Схема costmap читается нагляднее серой:
-    # синее -- низкий потенциал, куда робот стремится, красное -- стены и
-    # соперник. По умолчанию выключено, так как нода считает сетку только
-    # при наличии подписчиков.
-    - Class: rviz_default_plugins/Map
-      Name: Поле атакующего
-      Enabled: false
-      Topic:
-        Value: /attacker/planning/potential_field
-        Durability Policy: Volatile
-        Reliability Policy: Reliable
-      Color Scheme: costmap
-      Alpha: 0.6
-
-    - Class: rviz_default_plugins/Map
-      Name: Поле защитника
-      Enabled: false
-      Topic:
-        Value: /defender/planning/potential_field
-        Durability Policy: Volatile
-        Reliability Policy: Reliable
-      Color Scheme: costmap
-      Alpha: 0.6
-
+    # TF Prefix обязателен: robot_state_publisher публикует фреймы как
+    # attacker/base_link, а без префикса RobotModel ищет base_link и
+    # показывает "No transform from [base_link] to [world]".
     - Class: rviz_default_plugins/RobotModel
-      Name: Роботы
+      Name: Атакующий
       Enabled: true
       Description Topic:
         Value: /attacker/robot_description
+      TF Prefix: attacker
       Alpha: 1
 
     - Class: rviz_default_plugins/RobotModel
@@ -73,6 +54,7 @@ Visualization Manager:
       Enabled: true
       Description Topic:
         Value: /defender/robot_description
+      TF Prefix: defender
       Alpha: 1
 
     - Class: rviz_default_plugins/Path
@@ -94,6 +76,17 @@ Visualization Manager:
       Line Style: Lines
 
     # Контур синей зоны от судьи.
+    - Class: rviz_default_plugins/Path
+      Color: 255; 170; 0
+      Enabled: true
+      Line Style: Lines
+      Name: Глобальный путь атакующего
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+        Value: /attacker/planning/global_path
+      Value: true
     - Class: rviz_default_plugins/Marker
       Name: Синяя зона
       Enabled: true

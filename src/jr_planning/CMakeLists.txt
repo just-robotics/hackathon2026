@@ -11,6 +11,7 @@ install(
   PROGRAMS
     jr_planning/potential_field_planner.py
     jr_planning/game_mpc_planner.py
+    jr_planning/attack_strategy.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

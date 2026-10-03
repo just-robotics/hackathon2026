@@ -72,7 +72,7 @@ services:
     # Ноды кладутся в namespace робота (/defender/control/...), иначе два
     # контроллера спорили бы за одни имена нод. Топики передаются полными.
     planning_defender:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_game_planning.launch.xml ns:=defender role:=defender base_frame:=defender/base_footprint goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_game_planning.launch.xml ns:=defender role:=defender base_frame:=defender/base_footprint v_min:=${PLAN_V_MIN:--0.5} horizon:=${PLAN_HORIZON:-2.0} wall_penalty:=${WALL_PENALTY:-20.0} wall_clearance:=${WALL_CLEARANCE:-0.25} goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
         extends:
             file: common.yaml
             service: app
@@ -88,7 +88,7 @@ services:
             - duel
 
     planning_attacker:
-        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_game_planning.launch.xml ns:=attacker role:=attacker base_frame:=attacker/base_footprint goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_game_planning.launch.xml ns:=attacker role:=attacker base_frame:=attacker/base_footprint v_min:=${PLAN_V_MIN:--0.5} horizon:=${PLAN_HORIZON:-2.0} wall_penalty:=${WALL_PENALTY:-20.0} wall_clearance:=${WALL_CLEARANCE:-0.25} goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0} catch_distance:=${CATCH_DISTANCE:-0.1}"
         extends:
             file: common.yaml
             service: app
@@ -131,6 +131,16 @@ services:
             - ${XAUTHORITY:-/dev/null}:/tmp/.xauthority:ro
         profiles:
             - rviz
+
+    # Верхний уровень атакующего: ищет путь к зоне по карте и ведёт по нему
+    # игровой MPC. Без него MPC в лабиринте встаёт перед первой же стеной.
+    strategy_attacker:
+        command: $CMD "source /autoware/install/setup.bash && ros2 launch jr_launch jr_strategy.launch.xml ns:=attacker base_frame:=attacker/base_footprint goal_x:=${BLUE_ZONE_X:-3.5} goal_y:=${BLUE_ZONE_Y:-0.0}"
+        extends:
+            file: common.yaml
+            service: app
+        profiles:
+            - duel
 
     # Судья: следит за условиями победы и останавливает обоих роботов.
     referee:

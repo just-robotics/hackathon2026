@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Верхний уровень планирования: подсказка игровому MPC, куда ехать.
+
+     MPC видит только горизонт в пару метров и в лабиринте встаёт перед
+     первой же стеной. Эта нода ищет путь к зоне по карте занятости с
+     раздутыми на радиус робота стенами и отдаёт MPC точку на этом пути.
+
+     Соперник здесь не учитывается: игра и уклонение остаются за MPC. -->
+<launch>
+  <arg name="simulation" default="true" description="запуск в симуляторе"/>
+
+  <arg name="ns" default="" description="пространство имён робота"/>
+  <arg name="base_frame" default="attacker/base_footprint"/>
+  <arg name="output_frame" default="world"/>
+
+  <arg name="goal_x" default="2.7"/>
+  <arg name="goal_y" default="2.7"/>
+
+  <arg name="clearance" default="0.24" description="запас до стен, м"/>
+  <!-- Цель ставится дальше, чем MPC проезжает за горизонт (3 с на 0.7 м/с
+       это 2.1 м), иначе робот перелетает её и сдаёт назад. -->
+  <arg name="lookahead" default="2.5" description="как далеко ставить цель, м"/>
+  <arg name="rate" default="5.0"/>
+
+  <group>
+    <push-ros-namespace namespace="$(var ns)"/>
+    <node pkg="jr_planning" exec="attack_strategy.py" name="attack_strategy"
+          output="screen">
+      <param name="base_frame" value="$(var base_frame)"/>
+      <param name="output_frame" value="$(var output_frame)"/>
+      <param name="goal" value="[$(var goal_x), $(var goal_y)]"/>
+      <param name="clearance" value="$(var clearance)"/>
+      <param name="lookahead" value="$(var lookahead)"/>
+      <param name="rate" value="$(var rate)"/>
+      <param name="use_sim_time" value="$(var simulation)"/>
+    </node>
+  </group>
+</launch>

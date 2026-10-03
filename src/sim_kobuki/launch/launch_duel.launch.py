@@ -20,6 +20,7 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    OpaqueFunction,
     TimerAction,
 )
 from launch.conditions import UnlessCondition
@@ -28,6 +29,7 @@ from launch.substitutions import (
     Command,
     LaunchConfiguration,
     PathJoinSubstitution,
+    PythonExpression,
 )
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -36,10 +38,39 @@ from launch_ros.parameter_descriptions import ParameterValue
 # Стартовые позиции -- центры площадок totami: защитник на синей у восточной
 # стены, атакующий на красной у западной. Роботы развёрнуты навстречу друг
 # другу, поэтому защитник смотрит в -X (yaw = pi), атакующий в +X.
-ROBOTS = (
-    {"name": "defender", "x": 3.5, "y": 0.0, "yaw": 3.14159},
-    {"name": "attacker", "x": -3.5, "y": 0.0, "yaw": 0.0},
-)
+# Точки спавна по мирам. totami -- открытый квадрат, роботы стоят на своих
+# площадках навстречу друг другу. maze_duel -- лабиринт, там защитник стоит
+# не на цели, а в середине: на синей зоне он перекрывал бы её сразу, и у
+# атакующего не оставалось бы ни одного выигрышного хода.
+SPAWNS = {
+    "totami": (
+        {"name": "defender", "x": 3.5, "y": 0.0, "yaw": 3.14159},
+        {"name": "attacker", "x": -3.5, "y": 0.0, "yaw": 0.0},
+    ),
+    # Лабиринт: три сценария отличаются только позицией стража, атакующий
+    # всегда стартует в одной точке. Чем дальше страж, тем больше у
+    # атакующего свободы на первых метрах.
+    "maze_duel": (
+        {"name": "defender", "x": 2.5, "y": 2.5, "yaw": 3.14159},
+        {"name": "attacker", "x": -0.34, "y": 0.4, "yaw": 1.5708},
+    ),
+    "maze_duel_m2": (
+        {"name": "defender", "x": 1.5, "y": 1.5, "yaw": 3.14159},
+        {"name": "attacker", "x": -0.34, "y": 0.4, "yaw": 1.5708},
+    ),
+    "maze_duel_m3": (
+        {"name": "defender", "x": -2.5, "y": 1.5, "yaw": 0.0},
+        {"name": "attacker", "x": -0.34, "y": 0.4, "yaw": 1.5708},
+    ),
+}
+
+# Сценарии 2 и 3 идут по той же карте, отличаются только расстановкой.
+WORLD_ALIASES = {
+    "maze_duel_m2": "maze_duel",
+    "maze_duel_m3": "maze_duel",
+}
+
+DEFAULT_MAP = "totami"
 
 SPAWN_Z = 0.23
 
@@ -141,8 +172,23 @@ def generate_launch_description():
     package_share = get_package_share_directory("sim_kobuki")
     gazebo_ros_share = get_package_share_directory("gazebo_ros")
 
+    # Сценарии 2 и 3 идут по той же карте, что и первый: подменяем имя мира,
+    # оставляя выбор расстановки за SPAWNS.
     world = PathJoinSubstitution(
-        [package_share, "worlds", [LaunchConfiguration("map"), ".world"]]
+        [
+            package_share,
+            "worlds",
+            [
+                PythonExpression(
+                    [
+                        "'",
+                        LaunchConfiguration("map"),
+                        "'.replace('_m2', '').replace('_m3', '')",
+                    ]
+                ),
+                ".world",
+            ],
+        ]
     )
     headless = LaunchConfiguration("headless")
     lidar = LaunchConfiguration("lidar")
@@ -196,7 +242,19 @@ def generate_launch_description():
         gzclient,
     ]
 
-    for robot in ROBOTS:
-        actions += robot_actions(robot, package_share, lidar)
+    # Точки спавна зависят от карты, а её значение известно только в момент
+    # запуска: LaunchConfiguration на этапе сборки описания не читается.
+    # OpaqueFunction выполняется уже с подставленными аргументами.
+    def spawn_robots(context):
+        name = LaunchConfiguration("map").perform(context)
+        robots = SPAWNS.get(name, SPAWNS[DEFAULT_MAP])
+
+        spawned = []
+        for robot in robots:
+            spawned += robot_actions(robot, package_share, lidar)
+
+        return spawned
+
+    actions.append(OpaqueFunction(function=spawn_robots))
 
     return LaunchDescription(actions)

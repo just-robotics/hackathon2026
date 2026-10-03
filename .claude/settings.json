@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(helm:*)",
+      "Bash(docker compose:*)",
+      "Bash(git:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

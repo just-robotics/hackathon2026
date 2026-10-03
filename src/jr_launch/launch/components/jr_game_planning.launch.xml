@@ -29,6 +29,9 @@
   <arg name="dt" default="0.1" description="шаг модели, с"/>
 
   <arg name="v_max" default="0.5" description="максимальная скорость, м/с"/>
+  <!-- Нижний предел скорости. Отрицательный разрешает задний ход: у Kobuki
+       дифференциальный привод, и назад он едет так же. Ноль запрещает. -->
+  <arg name="v_min" default="-0.5" description="минимальная скорость, м/с"/>
   <arg name="w_max" default="1.5" description="максимальный поворот, рад/с"/>
 
   <arg name="speed_options" default="3" description="вариантов скорости"/>
@@ -52,6 +55,7 @@
       <param name="horizon" value="$(var horizon)"/>
       <param name="dt" value="$(var dt)"/>
       <param name="v_max" value="$(var v_max)"/>
+      <param name="v_min" value="$(var v_min)"/>
       <param name="w_max" value="$(var w_max)"/>
       <param name="speed_options" value="$(var speed_options)"/>
       <param name="turn_options" value="$(var turn_options)"/>
