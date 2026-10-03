@@ -1,0 +1,1038 @@
+<title>Разбор robot_body_filter</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+:root {
+    --bg: #FAFAF8;
+    --surface: #FFFFFF;
+    --surface-2: #F2F3F0;
+    --line: #DEE0DB;
+    --line-strong: #C4C8C0;
+    --text: #14171A;
+    --text-dim: #5C6570;
+    --text-faint: #8A9099;
+    --accent: #C9481C;
+    --accent-soft: #FBEDE7;
+    --keep: #2F6B47;
+    --keep-soft: #E8F1EA;
+    --warn: #8A6410;
+    --warn-soft: #FAF2DD;
+    --code-bg: #F4F5F2;
+
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+
+    --max: 62rem;
+}
+
+:root:not([data-theme="light"]) {
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #0F1115;
+        --surface: #161A20;
+        --surface-2: #1C2128;
+        --line: #252A31;
+        --line-strong: #333A44;
+        --text: #E6E9EC;
+        --text-dim: #98A1AB;
+        --text-faint: #6C757F;
+        --accent: #E8622C;
+        --accent-soft: #2A1811;
+        --keep: #5FB37C;
+        --keep-soft: #14231A;
+        --warn: #D9A441;
+        --warn-soft: #241D0E;
+        --code-bg: #12161B;
+        color-scheme: dark;
+    }
+}
+
+:root[data-theme="dark"] {
+    --bg: #0F1115;
+    --surface: #161A20;
+    --surface-2: #1C2128;
+    --line: #252A31;
+    --line-strong: #333A44;
+    --text: #E6E9EC;
+    --text-dim: #98A1AB;
+    --text-faint: #6C757F;
+    --accent: #E8622C;
+    --accent-soft: #2A1811;
+    --keep: #5FB37C;
+    --keep-soft: #14231A;
+    --warn: #D9A441;
+    --warn-soft: #241D0E;
+    --code-bg: #12161B;
+    color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+}
+
+/* ---------- header ---------- */
+
+header {
+    padding: 4.5rem 0 2.5rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 3rem;
+}
+
+.eyebrow {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+}
+
+h1 {
+    font-family: var(--mono);
+    font-size: clamp(1.9rem, 5vw, 2.9rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+}
+
+.lede {
+    font-size: 1.08rem;
+    color: var(--text-dim);
+    max-width: 46rem;
+    margin: 0;
+}
+
+.meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.75rem;
+}
+
+.chip {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    padding: 0.28rem 0.62rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.chip.done { color: var(--keep); border-color: var(--keep); background: var(--keep-soft); }
+.chip.todo { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+
+/* ---------- sections ---------- */
+
+h2 {
+    font-family: var(--mono);
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 4rem 0 0.5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+}
+
+h2:first-of-type { margin-top: 0; border-top: none; padding-top: 0; }
+
+.section-note {
+    color: var(--text-dim);
+    margin: 0 0 2rem;
+    max-width: 46rem;
+}
+
+/* ---------- flow diagram ---------- */
+
+.diagram {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1.75rem 1.25rem;
+    margin: 0 0 1rem;
+    overflow-x: auto;
+}
+
+.diagram svg { display: block; margin: 0 auto; min-width: 640px; }
+
+.d-label { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.d-sub { font-family: var(--mono); font-size: 9.5px; fill: var(--text-faint); }
+.d-box { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1; }
+.d-box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+.d-arrow { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+.d-drop { stroke: var(--accent); stroke-width: 1.5; fill: none; stroke-dasharray: 3 3; }
+.d-drop-label { font-family: var(--mono); font-size: 9.5px; fill: var(--accent); }
+
+.caption {
+    font-size: 0.85rem;
+    color: var(--text-faint);
+    margin: 0 0 3rem;
+    font-family: var(--mono);
+}
+
+/* ---------- stage cards ---------- */
+
+.stage {
+    display: grid;
+    grid-template-columns: 3.25rem 1fr;
+    gap: 1.25rem;
+    margin-bottom: 2.5rem;
+}
+
+.rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.rail-num {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    width: 2rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    background: var(--accent-soft);
+}
+
+.rail-line {
+    width: 1px;
+    flex: 1;
+    background: var(--line);
+    min-height: 1rem;
+}
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1.4rem 1.5rem;
+    min-width: 0;
+}
+
+.sig {
+    font-family: var(--mono);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 0.15rem;
+    word-break: break-word;
+}
+
+.sig .ns { color: var(--text-faint); font-weight: 400; }
+
+.where {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--text-faint);
+    margin: 0 0 1rem;
+}
+
+.card p { margin: 0 0 0.85rem; }
+.card p:last-child { margin-bottom: 0; }
+
+.io {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.35rem 0.9rem;
+    font-size: 0.86rem;
+    margin: 0 0 1.1rem;
+    padding: 0.85rem 1rem;
+    background: var(--surface-2);
+    border-radius: 2px;
+}
+
+.io dt {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    padding-top: 0.15rem;
+}
+
+.io dd { margin: 0; font-family: var(--mono); font-size: 0.8rem; color: var(--text-dim); word-break: break-word; }
+
+pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    margin: 0 0 0.9rem;
+}
+
+code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+}
+
+p code, li code, td code, .io dd code {
+    background: var(--surface-2);
+    padding: 0.08em 0.36em;
+    border-radius: 2px;
+    font-size: 0.85em;
+    color: var(--text);
+}
+
+.cm { color: var(--text-faint); }
+.kw { color: var(--accent); }
+
+.note {
+    border-left: 2px solid var(--line-strong);
+    padding: 0.1rem 0 0.1rem 0.9rem;
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    margin: 0 0 0.9rem;
+}
+
+.note.why { border-left-color: var(--accent); }
+.note.todo { border-left-color: var(--warn); }
+
+.note strong { color: var(--text); font-weight: 600; }
+
+/* ---------- tables ---------- */
+
+.tbl-wrap { overflow-x: auto; margin: 0 0 1.5rem; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.87rem;
+    min-width: 30rem;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+}
+
+th {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 500;
+    border-bottom-color: var(--line-strong);
+}
+
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.mono { font-family: var(--mono); font-size: 0.82rem; }
+
+/* ---------- cost ladder ---------- */
+
+.ladder { display: flex; flex-direction: column; gap: 0.6rem; margin: 0 0 1.5rem; }
+
+.rung {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+    padding: 0.85rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+}
+
+.rung-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.rung-name { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; }
+.rung-cost { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rung-desc { font-size: 0.87rem; color: var(--text-dim); }
+
+.bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+
+/* ---------- plan steps ---------- */
+
+.plan { display: flex; flex-direction: column; gap: 1rem; margin: 0 0 1.5rem; }
+
+.step {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--warn);
+    border-radius: 3px;
+    padding: 1.1rem 1.3rem;
+}
+
+.step-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+    margin: 0 0 0.6rem;
+    flex-wrap: wrap;
+}
+
+.step-n {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--warn);
+    white-space: nowrap;
+}
+
+.step-title { font-family: var(--mono); font-size: 0.9rem; font-weight: 600; }
+
+.step ul { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+.step li { margin-bottom: 0.35rem; }
+.step li:last-child { margin-bottom: 0; }
+
+.decision {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 1.1rem 1.3rem;
+    margin: 0 0 1.5rem;
+}
+
+.decision-label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.5rem;
+}
+
+.decision p { margin: 0 0 0.7rem; }
+.decision p:last-child { margin-bottom: 0; }
+
+footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text-faint);
+}
+
+@media (max-width: 34rem) {
+    .stage { grid-template-columns: 1fr; gap: 0.75rem; }
+    .rail { flex-direction: row; align-items: center; }
+    .rail-line { height: 1px; width: auto; flex: 1; min-height: 0; }
+    .io { grid-template-columns: 1fr; gap: 0.15rem 0; }
+    .io dt { padding-top: 0.5rem; }
+}
+</style>
+
+<div class="wrap">
+
+<header>
+    <p class="eyebrow">ROS 2 Humble · пакет robot_body_filter</p>
+    <h1>Разбор robot_body_filter</h1>
+    <p class="lede">
+        Полный путь облака точек от подписки до публикации: какая функция что делает,
+        что получает на вход, что отдаёт и почему устроена именно так. Статическая
+        часть работает и проверена; в конце — план второго этапа: поворотные колёса
+        и откидная крышка.
+    </p>
+    <div class="meta-row">
+        <span class="chip done">статика: работает</span>
+        <span class="chip todo">динамика: план</span>
+        <span class="chip">3 единицы трансляции</span>
+        <span class="chip">без PCL</span>
+        <span class="chip">Eigen + tf2</span>
+    </div>
+</header>
+
+<h2>Путь одного облака</h2>
+<p class="section-note">
+    Всё, что происходит с сообщением от callback до publish. Пунктирные стрелки —
+    точки, которые уходят из облака; они никуда не копируются, просто не попадают
+    в выходной буфер.
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 900 300" role="img" aria-label="Схема потока: облако приходит в cloudCallback, проверяется is_dense, переводится в base_link, затем каждая точка проходит глобальный AABB, AABB бокса и точную проверку; выжившие копируются в выходной буфер">
+    <defs>
+        <marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 z" fill="currentColor" class="d-arrow" style="stroke:none"/>
+        </marker>
+    </defs>
+
+    <!-- row 1: node level -->
+    <rect class="d-box" x="10" y="24" width="150" height="46" rx="2"/>
+    <text class="d-label" x="85" y="43" text-anchor="middle">cloudCallback</text>
+    <text class="d-sub" x="85" y="58" text-anchor="middle">PointCloud2 msg</text>
+
+    <path class="d-arrow" d="M160,47 L204,47" marker-end="url(#ah)"/>
+
+    <rect class="d-box" x="208" y="24" width="150" height="46" rx="2"/>
+    <text class="d-label" x="283" y="43" text-anchor="middle">is_dense?</text>
+    <text class="d-sub" x="283" y="58" text-anchor="middle">warn, throttle 2 c</text>
+
+    <path class="d-arrow" d="M358,47 L402,47" marker-end="url(#ah)"/>
+
+    <rect class="d-box" x="406" y="24" width="180" height="46" rx="2"/>
+    <text class="d-label" x="496" y="43" text-anchor="middle">transformCloudToBaseFrame</text>
+    <text class="d-sub" x="496" y="58" text-anchor="middle">tf2::doTransform → base_link</text>
+
+    <path class="d-arrow" d="M586,47 L630,47" marker-end="url(#ah)"/>
+
+    <rect class="d-box-accent" x="634" y="24" width="150" height="46" rx="2"/>
+    <text class="d-label" x="709" y="43" text-anchor="middle">filter()</text>
+    <text class="d-sub" x="709" y="58" text-anchor="middle">цикл по точкам</text>
+
+    <!-- connector down -->
+    <path class="d-arrow" d="M709,70 L709,96 L120,96 L120,120" marker-end="url(#ah)"/>
+    <text class="d-sub" x="400" y="90" text-anchor="middle">для каждой точки, шаг point_step</text>
+
+    <!-- row 2: per-point ladder -->
+    <rect class="d-box" x="45" y="122" width="150" height="46" rx="2"/>
+    <text class="d-label" x="120" y="141" text-anchor="middle">глобальный AABB</text>
+    <text class="d-sub" x="120" y="156" text-anchor="middle">6 сравнений</text>
+
+    <path class="d-arrow" d="M195,145 L239,145" marker-end="url(#ah)"/>
+    <text class="d-sub" x="217" y="138" text-anchor="middle">внутри</text>
+
+    <rect class="d-box" x="243" y="122" width="150" height="46" rx="2"/>
+    <text class="d-label" x="318" y="141" text-anchor="middle">AABB бокса</text>
+    <text class="d-sub" x="318" y="156" text-anchor="middle">insideAabb()</text>
+
+    <path class="d-arrow" d="M393,145 L437,145" marker-end="url(#ah)"/>
+    <text class="d-sub" x="415" y="138" text-anchor="middle">внутри</text>
+
+    <rect class="d-box" x="441" y="122" width="170" height="46" rx="2"/>
+    <text class="d-label" x="526" y="141" text-anchor="middle">world_to_box · point</text>
+    <text class="d-sub" x="526" y="156" text-anchor="middle">только если R ≠ I</text>
+
+    <path class="d-drop" d="M526,168 L526,196" marker-end="url(#ah)"/>
+    <text class="d-drop-label" x="536" y="188">точка вырезана</text>
+
+    <!-- keep path -->
+    <path class="d-arrow" d="M120,168 L120,225 L300,225" marker-end="url(#ah)"/>
+    <text class="d-sub" x="128" y="200">снаружи — хорошая</text>
+
+    <path class="d-arrow" d="M318,168 L318,208 L318,221"/>
+    <text class="d-sub" x="326" y="196">снаружи</text>
+
+    <rect class="d-box" x="304" y="204" width="230" height="46" rx="2"/>
+    <text class="d-label" x="419" y="223" text-anchor="middle">memcpy(point_step)</text>
+    <text class="d-sub" x="419" y="238" text-anchor="middle">все поля целиком, XYZIRC не разбирается</text>
+
+    <path class="d-arrow" d="M534,227 L578,227" marker-end="url(#ah)"/>
+
+    <rect class="d-box-accent" x="582" y="204" width="200" height="46" rx="2"/>
+    <text class="d-label" x="682" y="223" text-anchor="middle">resize + publish</text>
+    <text class="d-sub" x="682" y="238" text-anchor="middle">height=1, width=points_out</text>
+</svg>
+</div>
+<p class="caption">Один проход по буферу. Промежуточных облаков между боксами нет.</p>
+
+<h2>Стадия за стадией</h2>
+<p class="section-note">
+    Нумерация здесь — реальный порядок вызовов за один кадр, а не оформление.
+    Стадии 1–3 выполняются один раз при старте, 4–9 — на каждое облако.
+</p>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">1</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilterNode::</span>RobotBodyFilterNode()</p>
+        <p class="where">src/robot_body_filter_node.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>параметры ROS из params.yaml</dd>
+            <dt>выход</dt><dd>готовые подписки, publisher'ы, заполненный filter_</dd>
+        </dl>
+        <p>
+            Объявляет <code>base_frame</code>, <code>publish_body_markers</code>,
+            <code>tf_timeout</code>, затем зовёт <code>declareBoxes</code> и отдаёт
+            результат в <code>filter_.setStaticBoxes()</code>. Создаёт TF-буфер со
+            слушателем, подписку на <code>~/input/pointcloud</code> и два publisher'а.
+        </p>
+        <div class="note why">
+            <strong>Почему QoS разный.</strong> Облако — <code>SensorDataQoS()</code>
+            на вход и выход (best effort, depth 5): согласовано с драйвером лидара,
+            потеря кадра лучше задержки. Маркеры — <code>QoS(1).transient_local()</code>:
+            RViz, подключившийся позже, сразу получает последнее сообщение.
+        </div>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">2</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilterNode::</span>declareBoxes(prefix, dynamic)</p>
+        <p class="where">src/robot_body_filter_node.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>prefix = "static_boxes" | "dynamic_boxes"; dynamic = читать ли axis и joint_frame</dd>
+            <dt>выход</dt><dd>std::vector&lt;CropBox&gt;, отбракованные боксы пропущены</dd>
+        </dl>
+        <p>
+            Сначала читает <code>&lt;prefix&gt;.names</code> как <code>string[]</code>,
+            и только потом, зная имена, объявляет поля каждого бокса:
+            <code>origin</code>, <code>min</code>, <code>max</code>, <code>padding</code>.
+        </p>
+        <div class="note why">
+            <strong>Почему список имён обязателен.</strong> <code>declare_parameter</code>
+            требует точное имя параметра, а необъявленные параметры rclcpp отбрасывает
+            при загрузке YAML — из конфига их не перечислить. Имена приходится
+            объявить первыми, чтобы построить остальные ключи.
+        </div>
+        <p>Валидация, после которой бокс пропускается с <code>RCLCPP_ERROR</code>:</p>
+        <div class="tbl-wrap">
+        <table>
+            <thead><tr><th>Проверка</th><th>Причина</th></tr></thead>
+            <tbody>
+                <tr><td class="mono">origin/min/max ≠ 3 эл.</td><td>неполные координаты дали бы тихо неверный бокс</td></tr>
+                <tr><td class="mono">padding ≠ 3 эл.</td><td>раздутие задаётся вектором по осям, скаляр не принимается</td></tr>
+                <tr><td class="mono">min &gt; max</td><td>перевёрнутый интервал не поймает ни одной точки</td></tr>
+                <tr><td class="mono">axis ≈ 0</td><td>ось вращения нулевой длины не нормализуется</td></tr>
+                <tr><td class="mono">joint_frame пуст</td><td>динамический бокс без звена нечем поворачивать</td></tr>
+            </tbody>
+        </table>
+        </div>
+        <p>
+            <code>padding</code> читается как <code>double[3]</code> и раздувает
+            габариты по каждой оси отдельно, <code>axis</code> нормализуется на месте.
+        </p>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">3</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">CropBox::</span>updateTransform()</p>
+        <p class="where">src/crop_box.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>поля origin, min, max, padding, rotation</dd>
+            <dt>выход</dt><dd>axis_aligned, world_to_box, aabb_min, aabb_max</dd>
+        </dl>
+        <p>
+            Вся предподготовка бокса. Вызывается из сеттеров фильтра и (в будущем)
+            из <code>applyJointPose</code>. Развилка по <code>rotation</code>:
+        </p>
+<pre><code>axis_aligned = rotation.isApprox(Matrix3d::Identity(), 1e-9);
+
+<span class="cm">// ветка 1: бокс параллелен base_link</span>
+world_to_box = Isometry3d(Translation3d(-origin));
+aabb_min = origin + padded_min;
+aabb_max = origin + padded_max;
+
+<span class="cm">// ветка 2: повёрнутый бокс</span>
+world_to_box = box_to_world.inverse();
+<span class="cm">// AABB строится по 8 повёрнутым углам</span>
+for (int i = 0; i &lt; 8; ++i) { ... cwiseMin / cwiseMax ... }</code></pre>
+        <div class="note why">
+            <strong>Зачем AABB у повёрнутого бокса.</strong> Он заведомо больше самого
+            бокса, поэтому как точный тест не годится — но как предфильтр отсекает
+            почти всё облако шестью сравнениями, до всякой матрицы.
+            Биты <code>i&amp;1</code>, <code>i&amp;2</code>, <code>i&amp;4</code>
+            перебирают комбинации min/max по трём осям — это и есть 8 углов.
+        </div>
+        <div class="note why">
+            <strong>Почему это не в конструкторе.</strong> <code>CropBox</code> —
+            агрегат с публичными полями, его собирают присваиванием. Единая точка
+            пересчёта нужна и после смены угла джоинта, а не только при создании.
+        </div>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">4</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilter::</span>updateGlobalAabb()</p>
+        <p class="where">src/robot_body_filter.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>static_boxes_, dynamic_boxes_ с готовыми aabb</dd>
+            <dt>выход</dt><dd>global_aabb_min_, global_aabb_max_, has_boxes_</dd>
+        </dl>
+        <p>
+            Объединяет AABB всех боксов покоординатным <code>cwiseMin</code> /
+            <code>cwiseMax</code>. Вызывается из обоих сеттеров.
+        </p>
+        <div class="note why">
+            <strong>Почему считается, а не задаётся числом.</strong> Куб «3 на 3
+            метра» из конфига разошёлся бы с боксами при первой же правке, и точки
+            в вынесенном боксе перестали бы вырезаться молча. Здесь покрытие
+            гарантировано по построению.
+        </div>
+        <div class="note todo">
+            <strong>TODO.</strong> Динамические боксы входят сюда текущими
+            габаритами. Должны — габаритами во всех положениях поворота, иначе
+            при повороте колеса точки начнут проскакивать мимо предфильтра.
+        </div>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">5</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilterNode::</span>cloudCallback(msg)</p>
+        <p class="where">src/robot_body_filter_node.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>PointCloud2::ConstSharedPtr в кадре сенсора</dd>
+            <dt>выход</dt><dd>публикация в ~/output/pointcloud</dd>
+        </dl>
+        <p>
+            Точка входа на каждый кадр. Проверяет <code>is_dense</code>, переводит
+            облако в <code>base_frame</code>, зовёт <code>filter()</code>, публикует
+            результат и пишет статистику в <code>RCLCPP_DEBUG</code>.
+        </p>
+        <div class="note why">
+            <strong>Проверка is_dense вместо isfinite на точку.</strong> Раньше в
+            горячем цикле стояли три <code>std::isfinite</code> на каждую точку.
+            Теперь — один разовый флаг с варнингом раз в 2 секунды. NaN-точки
+            проходят насквозь: все сравнения с NaN дают false, поэтому в бокс такая
+            точка не попадёт и просто уедет в выход.
+        </div>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">6</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilterNode::</span>transformCloudToBaseFrame(in, out)</p>
+        <p class="where">src/robot_body_filter_node.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>облако в произвольном кадре</dd>
+            <dt>выход</dt><dd>true + облако в base_frame; false — кадр пропускается</dd>
+        </dl>
+        <p>
+            Если <code>frame_id</code> уже равен <code>base_frame</code> — копия без
+            работы. Иначе <code>lookupTransform</code> на timestamp облака с таймаутом
+            <code>tf_timeout</code> и <code>tf2::doTransform</code>.
+        </p>
+        <div class="note why">
+            <strong>Почему облако к боксам, а не боксы к облаку.</strong> Боксы заданы
+            в <code>base_link</code> и их пять; кадр сенсора один. Перевести облако
+            один раз дешевле, чем пересчитывать пять боксов в кадр сенсора на каждом
+            кадре — и не пришлось бы трогать <code>world_to_box</code> каждого.
+        </div>
+        <p>
+            При отсутствии TF — <code>RCLCPP_WARN_THROTTLE</code> раз в 2 секунды и
+            <code>return false</code>: кадр пропускается целиком. Отфильтровать
+            наполовину хуже, чем не отфильтровать.
+        </p>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">7</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilter::</span>filter(cloud_in, cloud_out)</p>
+        <p class="where">src/robot_body_filter.cpp — горячий путь</p>
+        <dl class="io">
+            <dt>вход</dt><dd>облако в base_frame</dd>
+            <dt>выход</dt><dd>FilterStats; cloud_out без точек робота</dd>
+        </dl>
+        <p>
+            Единственное место, где время действительно тратится. Схема повторяет
+            <code>faster_filter</code> из autoware_pointcloud_preprocessor.
+        </p>
+<pre><code><span class="cm">// смещения полей — один раз на облако, не на точку</span>
+x_offset = fieldOffset(cloud_in, "x");
+
+<span class="cm">// одна аллокация на худший случай</span>
+cloud_out.data.resize(cloud_in.data.size());
+
+for (offset = 0; offset + point_step &lt;= data.size(); offset += point_step) {
+    memcpy(&amp;x, &amp;data[offset + x_offset], sizeof(float));
+
+    near_robot = has_boxes_ &amp;&amp; <span class="cm">/* 6 сравнений с global AABB */</span>;
+    if (near_robot &amp;&amp; isPointInsideAnyBox(point)) { ++removed; continue; }
+
+    memcpy(&amp;out[output_size], &amp;data[offset], point_step);
+    output_size += point_step;
+}
+
+cloud_out.data.resize(output_size);  <span class="cm">// усечение, без перевыделения</span></code></pre>
+        <div class="note why">
+            <strong>Три решения, которые держат производительность.</strong>
+            Один <code>resize</code> вперёд вместо <code>push_back</code> — ни одной
+            реаллокации в цикле. Копирование точки одним <code>memcpy</code> на весь
+            <code>point_step</code> — intensity, ring, timestamp едут целиком, и код
+            ничего не знает про XYZIRC. Предфильтр по глобальному AABB — точка в 20
+            метрах от робота уходит по шести сравнениям без единого умножения.
+        </div>
+        <p>
+            Ранний выход: если полей x/y/z нет или облако пустое, на выход идёт копия
+            входа. Поля <code>header</code>, <code>fields</code>,
+            <code>point_step</code>, <code>is_dense</code> переносятся со входа;
+            <code>height = 1</code>, <code>width</code> и <code>row_step</code>
+            пересчитываются.
+        </p>
+        <div class="note why">
+            <strong>is_dense пробрасывается, а не выставляется в true.</strong>
+            NaN-точки больше не удаляются, поэтому обещать плотность нельзя —
+            иначе облако уехало бы дальше по пайплайну с ложным флагом.
+        </div>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">8</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">RobotBodyFilter::</span>isPointInsideAnyBox(point)</p>
+        <p class="where">src/robot_body_filter.cpp</p>
+        <dl class="io">
+            <dt>вход</dt><dd>точка в base_frame, уже прошедшая глобальный AABB</dd>
+            <dt>выход</dt><dd>true на первом же попадании</dd>
+        </dl>
+        <p>
+            Перебор: сначала статические боксы, затем динамические, с выходом по
+            первому <code>contains()</code>. Это и есть «последовательная фильтрация»
+            из конфига — но выраженная как один проход по облаку, а не цепочка
+            из N проходов с промежуточными копиями.
+        </p>
+    </div>
+</div>
+
+<div class="stage">
+    <div class="rail"><div class="rail-num">9</div><div class="rail-line"></div></div>
+    <div class="card">
+        <p class="sig"><span class="ns">CropBox::</span>contains(point) · insideAabb(point)</p>
+        <p class="where">src/crop_box.cpp · crop_box.hpp (inline)</p>
+        <dl class="io">
+            <dt>вход</dt><dd>точка в base_frame</dd>
+            <dt>выход</dt><dd>лежит ли она внутри бокса с учётом padding</dd>
+        </dl>
+        <p>Три ступени, каждая отсекает раньше следующей:</p>
+<pre><code>if (!insideAabb(point)) return false;   <span class="cm">// 6 сравнений, 0 умножений</span>
+if (axis_aligned)       return true;    <span class="cm">// AABB и есть сам бокс</span>
+
+const Vector3d local = world_to_box * point;   <span class="cm">// 9 умножений</span>
+return (local.array() &gt;= (min - padding).array()).all()
+    &amp;&amp; (local.array() &lt;= (max + padding).array()).all();</code></pre>
+        <div class="note why">
+            <strong>Почему точка идёт к боксу, а не наоборот.</strong> У повёрнутого
+            бокса нет дешёвого теста в координатах base_link — понадобились бы
+            6 плоскостей, это 18 умножений на точку. Перевод точки в локальную СК
+            бокса даёт 9: строки <code>world_to_box</code> — те же нормали граней,
+            но противоположные грани переиспользуют одну нормаль с двумя порогами.
+        </div>
+        <div class="note why">
+            <strong>Для текущего конфига третья ступень не исполняется.</strong>
+            Корпус и мачта параллельны base_link, <code>axis_aligned = true</code>,
+            и матрица не применяется ни разу за всё время работы.
+        </div>
+    </div>
+</div>
+
+<h2>Цена одной точки</h2>
+<p class="section-note">
+    Порядок ступеней выбран так, чтобы дорогое считалось для как можно меньшего
+    числа точек. Доли — для типичного скана, где робот занимает малую часть поля зрения.
+</p>
+
+<div class="ladder">
+    <div class="rung">
+        <div class="rung-head"><span class="rung-name">глобальный AABB</span><span class="rung-cost">6 сравнений · 0 умножений</span></div>
+        <div class="bar"><span style="width:100%"></span></div>
+        <div class="rung-desc">Проходят все точки. Подавляющее большинство здесь же и заканчивает путь — и сразу копируется в выход.</div>
+    </div>
+    <div class="rung">
+        <div class="rung-head"><span class="rung-name">AABB бокса · insideAabb</span><span class="rung-cost">6 сравнений × число боксов</span></div>
+        <div class="bar"><span style="width:14%"></span></div>
+        <div class="rung-desc">Только точки в габаритах робота. Перебор с ранним выходом на первом попадании.</div>
+    </div>
+    <div class="rung">
+        <div class="rung-head"><span class="rung-name">world_to_box · point</span><span class="rung-cost">9 умножений · 9 сложений</span></div>
+        <div class="bar"><span style="width:4%"></span></div>
+        <div class="rung-desc">Только повёрнутые боксы и только точки внутри их AABB. При axis_aligned не выполняется вообще.</div>
+    </div>
+</div>
+
+<div class="note">
+    Что сюда сознательно не попало: кватернион вместо матрицы (15–18 умножений на
+    вектор против 9 — он выигрывает на композиции поворотов, которых здесь нет),
+    ограничивающая сфера вместо AABB (3 умножения против нуля, и отсекает слабее),
+    <code>pcl::CropBox</code> (потребовал бы конвертации PointCloud2 ↔ PCL, а это
+    дороже всей арифметики фильтрации).
+</div>
+
+<h2>Вспомогательные функции</h2>
+
+<div class="tbl-wrap">
+<table>
+    <thead><tr><th>Функция</th><th>Роль</th><th>Статус</th></tr></thead>
+    <tbody>
+        <tr>
+            <td class="mono">fieldOffset(cloud, name)</td>
+            <td>Смещение поля по имени в анонимном namespace. Вызывается 3 раза на облако, не на точку.</td>
+            <td class="mono">готово</td>
+        </tr>
+        <tr>
+            <td class="mono">computeMask(cloud, mask)</td>
+            <td>Та же геометрия, но вместо облака — байтовая маска по индексам точек. Для отладки и для случаев, когда точки надо пометить, а не удалить.</td>
+            <td class="mono">готово</td>
+        </tr>
+        <tr>
+            <td class="mono">jointFrames()</td>
+            <td>Фреймы звеньев в порядке dynamic_boxes_ — в этом же порядке нода должна отдавать позы в updateDynamicBoxes.</td>
+            <td class="mono">готово</td>
+        </tr>
+        <tr>
+            <td class="mono">FilterStats</td>
+            <td>points_in / points_removed / points_out одного прохода.</td>
+            <td class="mono">готово</td>
+        </tr>
+        <tr>
+            <td class="mono">updateDynamicBoxes(poses)</td>
+            <td>Раздаёт позы звеньев по боксам и пересобирает глобальный AABB. Сверяет размер вектора с числом боксов.</td>
+            <td class="mono">каркас</td>
+        </tr>
+        <tr>
+            <td class="mono">applyJointPose(pose)</td>
+            <td>Должна выделять угол поворота вокруг axis из позы звена и пересобирать rotation.</td>
+            <td class="mono">TODO</td>
+        </tr>
+        <tr>
+            <td class="mono">publishBodyMarkers(stamp)</td>
+            <td>CUBE-маркеры боксов для RViz.</td>
+            <td class="mono">TODO</td>
+        </tr>
+    </tbody>
+</table>
+</div>
+
+<h2>План: динамическая часть</h2>
+<p class="section-note">
+    Второй этап. Покрывает поворотные колёса и откидную крышку — для кода это
+    один и тот же случай: звено с одной степенью свободы, чья поза приходит из TF.
+</p>
+
+<div class="decision">
+    <p class="decision-label">Решение, на котором держится остальное</p>
+    <p>
+        <strong>Параметр <code>axis</code> убирается, поза берётся из TF целиком.</strong>
+        Изначально задумывалось выделять скалярный угол вокруг заданной оси. Для
+        поворотного колеса это неверно: в TF приходит композиция рулевого поворота
+        и качения, и проекция такой композиции на одну ось даёт бессмысленное число.
+    </p>
+    <p>
+        <strong><code>joint_frame</code> указывает на стойку, а не на колесо.</strong>
+        Качение не меняет геометрию колеса — оно тело вращения вокруг своей оси.
+        Поза стойки содержит только рулевой поворот, то есть ровно то вращение,
+        которое двигает бокс. Поза колеса содержала бы ещё и качение, и бокс
+        крутился бы на ходу без физической причины.
+    </p>
+    <p>
+        Следствие для конфига: <code>origin</code> и ориентация приходят из TF,
+        в YAML остаются только габариты относительно СК звена.
+    </p>
+</div>
+
+<h3 style="font-family:var(--mono);font-size:1rem;font-weight:600;margin:2rem 0 0.75rem;">Конфиг после изменений</h3>
+
+<pre><code>dynamic_boxes:
+  names: [wheel_front_left, wheel_front_right, lid]
+
+  wheel_front_left:
+    joint_frame: steer_front_left_link   <span class="cm"># стойка, не колесо</span>
+    min: [-0.28, -0.09, -0.28]           <span class="cm"># относительно СК стойки</span>
+    max: [ 0.28,  0.09,  0.28]
+    padding: [0.03, 0.03, 0.03]
+
+  lid:
+    joint_frame: lid_link
+    min: [-0.60, -0.40, -0.02]
+    max: [ 0.60,  0.40,  0.02]
+    padding: [0.03, 0.03, 0.03]
+    angle_range: [0.0, 1.4]              <span class="cm"># рад, необязательно</span></code></pre>
+
+<div class="plan">
+
+    <div class="step">
+        <div class="step-head"><span class="step-n">шаг 1</span><span class="step-title">CropBox: убрать axis, добавить swept-AABB</span></div>
+        <ul>
+            <li>Убрать поле <code>axis</code> и его чтение из конфига.</li>
+            <li>Добавить <code>swept_aabb_min</code> / <code>swept_aabb_max</code> — куб, покрывающий бокс при любом допустимом угле. Считается один раз при загрузке.</li>
+            <li>Добавить <code>angle_range</code> (необязательное). Задан — swept строится как объединение AABB бокса в N положениях внутри диапазона. Не задан — радиус описанной сферы от <code>origin</code>, то есть полный оборот.</li>
+            <li><code>applyJointPose()</code>: <code>origin = pose.translation()</code>, <code>rotation = pose.linear()</code>, затем <code>updateTransform()</code>.</li>
+        </ul>
+    </div>
+
+    <div class="step">
+        <div class="step-head"><span class="step-n">шаг 2</span><span class="step-title">RobotBodyFilter: swept в глобальный AABB</span></div>
+        <ul>
+            <li><code>updateGlobalAabb()</code> берёт у статических боксов обычный <code>aabb</code>, у динамических — <code>swept_aabb</code>. Снимается нынешний TODO.</li>
+            <li><code>updateDynamicBoxes()</code> больше не зовёт <code>updateGlobalAabb()</code>: swept от текущего угла не зависит, пересчитывать нечего. Это убирает работу с горячего пути.</li>
+        </ul>
+    </div>
+
+    <div class="step">
+        <div class="step-head"><span class="step-n">шаг 3</span><span class="step-title">Нода: чтение и разрешение поз</span></div>
+        <ul>
+            <li><code>declareBoxes(dynamic=true)</code>: убрать <code>axis</code> и <code>origin</code>, добавить необязательный <code>angle_range</code>.</li>
+            <li>Вернуть <code>lookupJointPoses(stamp, poses)</code> — <code>lookupTransform</code> по каждому <code>joint_frame</code> в порядке <code>jointFrames()</code>.</li>
+            <li>В <code>cloudCallback</code> перед фильтрацией: разрешить позы, при неудаче — warn и <code>return</code>, кадр пропускается целиком.</li>
+        </ul>
+    </div>
+
+    <div class="step">
+        <div class="step-head"><span class="step-n">шаг 4</span><span class="step-title">Проверка</span></div>
+        <ul>
+            <li>TF стойки с ненулевым рулевым углом: точки внутри и снаружи повёрнутого бокса.</li>
+            <li>Два разных угла руля — вырезаются разные точки.</li>
+            <li>Отсутствующий TF — облако не публикуется.</li>
+            <li>Крышка с <code>angle_range</code>: swept покрывает оба крайних положения.</li>
+        </ul>
+    </div>
+
+</div>
+
+<div class="note why">
+    <strong>Зачем angle_range понадобился именно из-за крышки.</strong> У колеса
+    шкворень проходит близко к центру бокса, описанная сфера компактна. У крышки
+    петля с краю и плечо длинное: крышка 1.2 м даёт swept-куб 2.4 × 2.4 × 2.4
+    вокруг петли, хотя реально она живёт в четверти этого объёма. На корректность
+    это не влияет — swept только предфильтр — но раздувает глобальный AABB, и
+    больше точек доходит до перебора боксов.
+</div>
+
+<div class="note">
+    <strong>Открытый вопрос вне динамики:</strong> скошенность скана. Сейчас одна
+    поза на всё облако. У вращающегося лидара точки размазаны по времени оборота,
+    и на ходу колёса уезжают из маски. Лечится интерполяцией позы по полю времени
+    точки — но это меняет сигнатуру разрешения поз.
+</div>
+
+<div class="note todo">
+    <strong>Проверить перед реализацией:</strong> есть ли в дереве TF отдельные
+    фреймы стоек. Если есть — план применим как есть. Если в дереве только
+    <code>base_link → wheel_link</code> с обоими вращениями сразу, понадобится
+    выделять рулевой угол из позы колеса, и это отдельный шаг.
+</div>
+
+<footer>
+    robot_body_filter · ROS 2 Humble · ament_cmake<br>
+    crop_box.cpp · robot_body_filter.cpp · robot_body_filter_node.cpp
+</footer>
+
+</div>
