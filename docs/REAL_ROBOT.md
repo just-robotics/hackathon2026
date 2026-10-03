@@ -329,9 +329,9 @@ docker run --rm -v "$PWD/recordings:/records:ro" --entrypoint bash jr_real_image
 миссию, hardware/localization конфиги и карту, пишет MCAP с исходным Livox,
 odom/TF, AMCL, localization ready/status, собственным/чужим треком, intent,
 глобальной/локальной траекторией, MPPI/planning/detector диагностикой, match и cmd_vel.
-После пересборки текущей версии записываются также navigation/scan,
-obstacle_scan, obstacle_grid и obstacle_filter_diagnostics: можно сравнивать
-сырой LiDAR с тем, что действительно использовал планировщик.
+После пересборки записываются также navigation/scan, obstacle_grid,
+opponent/odom, opponent/markers и opponent/foreground. Детектор получает raw LiDAR;
+планировщик использует статическую карту.
 После заезда используйте `helm stop_real`, чтобы завершить metadata.yaml.
 В консоли печатается каталог сессии. При следующем старте старая сессия
 сначала штатно останавливается. Это позволяет разбирать recovery/стены/финиш
@@ -399,21 +399,22 @@ ros2 topic echo /navigation/detector_diagnostics --once
 и в изолированном ROS replay; движение после исправления на оборудовании
 ещё не проверено.
 
-Локальная costmap MPPI: исходная `/map` в StaticLayer, динамические
-препятствия из filtered scan в штатном ObstacleLayer (marking+clearing).
-Наша obstacle_memory/obstacle_grid нужна глобальному планировщику и
-диагностике; в StaticLayer MPPI её больше не подаём. Это исправление
-залипания отметок, а исключение собственного корпуса выполняется фильтром
-облака. Обновлённый bringup ещё нужно подтвердить реальным заездом.
+Локальная costmap MPPI использует исходную `/map` в StaticLayer и
+InflationLayer. ObstacleLayer отключён; `obstacle_grid` — диагностическая
+копия статической карты. Ни raw/filtered LiDAR, ни маркеры детектора
+не добавляют препятствия в occupancy. Обновлённый detector bringup после
+сборки ещё не проверен на оборудовании или replay.
 
 ### Параметры планирования и native обработка LiDAR
 
 `real.yaml: planning_file` указывает на `planning.yaml`; его же использует
 симуляция. Радиус одинаков у A* и MPPI, значения меньше тела Kobuki
-(0,178 м) отклоняются. Фильтр `hsl_lidar_filter/real_lidar_filter` и детектор
-`hsl_perception_cpp/opponent_detector` — C++. AMCL и навигация получают
-очищенное облако. `navigation/ignored_obstacles` очищает подтверждённые
-маленькие коробки из динамического слоя MPPI, не из `/map`.
+(0,178 м) отклоняются. Фильтр `hsl_lidar_filter/real_lidar_filter` — C++; AMCL и наблюдения получают
+очищенное облако. Детектор `jr_perception/robot_detector.py` получает raw
+`/livox/lidar`, собственную map-позу и статический фон `/map`.
+Decision и планировщик читают `/opponent/odom`; `/opponent/markers` отображает
+кластеры объектов, включая коробки. Костмапа состоит из StaticLayer и
+InflationLayer; результаты детектора её не обновляют.
 `navigation/observation_diagnostics` записывает счётчики очередей/просроченных
 наблюдений; таймстампы сохранены, устаревшие данные не переименовываются в свежие.
 `local.MPPI.time_steps` — целое20..120; default60шагов при model_dt0,05с.

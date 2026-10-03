@@ -52,7 +52,7 @@ def main():
     for key,topic,kind,quality in [('grid','/map',OccupancyGrid,qos),('observed','/navigation/obstacle_grid',OccupancyGrid,qos),
         ('pose','/navigation/self',Odometry,10),('path','/navigation/global_path',Path,10),
         ('cmd','/cmd_vel',Twist,10),('status','/navigation/planner_status',String,10),
-        ('track','/navigation/opponent',Odometry,10)]:
+        ('track','/opponent/odom',Odometry,10)]:
         n.create_subscription(kind,topic,lambda msg,key=key:data.__setitem__(key,msg),quality)
     spawn=n.create_client(SpawnEntity,'/spawn_entity');delete=n.create_client(DeleteEntity,'/delete_entity')
     allowed=n.create_publisher(Bool,'/match/allowed',qos)

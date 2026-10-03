@@ -4,18 +4,19 @@ from pathlib import Path
 import yaml
 
 GLOBAL_DEFAULTS = {
-    'resolution': .10, 'robot_radius': .23, 'local_safety_margin': 0.,
-    'obstacle_memory_lifetime': 8., 'pose_timeout': 1.2,
-    'scan_timeout': 1.8, 'intent_timeout': 1., 'small_box_confirmation_window': 1.2,
+    'resolution': .10, 'robot_radius': .21, 'local_safety_margin': 0.,
+    'pose_timeout': 1.2,
+    'scan_timeout': 1.8, 'intent_timeout': 1.,
 }
 LOCAL_DEFAULTS = {
     'MPPI.time_steps': 60,
+    'MPPI.PathAngleCritic.max_angle_to_furthest': .35,
     'MPPI.ObstaclesCritic.repulsion_weight': 1.,
     'MPPI.ObstaclesCritic.critical_weight': 10.,
-    'MPPI.ObstaclesCritic.collision_margin_distance': .05,
-    'MPPI.ObstaclesCritic.inflation_radius': .45,
+    'MPPI.ObstaclesCritic.collision_margin_distance': .02,
+    'MPPI.ObstaclesCritic.inflation_radius': .40,
     'MPPI.ObstaclesCritic.cost_scaling_factor': 8.,
-    'costmap.inflation_layer.inflation_radius': .45,
+    'costmap.inflation_layer.inflation_radius': .40,
     'costmap.inflation_layer.cost_scaling_factor': 8.,
 }
 
@@ -45,10 +46,10 @@ def load_planning(path=None):
         raise ValueError('robot_radius must cover the Kobuki body (>=0.178 m)')
     if not .025 <= g['resolution'] <= .2:
         raise ValueError('global resolution must be in [0.025,0.2] m')
-    if any(g[k]<=0 for k in ('obstacle_memory_lifetime','pose_timeout','scan_timeout','intent_timeout')):
+    if any(g[k]<=0 for k in ('pose_timeout','scan_timeout','intent_timeout')):
         raise ValueError('planning lifetimes/timeouts must be positive')
-    if not .2 <= g['small_box_confirmation_window'] <= g['scan_timeout']:
-        raise ValueError('small_box_confirmation_window must be in [0.2,scan_timeout] s')
+    if not 0 < l['MPPI.PathAngleCritic.max_angle_to_furthest'] <= 3.141592653589793:
+        raise ValueError('path angle threshold must be in (0,pi] rad')
     if l['MPPI.ObstaclesCritic.inflation_radius'] != l['costmap.inflation_layer.inflation_radius'] or l['MPPI.ObstaclesCritic.cost_scaling_factor'] != l['costmap.inflation_layer.cost_scaling_factor']:
         raise ValueError('critic and costmap inflation parameters must agree')
     if l['costmap.inflation_layer.inflation_radius'] < g['robot_radius']:

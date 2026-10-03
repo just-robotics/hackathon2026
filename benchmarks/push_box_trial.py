@@ -35,10 +35,9 @@ def main():
     args.output.parent.mkdir(parents=True,exist_ok=True)
     rclpy.init();n=Node('push_box_trial',parameter_overrides=[Parameter('use_sim_time',value=True)])
     qos=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
-    state={};diag=[];mppi_diag=[];contacts=[];samples=[]
+    state={};mppi_diag=[];contacts=[];samples=[]
     n.create_subscription(Odometry,'/navigation/self',lambda m:state.update(own=m),10)
     n.create_subscription(String,'/navigation/planner_status',lambda m:state.update(status=m.data),10)
-    n.create_subscription(String,'/navigation/obstacle_filter_diagnostics',lambda m:diag.append(json.loads(m.data)),10)
     n.create_subscription(String,'/navigation/mppi_diagnostics',lambda m:mppi_diag.append({
         't':n.get_clock().now().nanoseconds*1e-9,'diagnostic':json.loads(m.data)}),10)
     n.create_subscription(ContactsState,'/body_contacts',lambda m:contacts.extend([[s.collision1_name,s.collision2_name] for s in m.states]),10)
@@ -94,7 +93,7 @@ def main():
         final_box=[float(pose[1])-args.origin[0],float(pose[2])-args.origin[1],float(pose[3])]
         report.update(final_box=final_box,final_box_displacement_m=hypot(final_box[0]-args.box[0],final_box[1]-args.box[1]),duration_s=samples[-1]['t'],distance_m=distance,mean_speed_mps=distance/samples[-1]['t'],
             closest_goal_distance_m=min(hypot(s['xy'][0]-args.goal[0],s['xy'][1]-args.goal[1]) for s in samples),
-            samples=samples,filter_reports=diag,mppi_reports=mppi_diag,
+            samples=samples,mppi_reports=mppi_diag,
             contact_pairs=sorted(set(tuple(c) for c in contacts)))
     finally:
         allow.publish(Bool(data=False));active.publish(Bool(data=False))

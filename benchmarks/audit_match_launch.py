@@ -25,10 +25,13 @@ for reverse in (True, False):
         context = LaunchContext()
         context.launch_configurations.update(robot_namespace='audit', role=role, random_seed='29',
             arena_bounds='[-3,-3,3,3]', allow_reverse=str(reverse).lower(),
-            max_speed='0.7', max_angular_speed='1.2')
+            max_speed='0.7', max_angular_speed='1.2', planning_config='')
         launch.nodes(context)
         planner = next(n for n in observed if n['executable'] == 'trajectory_planner')['parameters'][0]
-        native = next(n for n in observed if n['executable'] == 'native_mppi')['parameters'][1]
+        native_layers = next(n for n in observed if n['executable'] == 'native_mppi')['parameters']
+        native = {k: v for layer in native_layers if isinstance(layer, dict) for k, v in layer.items()}
+        assert native['costmap.robot_radius'] == planner['robot_radius']
+        assert native['MPPI.ObstaclesCritic.inflation_radius'] == native['costmap.inflation_layer.inflation_radius']
         assert planner['max_speed'] == 0.7 and planner['role'] == role
         assert native['MPPI.vx_max'] == 0.7
         effective_reverse = reverse and role == 'explorer'
@@ -57,8 +60,14 @@ for namespace in ('', 'opponent'):
         own_spawn_y='0.4', own_odom_topic='/odom', own_truth_topic='/localization/pose',
         lidar_topic='/livox/lidar')
     observations.nodes(context)
-    detectors = [n for n in observed if n['executable'] == 'opponent_detector']
+    detectors = [n for n in observed if n['executable'] == 'robot_detector.py']
     assert len(detectors) == 1 and detectors[0]['namespace'] == namespace
-    assert detectors[0]['package'] == 'hsl_perception_cpp'
-    assert detectors[0]['parameters'] == [{'use_sim_time': True, 'opponent_max_height': 0.49, 'robot.max_gap_share': 0.12, 'robot.line_ratio': 0.35, 'strong_arc_min_span_deg': 90.0, 'allow_merged_strong': False, 'strong_min_inlier_fraction': 0.95, 'strong_rectangle_ratio': 0.70}]
+    assert detectors[0]['package'] == 'jr_perception'
+    params = detectors[0]['parameters'][-1]
+    assert params['cloud_topic'] == '/livox/lidar'
+    assert params['pose_topic'] == 'navigation/self' and params['background_topic'] == '/map'
+    assert params['world_frame'] == 'map' and params['use_sim_time'] is True
+    assert params['base_frame'] == (namespace+'/' if namespace else '')+'base_footprint'
+
+
 print(json.dumps(dict(observation_launch_shape_detector=True, passed=True)))

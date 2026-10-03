@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kobuki">
+  <xacro:arg name="wheel_odom_topic" default="odom"/>
   <xacro:arg name="ros_namespace" default="/"/>
   <xacro:arg name="frame_prefix" default=""/>
   <xacro:arg name="lidar_horizontal_samples" default="900"/>
@@ -288,6 +289,7 @@
     <plugin name="diff_drive_controller" filename="libgazebo_ros_diff_drive.so">
       <ros>
         <namespace>$(arg ros_namespace)</namespace>
+        <remapping>odom:=$(arg wheel_odom_topic)</remapping>
       </ros>
       <left_joint>wheel_left_joint</left_joint>
       <right_joint>wheel_right_joint</right_joint>

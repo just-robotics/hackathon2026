@@ -21,7 +21,7 @@ from nav_msgs.msg import OccupancyGrid,Odometry
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Bool
 from tf2_ros import Buffer,TransformListener
-from hsl_perception.cloud import cloud_xyz,seconds
+from hsl_sim_adapter.pointcloud import cloud_xyz,seconds
 rclpy.init();n=Node('capture_detector',parameter_overrides=[Parameter('use_sim_time',value=True)]);data={};tf=Buffer();listener=TransformListener(tf,n);subs=[]
 match={'started':False,'finished':False}
 def on_active(msg):

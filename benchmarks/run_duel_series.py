@@ -166,6 +166,17 @@ def wait_report(path, run_id, deadline, stopped=False, runtime=None, env=None):
     raise TimeoutError(f"result {path} for {run_id} did not appear")
 
 
+def parameter_snapshot_json(output):
+    """ROS/DDS may print warnings before the single-line snapshot JSON."""
+    records = [line for line in output.splitlines() if line.lstrip().startswith('{')]
+    if len(records) != 1:
+        raise RuntimeError('Expected one parameter snapshot JSON object')
+    result = json.loads(records[0])
+    if not isinstance(result, dict):
+        raise RuntimeError('Parameter snapshot must be an object')
+    return result
+
+
 def parameter_value(parameters, name):
     if name in parameters:
         return parameters[name]
@@ -202,9 +213,7 @@ def validate_runtime_metadata(runtime, env):
                       **({"own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
                           "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])} if "DUEL_FIRST_START" in env else {})},
                   "hsl_motion_gate": {"require_match_active": True},
-                  "opponent_detector": {"use_sim_time": True,
-                      "opponent_max_height": float(env.get("HSL_OPPONENT_MAX_HEIGHT", "0.46")),
-                      "robot.max_gap_share": 0.12, "robot.line_ratio": 0.35, "strong_arc_min_span_deg": 90.0, "allow_merged_strong": False, "strong_min_inlier_fraction": 0.95, "strong_rectangle_ratio": 0.70}}
+                  "robot_detector": {"use_sim_time": True,"world_frame":"map", "background_topic":"/map", "pose_topic":"navigation/self"}}
         allow_reverse = role == "explorer" and env.get("HSL_ALLOW_REVERSE", "true") == "true"
         checks["native_mppi"] = {
             "role": role, "random_seed": seed,
@@ -233,7 +242,7 @@ def runtime_snapshot(env, config):
                               for name, cid, image in (line.split() for line in images.splitlines())}}
     paths = []
     for package in ("hsl_planning", "hsl_decision", "hsl_sim_adapter", "hsl_debug_control",
-                    "hsl_interfaces", "hsl_nav2_control", "hsl_lidar_filter", "hsl_perception_cpp", "hsl_perception", "sim_kobuki", "jr_map"):
+                    "hsl_interfaces", "hsl_nav2_control", "hsl_lidar_filter", "jr_perception", "sim_kobuki", "jr_map"):
         paths.extend(path for path in (ROOT / "src" / package).rglob("*")
                      if path.is_file() and path.suffix in
                      (".py", ".yaml", ".cpp", ".hpp", ".msg", ".world", ".xacro", ".xml"))
@@ -248,7 +257,7 @@ def runtime_snapshot(env, config):
         if actual != expected:
             raise RuntimeError(f"navigation sources in {container} differ from the worktree; rebuild duel")
     runtime["verified_source_sha256"] = expected
-    obstacle_file = ROOT / "config/simulation_obstacles.yaml"
+    obstacle_file = Path(env.get("HSL_SIM_OBSTACLES_FILE", ROOT / "config/simulation_obstacles.yaml"))
     obstacle_hash = hashlib.sha256(obstacle_file.read_bytes()).hexdigest()
     mounted_hash = command(["docker", "exec", "docker-gazebo-duel-1", "sha256sum",
         "/autoware/simulation_obstacles.yaml"], env, timeout=10).split()[0]
@@ -264,7 +273,7 @@ def runtime_snapshot(env, config):
     runtime["simulation_obstacles"] = __import__('yaml').safe_load(obstacle_file.read_text())
     runtime["simulation_obstacles_sha256"] = obstacle_hash
     nodes = [prefix + name for prefix in ("/", "/opponent/") for name in
-             ("trajectory_planner", "decision_manager", "hsl_motion_gate", "opponent_detector")]
+             ("trajectory_planner", "decision_manager", "hsl_motion_gate", "robot_detector")]
     nodes.extend(("/duel_referee", "/gazebo"))
     nodes.extend(prefix + name for prefix in ("/", "/opponent/")
                  for name in ("native_mppi", "native_mppi/native_costmap"))
@@ -274,7 +283,7 @@ def runtime_snapshot(env, config):
                       "source /autoware/install/setup.bash && python3 - " +
                       shlex.quote(json.dumps(nodes)) + " <<'PY'\n" + script + "\nPY"],
                      env, timeout=30)
-    runtime["effective_parameters"] = json.loads(output)
+    runtime["effective_parameters"] = parameter_snapshot_json(output)
     validate_runtime_metadata(runtime, env)
     runtime["nav2_package_versions"] = command(["docker", "exec",
         "docker-hsl-planning-1", "dpkg-query", "-W",
@@ -469,6 +478,8 @@ def main():
     parser.add_argument("--probe-status", default="",
                         help="save the first planner snapshot with this status")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
+    parser.add_argument("--obstacles-config", type=Path, default=ROOT / "config/simulation_obstacles.yaml",
+                        help="external Gazebo box fixtures; keeps the normal match configuration unchanged")
     parser.add_argument("--isolated-project", default="",
                         help="separate Compose project, ROS domain, Gazebo port and result directory")
     parser.add_argument("--ros-domain-id", type=int, default=73)
@@ -516,6 +527,7 @@ def main():
             env.update(COMPOSE_PROJECT_NAME=args.isolated_project, ROS_DOMAIN_ID=str(args.ros_domain_id),
                        GAZEBO_MASTER_URI=f"http://127.0.0.1:{args.gazebo_port}", HSL_RESULTS_DIR=str(RESULTS))
         env.update(configuration_environment(config))
+        env["HSL_SIM_OBSTACLES_FILE"] = str(args.obstacles_config.resolve(strict=True))
         env.update({"GAZEBO_HEADLESS": "true", "HSL_ROLE": first_role,
                     "HSL_RVIZ_ENABLED": "auto" if args.rviz else "false",
                     "HSL_OPPONENT_ROLE": second_role,
@@ -527,7 +539,7 @@ def main():
                   "roles": [first_role, second_role], "match_config": config,
                   "rviz_requested": args.rviz,
                   "effective_environment": {key: env[key] for key in list(configuration_environment(config)) +
-                      [k for k in ("COMPOSE_PROJECT_NAME", "ROS_DOMAIN_ID", "GAZEBO_MASTER_URI", "HSL_RESULTS_DIR") if k in env]}}
+                      [k for k in ("COMPOSE_PROJECT_NAME", "ROS_DOMAIN_ID", "GAZEBO_MASTER_URI", "HSL_RESULTS_DIR", "HSL_SIM_OBSTACLES_FILE", "HSL_CYCLONEDDS_URI") if k in env]}}
         print(f"[{index + 1}/{args.runs}] {run_id} "
               f"{first_role}/{second_role} seed={seed}", flush=True)
         traces = []

@@ -8,8 +8,9 @@
 
 | Интерфейс | Тип и назначение |
 | --- | --- |
-| self / opponent | Odometry: собственная локализация и наблюдаемый трек соперника |
-| scan / map_points / known_grid | PointCloud2 / OccupancyGrid: препятствия и карта |
+| navigation/self / opponent/odom | Odometry: собственная локализация и наблюдаемый трек соперника |
+| scan / map_points / known_grid | PointCloud2 / OccupancyGrid: наблюдения и статическая карта |
+| opponent/markers | MarkerArray: кластеры объектов, включая коробки, и треки |
 | intent | PlanningIntent: задача от decision manager |
 | global_path / nav2_reference / local_path | Path: A*, ссылка MPPI, визуальный префикс rollout |
 | mppi_cmd_vel | Twist: проверенная команда MPPI |
@@ -20,7 +21,7 @@
 При `mppi_diagnostics.result=swept_collision` сохраняются отклонённая поза,
 индекс rollout и `rejected_cells`: до8 уникальных запрещающих клеток на
 растеризованном контуре, координаты центров, master cost и costs отдельных
-слоёв. `layers` включает StaticLayer и динамический ObstacleLayer; `null`
+слоёв. `layers` показывает StaticLayer; динамический ObstacleLayer отключён; `null`
 означает недоступный в этот момент mutex/координаты слоя, не свободную клетку.
 За пределами costmap список может быть пустым. Поле диагностическое:
 решение о столкновении по-прежнему принимает штатный footprint checker.
@@ -97,62 +98,22 @@ runner не удаляет.
 
 ### Детектор соперника
 
-`hsl_perception_cpp/opponent_detector` использует алгоритм из `feature/detector`
-(b985515): сегментация, подгонка окружности корпуса Kobuki и несколько треков
-с фильтром Калмана постоянной скорости. Production-реализация C++/Eigen; прежний C++
-детектор сохранён в Git checkpoint 4f9168c. Полная ветка не сливается:
-симуляционный мир, MPPI и запуск остаются текущими.
+`jr_perception/robot_detector.py` — исходный детектор feature/detector b985515.
+Входы: raw `/livox/lidar`, `navigation/self`, TF сенсора и `/map` (статический
+фон). Выходы: `opponent/odom`, `opponent/markers` (MarkerArray),
+`opponent/foreground`, `navigation/opponent_visible`,
+`navigation/detector_diagnostics` (stamp_s, backend, costmap_source).
+Второй стек использует namespace opponent. Колёсный odom второго робота
+перенесён в `/opponent/wheel/odom`, чтобы не конкурировать с детекцией.
 
-Входы каждого детектора: свои `navigation/scan` (map, timestamped TF),
-`navigation/self`, статический `navigation/known_grid`. Неизвестные коробки
-не входят в фон. Выходы: `navigation/opponent` (Odometry, скорость в его
-локальном frame), `opponent_visible`, `detector_cycle_ms`, `detector_diagnostics`
-(JSON с причинами отказа, кандидатами и состоянием треков). Соперник из Gazebo
-не подаётся алгоритму. Прогноз без новой детекции не обновляет Odometry/видимость.
-Стационарный робот может открывать трек. Подтверждение требует трёх strong hits; weak-продолжения только поддерживают
-трек. Причины перечислены в native JSON; Python detector/oracle удалён.
-Ложные геометрические совпадения всё ещё требуют проверки на реальных данных.
+Odometry содержит только выбранный robot track. Маркеры содержат кластеры
+объектов, включая коробки, без классификации маленькая/большая.
+Исходный Kalman tracker допускает прогноз до max_coast; свежий выход/visible
+не равнозначен новой измеренной детекции. Карта остаётся static-only.
 
-`perception.opponent_max_height` в match YAML ограничивает максимальную высоту
-кластера (default0.46м); остальные параметры формы `robot.*` и трекера `tracker.*`
-объявлены ROS-параметрами. В симуляции включена проверка зазора между
-пластинами `robot.max_gap_share=0.12` и более строгий fit окружности
-`robot.line_ratio=0.35`; real-профиль задаёт max_gap_share=0.25,
-line_ratio=0.50, strong extent≥0.25, arc≥75°, inlier≥0.80. Он проверен
-offline на неразмеченных bags; устойчивость на оборудовании ещё не подтверждена. Для открытия трека simulation также требует
-дугу≥90° и≥95% согласованных точек обода; из большого смешанного кластера
-допускается только продолжение уже известного трека. Это уменьшает ложные
-открытия на коробках, но затрудняет первое обнаружение при сильном перекрытии.
-В адаптации фон вычитается по occupancy grid с
-запасом0.08м вместо аналитических боксов SDF из исходной ветки. Точность
-реальных данных и переносимость требуется проверять отдельно.
-
-Для записи полных симуляционных облаков обоих детекторов добавьте к изолированной
-проверке `--unknown-obstacle --record-detector-scans`. В `NN-obstacle.json`
-сохраняются height-filtered map-frame points, карта и truth-метки только
-для offline-оценки. Они не подаются в навигацию.
-
-Offline-повтор записанных облаков через текущий NumPy core:
-```bash
-python3 benchmarks/replay_detector_clouds.py results/isolated/hsl-eval/series-20261001T191042Z/00-obstacle.json --height 0.46 --output /tmp/detector-replay.json
-```
-Нужны Python3 с NumPy и собранный C++ detector_replay (source workspace
-или HSL_DETECTOR_REPLAY). Truth используется только для labels результата,
-не для выбора кандидата. Это дополнительная проверка на записанных входах,
-а не замена новой дуэли или измерения recall при всех условиях видимости.
-Полные облака с eval-позами записывает `benchmarks/capture_detector_clouds.py`
-в stdout; replay поддерживает этот формат. `benchmarks/report_detector.py <series>`
-сравнивает парные trace только внутри активного окна referee.
-
-Для отдельной проверки низкого препятствия после освобождения
-изолированного стенда:
-```bash
-python3 benchmarks/run_duel_series.py --isolated-project hsl-eval --ros-domain-id 73 --gazebo-port 11418 --runs 1 --start-seed 0 --active-s 90 --trace --audit-start --unknown-obstacle --obstacle-height 0.15 --record-detector-scans
-```
-`--obstacle-height` меняет физическую высоту fixture, XY остаётся0.6×0.6м.
-Default0.8м, минимум0.15м; размеры сохраняются в отчёте. Новый низкий
-вариант подготовлен, но ещё не проверен физически; два успешных заезда
-с высокой коробкой не доказывают его обработку.
+Параметры распознавания находятся в `src/jr_perception/config/`, скопированы
+из ветки; перед изменением необходимо спросить пользователя.
+Старые detector/box replay и benchmark удалены вместе с заменённым кодом.
 
 ### Собственная скорость в модели перехвата
 
@@ -165,74 +126,38 @@ planner и обоим decision manager как `own_max_speed`. PURSUE испол
 ролей перед разрешением движения.
 
 
-## Аудит реального bag без запуска робота
+## Новые реальные записи
+
+Последние bag: `/home/eddyswens/ROS/hsl2026Extra/recordings_last8`.
+Первая запись `20261003T093554.608208Z-autonomous` длится около259с,
+содержит raw LiDAR, собственную map-позу, TF и статическую карту; по описанию
+пользователя собственный робот ездит вокруг другого робота.
+Bag-only записи содержат odom/TF/raw, но не записанную map-позу.
+Нельзя объявлять их map-localized без отдельного восстановления локализации.
+
+После подключения пользователь отменил прогоны. Детектор не проверен
+на новых bag; сборка и проверки launch не подтверждают качество распознавания.
+Записи read-only. Для следующего replay использовать raw LiDAR и исходные
+позы/TF на stamp; не подменять детекцию truth и не менять пороги без согласования.
+
+Для отдельного набора коробок, без правки основного YAML:
 
 ```bash
-docker run --rm --network none \
-  -v "$PWD:/work" -v /path/to/recordings:/bags:ro \
-  --entrypoint bash jr_real_image:latest -lc \
-  'source /solution/install/setup.bash; python3 /work/benchmarks/audit_real_bags.py /bags --output /work/results/real-bags-audit --period 0.2 --filter-lidar'
-python3 benchmarks/report_real_bags.py results/real-bags-audit
+python3 benchmarks/run_duel_series.py --isolated-project hsl-joint-check --ros-domain-id 76 --gazebo-port 11421 --runs 1 --start-seed 3 --first-role explorer --active-s 90 --trace --record-detector-scans --config benchmarks/scenarios/narrow_diagonal_match.yaml --obstacles-config benchmarks/scenarios/narrow_diagonal_obstacles.yaml
 ```
 
-`--filter-lidar` повторяет production-фильтр сырых облаков перед TF. Входы
-read-only, DDS не используется. JSON/NPZ/PNG содержат измеренное движение,
-recovery, гипотезы и восстановленные облака. Нет разметки соперника/коробок —
-число гипотез не precision/recall; sampled replay не подтверждает трекер
-на полной частоте. Сессии без LiDAR/TF пригодны лишь для частичной диагностики.
+Runner записывает SHA выбранного obstacles YAML; напрямую Compose использует
+`HSL_SIM_OBSTACLES_FILE` (абсолютный путь). Этот fixture имеет обход: достижение
+цели само по себе не подтверждает проезд через узкое место.
+Текущий режим static-only: `obstacle_grid.data` совпадает с known_grid;
+диагностические облака старого классификатора удалены. Проверки обхода
+неизвестных коробок в этом режиме не подтверждают работу будущего динамического слоя.
 
-`benchmarks/replay_real_start.py` — неподвижный ROS-снимок запуска, не езда:
-фиксированная записанная поза, нет драйверов/AMCL/финального cmd_vel.
-`--costmap-source static` соответствует текущему MPPI, `memory` — вариант
-для диагностического сравнения. Такой тест не подтверждает физическое
-устранение застревания и не заменяет новую запись реального заезда.
-
-Новые проверки переноса: `benchmarks/check_lidar_cpp.py` (byte parity),
-`check_cpp_detector_ros.py`
-(ROS contract/visibility expiry). `audit_lidar_pipeline.py` проверяет
-свежесть записанных датчиков/TF. `replay_real_transport.py` запускает реальный
-bringup с записанными raw LiDAR/odom, без драйверов и разрешения движения;
-AMCL получает очищенное облако, записанный map→odom не воспроизводится.
-`check_semantic_costmap.py` проверяет удаление ранее отмеченной маленькой
-коробки и сохранение большой коробки/статической стены.
-
-### Планирование на записанных датчиках без движения
-
-`benchmarks/replay_real_transport.py` использует raw LiDAR, wheel odom и только
-odom TF из bag, current AMCL/map/filter/planning. По умолчанию replay проверяет
-свежесть наблюдений и согласованность верхних LiDAR-возвратов с картой.
-`--planning-target X Y` дополнительно заменяет decision/referee фиксированной
-целью только внутри стенда. Работает только в network-none контейнере без
-драйверов; motion_gate слушает отдельный постоянно закрытый active, final
-cmd_vel должен быть нулевым. Это вычислительная проверка, не езда по bag.
+Для private серии на одном компьютере при нестабильном Wi-Fi/VPN можно
+задать DDS loopback только этой команде (обычный и hardware запуск не меняется):
 
 ```bash
-docker run --rm --network none -v "$PWD:/work" -v /path/to/recordings:/bags:ro   --entrypoint bash jr_real_image:latest -c   'source /solution/install/setup.bash; python3 /work/benchmarks/replay_real_transport.py /bags/SESSION --seconds 35 --planning-target 0.5 3.5 --output /work/results/planning-probe.json'
+export HSL_CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo"/></Interfaces><AllowMulticast>false</AllowMulticast></General><Discovery><ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>200</MaxAutoParticipantIndex><Peers><Peer Address="127.0.0.1"/></Peers></Discovery></Domain></CycloneDDS>'
+# Затем run_duel_series.py; после серии:
+unset HSL_CYCLONEDDS_URI
 ```
-
-Смотрите diagnostics/global_paths/nonzero_mppi_commands и отдельно
-nonzero_final_commands. Количество ненулевых MPPI-команд и их средняя величина
-не являются измеренной скоростью робота. Без движения recorded pose не
-реагирует на команды, поэтому recovery/выход на цель так не оцениваются.
-`sensor_replay` содержит длительность исходных выбранных датчиков и поданного
-окна, число исходных/поданных сообщений по топикам и `complete_sensor_window`.
-Проверяйте покрытие записи отдельно от числа полученных наблюдений: очередь
-может пропускать промежуточные сканы, сохраняя свежий последний скан.
-
-При разборе формы объектов `audit_real_bags.py --cloud-points 0` сохраняет
-все XYZ выбранных кадров; `--cloud-points 6000` воспроизводит прежнее
-прореживание для сравнения. Это offline-контроль геометрии на recorded TF,
-а не production bringup/AMCL или замер производительности фильтра.
-
-## Производительность detector
-
-Историческое сравнение до удаления Python detector: bag151820,761 полное
-облако,5повторов на i7-10510U/одном ядре, mean Python4,188мс/C++0,268мс,
-p95 5,609/0,355мс, mean speedup15,62×. Outputs совпали. Python comparator
-и oracle удалены; эти числа относятся к сохранённому эксперименту.
-
-Текущие benchmark_detector.py/.cpp подготавливают raw bag и измеряют только
-native Detector.step. TF/фильтр/декодирование/DDS/I/O вне timer. Фильтр
-отдельно не замерять. Результат не является пропускной способностью ROS стека
-или измерением на роботе. Общая цель остаётся paused; новые заезды не запускать
-без запроса пользователя.

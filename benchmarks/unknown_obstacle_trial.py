@@ -104,7 +104,7 @@ def main():
         ('path','/navigation/global_path',Path,10),
         ('scan','/navigation/scan',PointCloud2,qos_profile_sensor_data),
         ('peer_scan','/opponent/navigation/scan',PointCloud2,qos_profile_sensor_data),
-        ('track','/navigation/opponent',Odometry,10),
+        ('track','/opponent/odom',Odometry,10),
         ('status','/navigation/planner_status',String,10),
         ('outcome','/match/outcome',String,qos),
     ):

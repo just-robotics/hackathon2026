@@ -63,7 +63,7 @@ cmd_vel — motion_gate. Отсутствие безопасного MPPI озн
 
 - MPPI выдаёт `navigation/mppi_cmd_vel`; `local_path` — визуальный префикс,
   вся оптимизированная траектория проходит swept-check.
-- Радиус планирования и costmap 0,23 м: тело Kobuki 0,178 м + запас 0,052 м.
+- Радиус планирования и costmap задаётся planning.yaml: тело Kobuki 0,178 м + запас.
   Пользователь разрешил настройку запаса через planning.yaml; тело 0,178 м
   должно полностью помещаться в footprint. A* проверяет swept edges, включая
   диагонали; дополнительный local_safety_margin номинально 0.
@@ -87,63 +87,42 @@ Real использует отдельную maze_bag_v1 и AMCL: wheel odom + L
 Не переносить sim truth/map/referee или смещение мира в hardware-стек.
 
 - `/map` и `navigation/known_grid` статические, входы детектора и StaticLayer.
-- Planner фильтрует неизвестные препятствия, публикует obstacle_scan.
-  Тот же набор обновляет ObstacleMemory/A* и штатный cloud ObstacleLayer
-  MPPI с marking+clearing. SemanticObstacleLayer дополнительно удаляет ранее
-  нанесённые точки подтверждённых маленьких коробок из динамического слоя;
-  статические стены остаются. **Не подавать obstacle_grid в StaticLayer MPPI.**
-- obstacle_grid — представление статических стен и памяти LiDAR до 8 с
-  для глобального планирования/диагностики. Видимые свободные лучи очищают
-  память, невидимые записи истекают. Это не SLAM.
-- По указанию пользователя коробки 15×15×40 см можно толкать и игнорировать
-  после трёх согласованных сканов и проверки их объединённой формы
-  (окно planning.yaml, по умолчанию1,2с/до7облаков), без fixture poses. 40×60×20 см учитывать.
-  Стены и неоднозначные кластеры сохраняются. Fresh measured opponent≤0,3 с
-  защищается от классификации как коробка и отменяет конфликтующую box identity;
-  устаревший прогноз — нет.
-  Полный вид низкого/высокого/широкого объекта отменяет пересекающуюся
-  box identity/pending: последующий sparse scan не должен возвращать
-  опровергнутую гипотезу через кэш.
-- `config/simulation_obstacles.yaml`: 3 узкие подвижные коробки, 1 широкая
-  неподвижная. Физическая коллизия сохранена, mass/friction приблизительные.
-  small_box_contacts отдельно; общий collisions всё ещё включает толкания.
-- Guardian исключает текущего соперника из препятствий для поимки. Ложный
-  трек коробки при этом опасен; не считать проблему решённой.
+- По текущему указанию пользователя костмапа **только статическая**:
+  A* читает occupied known_grid, MPPI использует StaticLayer `/map` и
+  InflationLayer. ObstacleLayer отключён. map_points, scan, obstacle_scan,
+  ignored_obstacles и результаты классификации не меняют occupancy.
+- obstacle_grid — копия статической карты для совместимости диагностики.
+  Нет памяти/обновления динамических препятствий в активном планировании.
+- Детектор — исходный `jr_perception` из feature/detector b985515.
+  Алгоритмы и параметры распознавания не менять без предварительного
+  согласования пользователя. ROS-интерфейс встроен прямо в этот пакет;
+  отдельный адаптер/супервизор не нужен.
+- Вход: сырое `/livox/lidar`, timestamped `navigation/self`, TF базы/лидара,
+  latched `/map` как background. Карта должна иметь нулевой поворот origin;
+  фон стен в occupied cells >=50 до 0,70 м, пол z=0.
+- Выходы: `opponent/odom` — один выбранный robot track с исходными
+  twist/covariance; `opponent/markers` — MarkerArray кластеров, включая
+  коробки, и треков. Decision и A* подписаны на `opponent/odom`.
+- В namespace opponent выходы `/opponent/opponent/odom` и markers;
+  колёсная одометрия второго робота `/opponent/wheel/odom`. Не смешивать
+  её с детекцией первого робота `/opponent/odom`.
+- Исходный tracker допускает coasting: свежий Odometry/visible не означает
+  новое измерение. `navigation/detector_diagnostics.stamp_s` показывает
+  успешную обработку скана, даже без выбранного соперника. Без карты,
+  timestamped собственной позы или sensor TF обработка не готова.
+- Старые C++ detector, SmallBoxFilter, obstacle memory и semantic layer
+  удалены. Маркеры новой ветки не классифицируют размеры коробок.
+- `config/simulation_obstacles.yaml`: 3 узкие и 1 широкая подвижные коробки.
+  Физические коллизии сохранены, mass/friction приблизительные.
+  Ни одна коробка вне статической карты не обновляет occupancy.
 
-Real LiDAR: raw `/livox/lidar` → независимый от TF real_lidar_filter →
-`/sensing/lidar/points_filtered` → AMCL и real_observations → scan →
-detector/planner → obstacle_scan → MPPI. Сырой cloud сохраняется.
-Узкие угловые маски с ограниченным ближним диапазоном в lidar_filter.yaml;
-не увеличивай общий радиальный blind zone. Production-фильтр — C++ пакет hsl_lidar_filter, Python оставлен offline oracle.
-Новые post-filter bag в 21-31-logs: фильтр сам по себе не устраняет паузы
-собственной позиции/TF. Сырое облако не подаётся в AMCL.
-RealObservations преобразует все измеренные XYZ векторно, без прореживания
-до6000точек; SmallBoxFilter получает полный текущий scan. Нельзя восстанавливать
-uniform decimation перед проверкой формы без повторной проверки реальных
-разреженных граней: в181529 это обнуляло подтверждение узкой гипотезы.
-
-## Детектор
-
-Production — C++/Eigen пакет hsl_perception_cpp, адаптация алгоритма
-feature/detector b985515. Python детектор/tracker/oracle удалены. hsl_perception.geometry содержит
-только общую геометрию фильтра коробок, cloud.py — декодирование облака. Подтверждение требует трёх strong hits. Weak фрагменты поддерживают identity
-только до max_coast после последней strong детекции; бесконечное продление
-по похожему предмету запрещено. Входы: scan в map, own pose,
-static known_grid и TF сенсора на stamp. Own pose — health check≤1,2с;
-не использовать latest own stamp вместо exact sensor TF. Scan≤0,5с,
-visible≤0,3с; старые данные не restamp. Observed grid и fixture poses
-не входы. Стационарный соперник может открывать трек. Prediction не освежает
-Odometry/visible. Скорость публикуется в child frame; курс движения при
-reverse не равен направлению корпуса.
-
-Real sensor_frame=livox, simulation=livox_frame. Профили в profiles.py;
-real-профиль пока проверен offline без semantic labels. Simulation
-strong_rectangle_ratio=0,70 понижает прямоугольные strong-кандидаты до weak;
-для real выключен. Weak-наблюдения поддерживают подтверждённый трек, но не подтверждают новый.
-Offline replay вызывает C++ detector_replay; Python только передаёт данные.
-Происхождение и ограничения — hsl_perception/SOURCE.md.
-Enable real требует свежей обработки detector, а не присутствия соперника.
-Без карты detector не готов и автономное разрешение остаётся закрытым.
+Real LiDAR: raw `/livox/lidar` → `jr_perception` напрямую.
+Параллельно raw → C++ hsl_lidar_filter → `/sensing/lidar/points_filtered`
+→ AMCL и real_observations → navigation/scan. Сырое облако не подавать в AMCL.
+Python фильтр сохранён как offline oracle; фильтр отдельно не замерять.
+`jr_perception/SOURCE.md` описывает происхождение и ограничения адаптации.
+Последнее указание пользователя: после подключения детектора прогоны
+не запускать; новую проверку bag/Gazebo согласовать отдельно.
 
 ## Испытания и передача
 

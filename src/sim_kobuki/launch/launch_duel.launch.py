@@ -22,7 +22,7 @@ def generate_launch_description():
     own_description = ParameterValue(Command(["xacro ", model, *lidar_args]), value_type=str)
     opponent_description = ParameterValue(
         Command(["xacro ", model,
-                 " ros_namespace:=/opponent frame_prefix:=opponent/", *lidar_args]), value_type=str)
+                 " ros_namespace:=/opponent frame_prefix:=opponent/ wheel_odom_topic:=wheel/odom", *lidar_args]), value_type=str)
 
     return LaunchDescription([
         DeclareLaunchArgument("map", default_value="polygon_rosbag"),

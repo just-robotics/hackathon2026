@@ -90,12 +90,6 @@ public:
     overrides.emplace_back("use_sim_time", get_parameter("use_sim_time").as_bool());
     overrides.emplace_back("robot_base_frame", prefix.empty() ? "base_footprint" :
       prefix.substr(1) + "/base_footprint");
-    overrides.emplace_back("obstacle_layer.cloud.sensor_frame",
-      prefix.empty() ? "base_footprint" : prefix.substr(1) + "/base_footprint");
-    // Keep live LiDAR obstacles in Nav2 obstacle_layer so ray/footprint
-    // clearing can remove them. The static layer reads the original /map.
-    overrides.emplace_back("obstacle_layer.ignored_topic", prefix + "/navigation/ignored_obstacles");
-    overrides.emplace_back("obstacle_layer.cloud.topic", prefix + "/navigation/nav2_scan");
     rclcpp::NodeOptions costmap_options;
     costmap_options.use_global_arguments(false).parameter_overrides(overrides).arguments(
       {"--ros-args", "-r", "__node:=native_costmap", "-r",
@@ -113,15 +107,13 @@ public:
     path_pub_ = create_publisher<nav_msgs::msg::Path>("navigation/local_path", 10);
     status_pub_ = create_publisher<std_msgs::msg::String>("navigation/planner_status", 10);
     diag_pub_ = create_publisher<std_msgs::msg::String>("navigation/mppi_diagnostics", 10);
-    scan_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-      "navigation/nav2_scan", rclcpp::SensorDataQoS());
     timing_pub_ = create_publisher<std_msgs::msg::Float32>(
       "navigation/native_mppi_cycle_ms", 10);
     ready_pub_ = create_publisher<std_msgs::msg::Bool>("navigation/native_ready", state_qos);
     subscriptions_.push_back(create_subscription<nav_msgs::msg::Odometry>(
       "navigation/self", 10, [this](nav_msgs::msg::Odometry::SharedPtr msg) {own_ = msg;}));
     subscriptions_.push_back(create_subscription<nav_msgs::msg::Odometry>(
-      "navigation/opponent", 10,
+      "opponent/odom", 10,
       [this](nav_msgs::msg::Odometry::SharedPtr msg) {opponent_ = msg;}));
     subscriptions_.push_back(create_subscription<hsl_interfaces::msg::PlanningIntent>(
       "navigation/intent", 10,
@@ -136,7 +128,7 @@ public:
       }));
     subscriptions_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
       "navigation/obstacle_scan", rclcpp::SensorDataQoS(),
-      [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {filter_scan(*msg);}));
+      [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {scan_stamp_ = msg->header.stamp;}));
     const double frequency = get_parameter("controller_frequency").as_double();
     if (frequency <= 0.0) {throw std::invalid_argument("controller_frequency must be positive");}
     timer_ = rclcpp::create_timer(this, get_clock(),
@@ -148,7 +140,7 @@ public:
   nav2_util::CallbackReturn on_activate(const rclcpp_lifecycle::State &) override
   {
     cmd_pub_->on_activate(); path_pub_->on_activate(); status_pub_->on_activate();
-    diag_pub_->on_activate(); scan_pub_->on_activate(); timing_pub_->on_activate();
+    diag_pub_->on_activate(); timing_pub_->on_activate();
     ready_pub_->on_activate();
     if (costmap_->activate().label() != "active") {
       throw std::runtime_error("Nav2 costmap activation failed");
@@ -183,29 +175,6 @@ private:
   {
     const auto age = (now() - rclcpp::Time(stamp)).seconds();
     return age >= 0.0 && age <= timeout;
-  }
-
-  void filter_scan(const sensor_msgs::msg::PointCloud2 & source)
-  {
-    scan_stamp_ = source.header.stamp;
-    sensor_msgs::msg::PointCloud2 result;
-    result.header = source.header;
-    sensor_msgs::PointCloud2Modifier modifier(result);
-    modifier.setPointCloud2FieldsByString(1, "xyz");
-    const bool omit_opponent = role_ == "guardian" && opponent_ &&
-      fresh(opponent_->header.stamp, 2.0);
-    std::vector<std::array<float, 3>> points;
-    sensor_msgs::PointCloud2ConstIterator<float> x(source, "x"), y(source, "y"), z(source, "z");
-    for (; x != x.end(); ++x, ++y, ++z) {
-      if (!std::isfinite(*x) || !std::isfinite(*y) || !std::isfinite(*z)) {continue;}
-      if (omit_opponent && std::hypot(*x - opponent_->pose.pose.position.x,
-          *y - opponent_->pose.pose.position.y) <= 0.45) {continue;}
-      points.push_back({*x, *y, *z});
-    }
-    modifier.resize(points.size());
-    sensor_msgs::PointCloud2Iterator<float> rx(result, "x"), ry(result, "y"), rz(result, "z");
-    for (const auto & p : points) { *rx = p[0]; *ry = p[1]; *rz = p[2]; ++rx; ++ry; ++rz; }
-    scan_pub_->publish(result);
   }
 
   void publish_stop(const std::string & status, const std::string & reason = "")
@@ -423,7 +392,6 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr status_pub_, diag_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr scan_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float32>::SharedPtr timing_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Bool>::SharedPtr ready_pub_;
 };
