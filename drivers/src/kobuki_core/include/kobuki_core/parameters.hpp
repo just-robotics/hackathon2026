@@ -50,7 +50,7 @@ public:
     linear_deceleration_limit(0.7),
     angular_acceleration_limit(3.5),
     angular_deceleration_limit(5.2),
-    linear_speed_limit(0.6),
+    linear_speed_limit(0.5),
     angular_speed_limit(3.0),
     log_level(LogLevel::WARNING)
   {
