@@ -1,0 +1,627 @@
+{
+  "schema_version": 1,
+  "clock": "ROS header stamp, Unix seconds",
+  "notes": "Only user-confirmed or manually inspected real LiDAR facts. Map-frame and local-odom coordinates are never mixed; each odom_local bag has its own origin. Centers are approximate visual labels, not survey ground truth. Null bounds mean the full cloud interval.",
+  "labels": [
+    {
+      "bag": "recordings_last8/20261003T094119.687783Z-autonomous",
+      "start_s": null,
+      "end_s": null,
+      "visibility": "absent",
+      "region": null,
+      "source": "User confirmed polygon run with boxes and no second robot in goal objective",
+      "confidence": "confirmed",
+      "frame": "map"
+    },
+    {
+      "bag": "recordings_last8/20261003T093554.608208Z-autonomous",
+      "start_s": null,
+      "end_s": null,
+      "visibility": "robot_present_somewhere",
+      "motion": "likely_stationary",
+      "region": null,
+      "source": "User confirmed run around another robot and said it was probably stationary; visibility and map-frame center have not yet been verified frame by frame",
+      "confidence": "bag_level_only",
+      "frame": "map"
+    },
+    {
+      "bag": "recordings_last8/20261003T093554.608208Z-autonomous",
+      "start_s": 1791020310.89,
+      "end_s": 1791020345.89,
+      "visibility": "visible",
+      "center": {
+        "xy_m": [
+          1.98,
+          3.15
+        ],
+        "tolerance_m": 0.25
+      },
+      "source": "Manual inspection of real filtered point clouds and recorded map/pose at 155, 160, 165, 170, 175, 180, 185, 190 s in results/real-detector-labeling/orbit_fine_objects.png; center is approximate because the old map pose shifts",
+      "confidence": "manual_approximate",
+      "frame": "map"
+    },
+    {
+      "bag": "recordings_last8/20261003T093554.608208Z-autonomous",
+      "start_s": 1791020305.39,
+      "end_s": 1791020306.39,
+      "visibility": "occluded_or_out_of_view",
+      "region": null,
+      "source": "Manual inspection of 150 s real cloud in results/real-detector-labeling/orbit_fine_objects.png; no direct returns at the later visible target location",
+      "confidence": "manual_approximate",
+      "frame": "map"
+    },
+    {
+      "bag": "robot_20261003_1815_1830/20261003T152604.245289Z-autonomous",
+      "start_s": 1791041279.7460399,
+      "end_s": 1791041279.9460397,
+      "visibility": "no_robot_in_region",
+      "region": {
+        "center_xy_m": [
+          1.69,
+          3.39
+        ],
+        "radius_m": 0.3
+      },
+      "source": "User-identified dense false hypothesis at 18:27:59 MSK, plus inspected results/robot-1815-1830-20261003/false-cluster.png",
+      "confidence": "confirmed",
+      "frame": "map"
+    },
+    {
+      "bag": "robot_20261003_1815_1830/20261003T152957.624620Z-autonomous",
+      "start_s": 1791041442.0,
+      "end_s": 1791041444.25,
+      "visibility": "measurement_required_for_fresh_output",
+      "region": null,
+      "source": "User-identified drift of prediction without a new measurement at 18:30:42–44 MSK",
+      "confidence": "confirmed",
+      "frame": "map"
+    },
+    {
+      "bag": "recordings_last8/20261003T094252.665737Z-autonomous",
+      "start_s": 1791020663.97,
+      "end_s": 1791020753.2,
+      "visibility": "visible",
+      "motion": "stationary",
+      "frame": "map",
+      "center": {
+        "xy_m": [
+          1.75,
+          3.34
+        ],
+        "tolerance_m": 0.27
+      },
+      "source": "User described stationary robot among boxes; manual inspection of real filtered clouds at 90–170 s and per-scan ROI support in results/real-detector-labeling/new-094252/grid-00.png, grid-01.png, new-094252-target-crop.png, new-094252-roi-counts.tsv. Strict cache map pose; center approximate.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T094252.665737Z-autonomous",
+      "start_s": 1791020762.0,
+      "end_s": 1791020770.4,
+      "visibility": "visible",
+      "motion": "stationary",
+      "frame": "map",
+      "center": {
+        "xy_m": [
+          1.75,
+          3.34
+        ],
+        "tolerance_m": 0.27
+      },
+      "source": "Same stationary target reappears after occlusion; inspected real filtered clouds around 190–195 s in new-094252/grid-01.png and new-094252-target-crop.png, with per-scan ROI counts. Strict cache map pose.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T094252.665737Z-autonomous",
+      "start_s": 1791020754.2,
+      "end_s": 1791020761.4,
+      "visibility": "occluded_or_out_of_view",
+      "frame": "map",
+      "region": {
+        "center_xy_m": [
+          1.75,
+          3.34
+        ],
+        "radius_m": 0.4
+      },
+      "source": "Real filtered cloud at 180 s in results/real-detector-labeling/new-094252-target-crop.png has wall returns but no target-shaped cluster; per-scan ROI counts fall to zero for most of 180–187 s. Robot is user-described as stationary, so this is an occlusion/out-of-view label.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095154.890891Z-bag",
+      "start_s": 1791021129.13,
+      "end_s": 1791021174.13,
+      "visibility": "visible",
+      "motion": "stationary",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          0.12,
+          -1.42
+        ],
+        "tolerance_m": 0.36
+      },
+      "source": "User described stationary robot without boxes; manual raw Livox scans every 5 s from 10–55 s in results/real-detector-labeling/new-095154/grid-00.png and local filtered per-scan ROI counts in new-095154-roi-counts.tsv. This bag has no map/AMCL; coordinates are its own odom, with wheel odometry drift and approximate center.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095154.890891Z-bag",
+      "start_s": 1791021183.5,
+      "end_s": 1791021184.5,
+      "visibility": "occluded_or_out_of_view",
+      "frame": "odom_local",
+      "region": {
+        "center_xy_m": [
+          0.12,
+          -1.42
+        ],
+        "radius_m": 0.45
+      },
+      "source": "Manual raw cloud at 65 s in results/real-detector-labeling/new-095154/grid-01.png lacks separate target cluster; local filtered ROI count is zero.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095724.528830Z-bag",
+      "start_s": 1791021448.584326,
+      "end_s": 1791021448.9843261,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.33,
+          0.65
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021448.784326,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095724/grid-00.png and new-095724-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095724.528830Z-bag",
+      "start_s": 1791021452.5853179,
+      "end_s": 1791021452.985318,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          0.78,
+          0.18
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021452.785318,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095724/grid-00.png and new-095724-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095724.528830Z-bag",
+      "start_s": 1791021456.585666,
+      "end_s": 1791021456.985666,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          0.52,
+          -0.04
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021456.785666,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095724/grid-00.png and new-095724-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095724.528830Z-bag",
+      "start_s": 1791021460.585635,
+      "end_s": 1791021460.985635,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.4,
+          0.54
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021460.785635,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095724/grid-00.png and new-095724-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095724.528830Z-bag",
+      "start_s": 1791021464.585286,
+      "end_s": 1791021464.985286,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.45,
+          1.36
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021464.785286,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095724/grid-00.png and new-095724-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095724.528830Z-bag",
+      "start_s": 1791021468.585455,
+      "end_s": 1791021468.985455,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.45,
+          1.45
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021468.785455,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095724/grid-00.png and new-095724-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095806.834495Z-bag",
+      "start_s": 1791021490.874561,
+      "end_s": 1791021491.2745612,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.46,
+          0.27
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021491.074561,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095806/grid-00.png and new-095806-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095806.834495Z-bag",
+      "start_s": 1791021492.375218,
+      "end_s": 1791021492.775218,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.52,
+          -0.1
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021492.575218,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095806/grid-00.png and new-095806-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095806.834495Z-bag",
+      "start_s": 1791021495.375349,
+      "end_s": 1791021495.7753491,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.53,
+          -0.08
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021495.575349,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095806/grid-00.png and new-095806-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095806.834495Z-bag",
+      "start_s": 1791021498.3752658,
+      "end_s": 1791021498.775266,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.53,
+          0.49
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021498.575266,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095806/grid-00.png and new-095806-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095806.834495Z-bag",
+      "start_s": 1791021501.3745039,
+      "end_s": 1791021501.774504,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.46,
+          1.1
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021501.574504,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095806/grid-00.png and new-095806-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021513.451138,
+      "end_s": 1791021513.851138,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.5,
+          1.24
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021513.651138,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021517.450289,
+      "end_s": 1791021517.850289,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.16,
+          0.35
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021517.650289,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021521.4501998,
+      "end_s": 1791021521.8502,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.15,
+          0.19
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021521.6502,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021525.450444,
+      "end_s": 1791021525.850444,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          0.9,
+          -0.18
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021525.650444,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021529.450582,
+      "end_s": 1791021529.8505821,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.0,
+          -0.07
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021529.650582,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021533.45,
+      "end_s": 1791021533.8500001,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.52,
+          0.24
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021533.65,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021535.450612,
+      "end_s": 1791021535.8506122,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.6,
+          0.68
+        ],
+        "tolerance_m": 0.32
+      },
+      "anchor_stamp_s": 1791021535.650612,
+      "source": "User described moving robot; direct visual inspection of real raw Livox scan at anchor and nearby scans in results/real-detector-labeling/new-095829/grid-00.png and new-095829-target-crop.png. Center includes approximate offset from visible surface; odom origin is local to this bag.",
+      "confidence": "manual_approximate"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021277.830756,
+      "end_s": 1791021278.1307561,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021277.980756,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=0 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021283.8295233,
+      "end_s": 1791021284.1295235,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021283.9795234,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=6 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021289.8296065,
+      "end_s": 1791021290.1296067,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021289.9796066,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=12 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021295.8291492,
+      "end_s": 1791021296.1291494,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021295.9791493,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=18 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021301.8289404,
+      "end_s": 1791021302.1289406,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021301.9789405,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=24 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021307.8291998,
+      "end_s": 1791021308.1292,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021307.9792,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=30 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021313.8294606,
+      "end_s": 1791021314.1294608,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021313.9794607,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=36 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021319.8292646,
+      "end_s": 1791021320.1292648,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021319.9792647,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=42 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021325.8291337,
+      "end_s": 1791021326.129134,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021325.9791338,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=48 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021331.8293562,
+      "end_s": 1791021332.1293564,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021331.9793563,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=54 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021337.8290212,
+      "end_s": 1791021338.1290214,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021337.9790213,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=60 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021343.8292,
+      "end_s": 1791021344.1292002,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021343.9792001,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=66 s in results/real-detector-labeling/new-095433/grid-00.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021349.8296661,
+      "end_s": 1791021350.1296663,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021349.9796662,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=72 s in results/real-detector-labeling/new-095433/grid-01.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095433.714618Z-bag",
+      "start_s": 1791021355.8292093,
+      "end_s": 1791021356.1292095,
+      "visibility": "absent",
+      "frame": "odom_local",
+      "anchor_stamp_s": 1791021355.9792094,
+      "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=78 s in results/real-detector-labeling/new-095433/grid-01.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
+      "confidence": "manual_spotcheck"
+    }
+  ]
+}

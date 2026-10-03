@@ -152,3 +152,10 @@ start_real_bag_record:
   desc: "Драйверы, запись MCAP и управление клавиатурой"
   commands:
     - "python3 ../tools/real_robot.py bag"
+
+replay_detector:
+  desc: "Выбрать real bag и показать текущий C++-детектор в RViz"
+  long_command: true
+  optional_tail: true
+  commands:
+    - "python3 ../tools/replay_real_detector.py __placeholder_1__"

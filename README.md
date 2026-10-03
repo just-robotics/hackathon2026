@@ -129,10 +129,12 @@ helm enter_real       # терминал
 
 Настройки оборудования — `config/real.yaml` и `config/livox_mid360.json`,
 реальная миссия — `config/real_match.yaml` (отдельно от симуляции).
-Статическая `maps/maze_bag_v1.yaml` и локализация AMCL запускаются внутри
-`start_real`. Livox → фильтр собственных возвратов → высотный срез LaserScan → AMCL; одометрия остаётся
-`/odom`, положение на карте — `/amcl_pose` и скорректированный
-`/navigation/self` для decision/planner/MPPI. Настройки — `localization.yaml`.
+Статическая `maps/maze_bag_v1.yaml` и FAST-LIO2 с коррекцией AMCL запускаются
+внутри `start_real` при текущем `localization: fastlio`. Raw Livox и IMU
+поступают в FAST-LIO2; очищенный высотный срез — в AMCL. Итоговая map-поза
+`/localization/kinematic_state` поступает в детектор и преобразуется в
+`/navigation/self` для decision/planner/MPPI. Колёсный `/odom` сохранён.
+Настройки — `fastlio.yaml` и `localization.yaml`.
 Перед включением движения задайте фактические стартовые позы в real_match;
 в RViz доступен **2D Pose Estimate**. При потере актуальной локализации
 движение закрывается, повторное разрешение — `enable_real`.
@@ -144,6 +146,25 @@ helm enter_real       # терминал
 Последние исправления требуют повторной проверки на оборудовании.
 Подробная настройка и проверка: [docs/REAL_ROBOT.md](docs/REAL_ROBOT.md).
 
+### Посмотреть детектор на записи
+
+```bash
+helm replay_detector                    # выбрать bag по номеру в терминале
+helm replay_detector --list             # список записей с описаниями
+helm replay_detector --bag 20261003T095806.834495Z-bag
+helm replay_detector --bag /absolute/path/SESSION/bag --rate 0.5
+```
+
+Открывается обычный RViz с LiDAR и маркерами текущего C++-детектора.
+Скрипт собирает пакет из этого checkout; по умолчанию ищет bag в соседнем
+`hsl2026Extra` (другой каталог — `--bag-root PATH`). `--from-seconds N`
+начинает с указанной секунды без прежней истории трека; `--headless`
+отключает RViz. Закрыть окно или нажать Ctrl+C для завершения.
+В raw-only bag без карты используется явно обозначенный локальный `odom`;
+это просмотр записи, качество актуальной map-локализации им не проверяется.
+Логи — `results/real-detector-replay/`. Подробности —
+[REAL_ROBOT.md](docs/REAL_ROBOT.md#просмотр-детектора-на-реальном-bag).
+
 ## Архитектура
 
 На каждого робота приходится независимый контур:
@@ -151,22 +172,22 @@ helm enter_real       # терминал
 `наблюдения → детектор/decision manager → A* → Nav2 C++ MPPI → motion_gate → cmd_vel`
 
 MPPI — единственный контроллер движения. MPC и Python MPPI удалены;
-прежние варианты доступны в истории Git. Детектор — Python-пакет
-`jr_perception` из `feature/detector`: фон из `/map` строится по арене
-вокруг робота с запасом 15 см у стен, отладочные маркеры разнесены по трём
-топикам. Старые `hsl_perception`,
+прежние варианты доступны в истории Git. В реальном launch детектор —
+`jr_perception/opponent_detector_cpp`, читающий очищенное облако Livox и
+позу на времени скана. В симуляционных сценариях остаётся Python-детектор
+`jr_perception/robot_detector.py` с отдельными маркерами классов. Старые `hsl_perception`,
 `hsl_perception_cpp` и фильтр/классификатор коробок удалены.
 В симуляции точная поза используется для собственного робота;
 ground truth соперника доступен referee и оценке.
 
 | Данные | Кто использует |
 | --- | --- |
-| Сырое `/livox/lidar` | Детектор `jr_perception` напрямую |
-| `navigation/self` | Детектор, decision manager, планирование |
-| `/opponent/odom` | Выбранный трек робота; decision manager и A* |
-| `/opponent/markers` | Все кластеры по классам, у отклонённых — причина |
-| `/opponent/robot_markers` | То, что считается роботом: детекции, треки, курс |
-| `/opponent/box_markers` | Предметы на сцене: повёрнутые боксы с центром и размерами |
+| Сырое `/livox/lidar` | Фильтр LiDAR и FAST-LIO2 |
+| `/sensing/lidar/points_filtered` | Реальный C++ детектор, AMCL и наблюдения |
+| `/localization/kinematic_state` (FAST-LIO2) или `navigation/self` | Поза реального детектора; `navigation/self` также читает decision manager и планирование |
+| `/opponent/odom` | Подтверждённое текущим облаком измерение центра; decision manager и A* |
+| `/opponent/markers` | Кандидаты с причинами, треки, измерение и отдельный прогноз |
+| `/opponent/robot_markers`, `/opponent/box_markers` | Только старый Python-детектор вне реального launch |
 | `/map`, `navigation/known_grid` | Статический фон детектора, A*, StaticLayer MPPI |
 | `navigation/scan` | Свежесть LiDAR для планирования и диагностика |
 | `navigation/obstacle_grid` | Диагностическая копия статической карты |
@@ -174,7 +195,7 @@ ground truth соперника доступен referee и оценке.
 Для второго симуляционного стека выходы `/opponent/opponent/odom` и
 `/opponent/opponent/markers`; его колёсная одометрия — `/opponent/wheel/odom`.
 Костмапа MPPI состоит из StaticLayer и InflationLayer. Объекты из детектора
-не меняют occupancy. В `feature/egor-detector-fix` минимум точек обода поднят
+не меняют occupancy. В старом Python-детекторе `feature/egor-detector-fix` минимум точек обода поднят
 до 12, кластеры с меньшим числом точек не обновляют трек. Центры в occupied-клетках
 и кандидаты с закрытой картой поверхностью обода отклоняются. Для повторного
 захвата нужны три последовательные сильные детекции; ограничение старой
@@ -183,8 +204,8 @@ ground truth соперника доступен referee и оценке.
 Исходный трекер может временно публиковать прогноз потерянного соперника.
 
 В `start_real` независимый от TF фильтр стоит сразу после LiDAR:
-`/livox/lidar → /sensing/lidar/points_filtered`. Очищенное облако получают AMCL
-и адаптер наблюдений. Детектор получает raw `/livox/lidar` отдельным входом.
+`/livox/lidar → /sensing/lidar/points_filtered`. Очищенное облако получают AMCL,
+адаптер наблюдений и реальный C++ детектор.
 Raw сохраняется для диагностики. `start_real_bag_record` записывает raw;
 фильтр реальных штанг в симуляции не запускается.
 
@@ -308,6 +329,7 @@ python3 benchmarks/run_duel_series.py --runs 3 --start-seed 0 --active-s 90 --tr
 | [AGENTS.md](docs/AGENTS.md) | Правила разработки и передачи состояния |
 | [REAL_ROBOT.md](docs/REAL_ROBOT.md) | Оборудование, конфиги, сборка, запуск, остановка и диагностика |
 | [DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | ROS-интерфейсы, серии, графики и replay детектора |
+| [REAL_DETECTOR_EVALUATION.md](docs/REAL_DETECTOR_EVALUATION.md) | Попарная проверка нового C++-детектора на реальных bag и её ограничения |
 | [NAV2_MPPI_ADAPTATION.md](docs/NAV2_MPPI_ADAPTATION.md) | Границы интеграции штатного MPPI |
 | [OFFLINE_MAPPING.md](docs/OFFLINE_MAPPING.md) | Получение статической карты из bag |
 | [config/maps/README.md](config/maps/README.md) | Карты и их системы координат |

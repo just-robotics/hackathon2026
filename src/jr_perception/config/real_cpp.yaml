@@ -1,0 +1,42 @@
+# New real-only opponent detector. Input is the field-preserving Livox filter.
+# FAST-LIO2 and AMCL continue to own /localization/kinematic_state.
+opponent_detector_cpp:
+  ros__parameters:
+    cloud_topic: /sensing/lidar/points_filtered
+    pose_topic: /localization/kinematic_state
+    map_topic: /map
+    world_frame: map
+    # Only the bag visualizer may opt into explicit local-odom replay.
+    allow_mapless: false
+    base_frame: base_footprint
+    opponent_frame: opponent_tracking_frame
+
+    # A scan waits briefly for a stamped pose and sensor TF. Any larger timing
+    # mismatch drops the scan instead of using the newest available pose.
+    max_cloud_age_s: 0.8
+    max_future_s: 0.2
+    max_pose_gap_s: 0.25
+    pose_nearest_tolerance_s: 0.025
+    pose_history_s: 3.0
+    max_position_std: 0.50
+    max_yaw_std: 0.70
+    visible_timeout_s: 0.25
+    max_cloud_points: 150000
+
+    min_range: 0.32
+    max_range: 6.0
+    min_height: 0.045
+    max_height: 0.60
+    voxel_size: 0.045
+    cluster_gap: 0.105
+    robot_radius: 0.178
+    min_map_alignment_share: 0.35
+    min_map_alignment_points: 1000
+    max_track_gap_s: 0.70
+    max_track_age_s: 1.50
+    confirmation_hits: 5
+
+    max_marker_candidates: 24
+    max_marker_tracks: 8
+    max_marker_points: 256
+    core_marker_points: 64

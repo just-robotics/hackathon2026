@@ -98,6 +98,39 @@ runner не удаляет.
 
 ### Детектор соперника
 
+В реальном launch активен `jr_perception/opponent_detector_cpp`. Он читает
+`/sensing/lidar/points_filtered`, `/map` и собственную позу с исходной меткой
+времени. `/opponent/odom` содержит только подтверждённое измерение текущего
+облака; `/navigation/opponent_visible` означает то же событие. Предсказание
+публикуется только как отдельный синий маркер и JSON-поле `prediction`.
+`/navigation/detector_diagnostics` содержит `stamp_s` последнего успешно
+обработанного скана, `pose_selection`, `pose_gap_s`, статус, число заменённых
+и отброшенных сканов, счёт кандидатов и время `total_ms`. Если `stamp_s`
+перестаёт обновляться, проверьте карту, timestamped собственную позу и TF
+сенсора. В реальном launch один издатель `/opponent/odom`.
+
+`map_alignment_inconsistent` означает консервативный отказ при низкой доле
+точек, совпавших с картой; `map_alignment_share` показывает эту долю.
+Порог задают `min_map_alignment_share` и `min_map_alignment_points` в
+`real_cpp.yaml`. Этот тест сам по себе не доказывает ошибку позы; карта
+может быть перекрыта объектами. Цель и история подтверждения при отказе
+сбрасываются. `temporal_change` и `complete_body_viable` в кандидатах
+помогают разбирать дополнительную ветку движущихся объектов.
+
+Просмотр одного real bag с текущим детектором и обычным RViz:
+
+```bash
+helm replay_detector             # консольный выбор
+helm replay_detector --list
+helm replay_detector --bag 20261003T095806.834495Z-bag --rate 0.5
+```
+
+Настройки и различие map/local-odom записей — в
+[REAL_ROBOT.md](REAL_ROBOT.md#просмотр-детектора-на-реальном-bag).
+
+Описание ниже относится к старому Python-детектору, который остаётся в
+симуляционных сценариях и исторических проверках.
+
 `jr_perception/robot_detector.py` — исходный детектор feature/detector b985515.
 Входы: raw `/livox/lidar`, `navigation/self`, TF сенсора и `/map` (статический
 фон). Выходы: `opponent/odom`, `opponent/markers` (MarkerArray),

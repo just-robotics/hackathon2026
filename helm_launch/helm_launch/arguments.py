@@ -5,10 +5,23 @@
 import argparse
 import argcomplete
 import re
+import shlex
+import sys
 
 import command
 
 from typing import List, Union
+
+
+class HelmArgumentParser(argparse.ArgumentParser):
+    """Allow optional script arguments to begin with an option such as --bag."""
+
+    def parse_args(self, args=None, namespace=None):
+        values = list(sys.argv[1:] if args is None else args)
+        if values and values[0] in getattr(self, "script_commands", set()):
+            if len(values) > 1 and values[1] != "--":
+                values.insert(1, "--")
+        return super().parse_args(values, namespace)
 
 
 def register_arguments(commands: List[command.Command]) -> argparse.ArgumentParser:
@@ -18,7 +31,13 @@ def register_arguments(commands: List[command.Command]) -> argparse.ArgumentPars
 
     :return парсер аргументов
     """
-    parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
+    parser = HelmArgumentParser(argument_default=argparse.SUPPRESS)
+    parser.script_commands = {
+        name
+        for cmd in commands
+        if cmd.long_command and cmd.optional_tail and not cmd.parameters
+        for name in (cmd.name, *cmd.aliases)
+    }
     subparser = parser.add_subparsers(dest="cmd")
 
     # регистрируем команды вроде up, start и т.п.
@@ -72,9 +91,14 @@ def parse_placeholders(
     placeholders = sorted(placeholders, key=lambda x: x[0])
 
     # а после сортировки имена уже не нужны, оставляем только значения
-    placeholders = [
-        " ".join(v) if isinstance(v, list) else v
-        for k, v in placeholders
-    ]
+    def tail_value(value):
+        if not isinstance(value, list):
+            return value
+        if optional_tail:
+            # Script arguments retain literal spaces, quotes, and shell symbols.
+            return shlex.join(value[1:] if value[:1] == ["--"] else value)
+        return " ".join(value)
+
+    placeholders = [tail_value(v) for k, v in placeholders]
 
     return placeholders

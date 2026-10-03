@@ -31,11 +31,9 @@ def nodes(context):
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
     add('hsl_real','real_observations', parameters=[{'odom_topic':'/localization/kinematic_state' if cfg['localization']=='fastlio' else cfg['odom_topic'],
         'lidar_topic':'/sensing/lidar/points_filtered','require_localization':localized}])
-    add('jr_perception','robot_detector.py',parameters=[
-        str(Path(get_package_share_directory('jr_perception'))/'config/real.yaml'),
-        {'world':'','background_topic':'/map','world_frame':'map','base_frame':'base_footprint',
-         'pose_topic':'/localization/kinematic_state' if cfg['localization']=='fastlio' else 'navigation/self',
-         'cloud_topic':'/sensing/lidar/points_filtered' if cfg['localization']=='fastlio' else cfg['lidar_topic']}])
+    add('jr_perception','opponent_detector_cpp',parameters=[
+        str(Path(get_package_share_directory('jr_perception'))/'config/real_cpp.yaml'),
+        {'pose_topic':'/localization/kinematic_state' if cfg['localization']=='fastlio' else '/navigation/self'}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
     add('hsl_planning','trajectory_planner',parameters=[tuning['global'], {'role':role,'max_speed':speed,
@@ -91,7 +89,7 @@ def nodes(context):
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/Odometry','/localization/lio_odometry','/localization/kinematic_state','/livox/lidar_custom',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
-            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/opponent/robot_markers','/opponent/box_markers','/opponent/foreground','/navigation/opponent_visible','/navigation/detector_diagnostics',
+            '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/navigation/opponent_visible','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',

@@ -574,6 +574,36 @@ def test_optional_tail_3():
         assert ex.code == 1
 
 
+def test_replay_detector_script_options_preserve_literals(mocker):
+    """Options, spaces, quotes and shell syntax reach the script literally."""
+    import shlex
+    from pathlib import Path
+    import yaml
+
+    launch = yaml.safe_load((Path(__file__).resolve().parents[2] / 'docker/launch.yaml').read_text())
+    commands = command.parse_commands({}, {'replay_detector': launch['replay_detector']})
+    c = commands[0]
+    values = ['--bag', '/tmp/a bag/robot "quoted" $(literal)/bag', '--rate', '0.5']
+    parser = arguments.register_arguments(commands)
+    args = parser.parse_args(['replay_detector', *values])
+    placeholders = arguments.parse_placeholders(args, c.optional_tail)
+    mocker.patch('misc.execute', return_value=0)
+    assert c.execute(*placeholders) == 0
+    forwarded = shlex.split(misc.execute.call_args.args[0])
+    assert forwarded == ['python3', '../tools/replay_real_detector.py', *values]
+
+
+def test_replay_detector_help_and_empty_selection():
+    c = command.Command()
+    c.name = 'replay_detector'
+    c.long_command = True
+    c.optional_tail = True
+    parser = arguments.register_arguments([c])
+    assert arguments.parse_placeholders(parser.parse_args(['replay_detector']), True) == ['']
+    assert arguments.parse_placeholders(parser.parse_args(['replay_detector', '--help']), True) == ['--help']
+    assert arguments.parse_placeholders(parser.parse_args(['replay_detector', '--', '--list']), True) == ['--list']
+
+
 def test_resolve_scripts_1(monkeypatch):
     """Плейсхолдер скрипта заменяется на существующий путь"""
     import os

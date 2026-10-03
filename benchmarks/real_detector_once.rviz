@@ -34,7 +34,7 @@ Visualization Manager:
     Alpha: 0.65
   - Class: rviz_default_plugins/RobotModel
     Name: Robot
-    Enabled: true
+    Enabled: false
     Description Source: Topic
     Description Topic:
       Value: /robot_description
@@ -48,7 +48,7 @@ Visualization Manager:
     Show Arrows: false
   - Class: rviz_default_plugins/Path
     Name: Robot global path
-    Enabled: true
+    Enabled: false
     Color: 0; 170; 255
     Line Style: Lines
     Line Width: 0.035
@@ -57,7 +57,7 @@ Visualization Manager:
       Reliability Policy: Reliable
   - Class: rviz_default_plugins/Path
     Name: Robot local path
-    Enabled: true
+    Enabled: false
     Color: 0; 255; 110
     Line Style: Lines
     Line Width: 0.06
@@ -75,7 +75,7 @@ Visualization Manager:
       Reliability Policy: Reliable
   - Class: rviz_default_plugins/PointCloud2
     Name: Robot scan
-    Enabled: true
+    Enabled: false
     Topic:
       Value: /navigation/scan
       Reliability Policy: Best Effort
@@ -85,7 +85,7 @@ Visualization Manager:
     Flat Color: 100; 210; 255
   - Class: rviz_default_plugins/PointCloud2
     Name: Raw filtered lidar
-    Enabled: false
+    Enabled: true
     Topic:
       Value: /sensing/lidar/points_filtered
       Reliability Policy: Best Effort

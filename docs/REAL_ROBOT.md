@@ -11,10 +11,10 @@
 
 ```text
 Kobuki USB → /odom → map-поза → decision → global planner → Nav2 MPPI → gate → /cmd_vel → Kobuki
-Livox → /livox/lidar ┬→ jr_perception → /opponent/odom, /opponent/markers
-                    └→ real_lidar_filter → /sensing/lidar/points_filtered
-                                            ├→ LaserScan → AMCL
-                                            └→ cloud в map → /navigation/scan → decision / planner / MPPI / gate
+Livox → /livox/lidar → real_lidar_filter → /sensing/lidar/points_filtered
+                                           ├→ jr_perception C++ → /opponent/odom, /opponent/markers
+                                           ├→ LaserScan → AMCL
+                                           └→ cloud в map → /navigation/scan → decision / planner / MPPI / gate
 ```
 
 Все узлы работают по системному времени (`use_sim_time=false`). Gazebo,
@@ -38,6 +38,43 @@ URDF публикует `base_footprint → base_link`, mounting — `base_link 
 поза между обновлениями фильтра, распространённая по свежей одометрии.
 
 ## 1. Подготовка компьютера
+
+### Просмотр детектора на реальном bag
+
+На компьютере с Docker и установленным `helm`:
+
+```bash
+helm replay_detector
+helm replay_detector --list
+helm replay_detector --bag 20261003T095724.528830Z-bag --rate 0.5
+helm replay_detector --bag /absolute/path/SESSION/bag
+```
+
+Первый вариант предлагает консольный список записей с номерами и описаниями.
+Открывается штатный RViz: отфильтрованные точки, TF, кандидаты с причинами,
+подтверждённое измерение и отдельный прогноз. Отдельного GUI выбора нет.
+Для другого корня записей укажите `--bag-root PATH`, для запуска без окна —
+`--headless`. `--dry-run` печатает команду. `--from-seconds N` начинает
+новое сопровождение с этой секунды, поэтому первые кадры требуют подтверждения.
+Обычный запуск от начала сохраняет предысторию; `--rate` меняет только
+темп подачи, не timestamps и порядок облаков. Слишком быстрый поток может
+не пройти проверку потерь: начинайте с 1 или 0,5.
+
+Контейнер собирает `jr_perception` из текущего checkout в Release и запускает
+публикатор cached real clouds, детектор и RViz в отдельном ROS domain.
+Бег и исходники доступны для чтения; логи пишутся в
+`results/real-detector-replay/`. При первом запуске создаётся проверяемый
+кэш с hashes исходного MCAP, фильтра и преобразований; при несовпадении
+версий создаётся новый кэш рядом. Старые данные не перезаписываются.
+Закрытие RViz или Ctrl+C останавливает созданный контейнер.
+
+Для автономных bag с записанной картой поза восстанавливается из `/odom`
+и записанного AMCL `map→odom`. У пяти коротких raw-only `095xxx` карта
+отсутствует: RViz и явный `allow_mapless=true` replay работают в локальном
+`odom` записи. Профиль реального запуска оставляет `allow_mapless=false`,
+требует `/map` и итоговую map-позу. Эти replay не проверяют качество новой
+FAST-LIO+AMCL локализации. Результаты —
+[REAL_DETECTOR_EVALUATION.md](REAL_DETECTOR_EVALUATION.md).
 
 Выполните обычную установку Docker и helm из [README](../README.md).
 Команды ниже выполнять из корня репозитория на компьютере робота.
@@ -204,7 +241,9 @@ helm stop_real       # запретить движение, затем оста�
 
 ## 6. Карта и локализация
 
-`config/real.yaml` уже использует `maps/maze_bag_v1.yaml` и `localization: amcl`.
+`config/real.yaml` использует `maps/maze_bag_v1.yaml` и `localization: fastlio`.
+Ниже описан альтернативный режим `localization: amcl` с колёсной одометрией;
+основная цепочка — в разделе [FAST-LIO2 с коррекцией по статической карте](#fast-lio2-с-коррекцией-по-статической-карте).
 Карта выровнена по основным стенам на +1,8°, XY-ноль — внутренний левый нижний угол основных стен;
 +X вправо, +Y вверх, yaw0 вправо. Начало записи примерно[0.15,0.15]; [координаты и ограничения карты](../config/maps/README.md).
 `robot.start` задаёт **начальное приближение AMCL**, а не фиксирует дальнейшую
@@ -216,7 +255,7 @@ helm stop_real       # запретить движение, затем оста�
 угловые ячейки0,5°. Официальный pointcloud_to_laserscan сначала преобразует
 облако в base_footprint, затем берёт ближайшую точку каждого направления.
 AMCL likelihood_field использует 500–2000 частиц, колёсную одометрию и скан.
-Здесь нет SLAM, обновления стен или FAST-LIO в аппаратном запуске.
+В режиме amcl FAST-LIO не запускается; статическая карта не обновляется.
 Источники: [Nav2 AMCL](https://api.nav2.org/nav2-humble/html/amcl__node_8cpp_source.html),
 [pointcloud_to_laserscan](https://github.com/ros-perception/pointcloud_to_laserscan).
 
@@ -331,8 +370,9 @@ docker run --rm -v "$PWD/recordings:/records:ro" --entrypoint bash jr_real_image
 odom/TF, AMCL, localization ready/status, собственным/чужим треком, intent,
 глобальной/локальной траекторией, MPPI/planning/detector диагностикой, match и cmd_vel.
 После пересборки записываются также navigation/scan, obstacle_grid,
-opponent/odom, opponent/markers и opponent/foreground. Детектор получает raw LiDAR;
-планировщик использует статическую карту.
+opponent/odom, opponent/markers, отфильтрованное облако и диагностика детектора.
+C++ детектор получает `/sensing/lidar/points_filtered`; планировщик использует
+статическую карту.
 После заезда используйте `helm stop_real`, чтобы завершить metadata.yaml.
 В консоли печатается каталог сессии. При следующем старте старая сессия
 сначала штатно останавливается. Это позволяет разбирать recovery/стены/финиш
@@ -411,10 +451,20 @@ InflationLayer. ObstacleLayer отключён; `obstacle_grid` — диагно
 `real.yaml: planning_file` указывает на `planning.yaml`; его же использует
 симуляция. Радиус одинаков у A* и MPPI, значения меньше тела Kobuki
 (0,178 м) отклоняются. Фильтр `hsl_lidar_filter/real_lidar_filter` — C++; AMCL и наблюдения получают
-очищенное облако. Детектор `jr_perception/robot_detector.py` получает raw
-`/livox/lidar`, собственную map-позу и статический фон `/map`.
-Decision и планировщик читают `/opponent/odom`; `/opponent/markers` отображает
-кластеры объектов, включая коробки. Костмапа состоит из StaticLayer и
+очищенное облако. В реальном launch работает `jr_perception/opponent_detector_cpp`:
+он получает `/sensing/lidar/points_filtered`, собственную map-позу и `/map`.
+При FAST-LIO2 поза приходит из `/localization/kinematic_state`, в других
+режимах из `/navigation/self`. Параметры находятся в
+`src/jr_perception/config/real_cpp.yaml`. В `/opponent/odom` публикуется только
+подтверждённое текущим облаком измерение центра робота в `map`. Ориентация
+корпуса неизвестна: tracking frame совмещён с осями `map`, covariance угла
+велика. Скорость в этих осях выдаётся только при надёжной оценке.
+Прогноз остаётся в диагностике и маркерах, не в Odometry и не в
+`/navigation/opponent_visible`. Decision и планировщик читают
+`/opponent/odom`; `/opponent/markers` отображает кандидатов с причинами
+отклонения, треки, выбранное измерение и отдельный прогноз. В RViz включены
+маркеры; стрелка Odometry выключена, так как heading неизвестен.
+Костмапа состоит из StaticLayer и
 InflationLayer; результаты детектора её не обновляют.
 `navigation/observation_diagnostics` записывает счётчики очередей/просроченных
 наблюдений; таймстампы сохранены, устаревшие данные не переименовываются в свежие.
