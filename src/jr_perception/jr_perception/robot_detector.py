@@ -39,6 +39,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from jr_map.sdf_map_server import collect_boxes
 from jr_perception import background
+from jr_perception.box_tracker import BoxTracker, BoxTrackerConfig
 from jr_perception.segmentation import (
     RobotModel,
     arena_bounds,
@@ -237,6 +238,9 @@ REASON_WORDS = (
     ("невязка", "rms"),
     ("на ней", "fit"),
     (" из ", "of"),
+    ("внутри коробки", "inside_box"),
+    ("плоскость", "plane"),
+    ("против окружности", "vs_circle"),
     ("против", "vs"),
     ("широкий", "wide"),
     ("высокий", "tall"),
@@ -408,21 +412,25 @@ def make_robot_markers(
     return markers
 
 
-def make_box_markers(header: Header, boxes: list, plane: np.ndarray) -> MarkerArray:
-    """Предметы на сцене -- opponent/box_markers
+def make_box_markers(header: Header, tracks: list, config, plane: np.ndarray) -> MarkerArray:
+    """Коробки на сцене по трекам коробок -- opponent/box_markers
 
-    Каркас повёрнутого бокса от пола до верха предмета, полупрозрачная
-    заливка и подпись: центр, длина x ширина x высота.
+    Каркас повёрнутого бокса от пола до верха, полупрозрачная заливка и
+    подпись: номер трека, тип по известным размерам, центр, габарит,
+    наблюдения «на гранях» / все и голоса робота против коробки.
+    Подтверждённые треки -- оранжевые: детекции робота внутри них
+    отбрасываются; неподтверждённые -- серые.
     """
     markers = clear_markers(header)
-    color = (1.0, 0.55, 0.0)
 
-    for i, box in enumerate(boxes):
-        x, y = (float(v) for v in box.center)
+    for i, track in enumerate(tracks):
+        confirmed = track.confirmed(config)
+        color = (1.0, 0.55, 0.0) if confirmed else (0.6, 0.6, 0.6)
+        x, y = (float(v) for v in track.center)
         floor = floor_level(plane, x, y)
-        length, width = (max(float(v), 0.02) for v in box.size)
-        height = max(box.top, 0.02)
-        cos, sin = math.cos(box.yaw), math.sin(box.yaw)
+        length, width = (max(float(v), 0.02) for v in track.size)
+        height = max(track.top, 0.02)
+        cos, sin = math.cos(track.yaw), math.sin(track.yaw)
 
         corners = []
         for z in (floor, floor + height):
@@ -430,7 +438,7 @@ def make_box_markers(header: Header, boxes: list, plane: np.ndarray) -> MarkerAr
                 du, dv = u * length / 2.0, v * width / 2.0
                 corners.append(Point(x=x + du * cos - dv * sin, y=y + du * sin + dv * cos, z=z))
         frame = new_marker(header, "boxes", i, Marker.LINE_LIST, (*color, 1.0))
-        frame.scale.x = 0.015
+        frame.scale.x = 0.015 if confirmed else 0.008
         for a, b in (
             (0, 1), (1, 2), (2, 3), (3, 0),
             (4, 5), (5, 6), (6, 7), (7, 4),
@@ -439,20 +447,22 @@ def make_box_markers(header: Header, boxes: list, plane: np.ndarray) -> MarkerAr
             frame.points += [corners[a], corners[b]]
         markers.markers.append(frame)
 
-        fill = new_marker(header, "box_fill", i, Marker.CUBE, (*color, 0.15))
+        fill = new_marker(header, "box_fill", i, Marker.CUBE, (*color, 0.15 if confirmed else 0.05))
         fill.pose.position.x, fill.pose.position.y = x, y
         fill.pose.position.z = floor + height / 2.0
-        fill.pose.orientation.z = math.sin(box.yaw / 2.0)
-        fill.pose.orientation.w = math.cos(box.yaw / 2.0)
+        fill.pose.orientation.z = math.sin(track.yaw / 2.0)
+        fill.pose.orientation.w = math.cos(track.yaw / 2.0)
         fill.scale.x, fill.scale.y, fill.scale.z = length, width, height
         markers.markers.append(fill)
 
-        # под боксом (по -y), чтобы не налезать на подписи треков
+        # под боксом (по -y), чтобы не налезать на подписи треков робота
+        label = f"box#{track.id}" + (f"\n{track.kind}" if track.kind else "")
         markers.markers.append(
             new_text(
                 header, "box_labels", i, x, min(p.y for p in corners) - 0.15,
                 floor + height + 0.1,
-                f"box\n({x:.2f},{y:.2f})\n{length:.2f}x{width:.2f}x{height:.2f}",
+                f"{label}\n({x:.2f},{y:.2f})\n{length:.2f}x{width:.2f}x{height:.2f}"
+                f"\nplanar:{track.planar_hits}/{track.hits}\nrobot:{track.robot_hits}",
             )
         )
 
@@ -507,6 +517,14 @@ class RobotDetector(Node):
         self.box_min_height = self.declare_parameter("box_min_height", 0.10).value
         self.model = declare_dataclass(self, RobotModel, "robot")
         self.tracker = Tracker(declare_dataclass(self, TrackerConfig, "tracker"))
+        # Коробки: известные размеры длина, ширина, высота подряд, м --
+        # маленькая 0.15x0.15x0.40 и большая 0.40x0.60x0.20
+        box_sizes = self.declare_parameter(
+            "box.sizes", [0.15, 0.15, 0.40, 0.40, 0.60, 0.20]
+        ).value
+        self.box_tracker = BoxTracker(
+            declare_dataclass(self, BoxTrackerConfig, "box"), list(box_sizes)
+        )
 
         # Фреймы робота несут префикс пространства имён: defender/base_footprint
         namespace = self.get_namespace().strip("/")
@@ -853,6 +871,20 @@ class RobotDetector(Node):
         ]
         detections = [detection for detection, _ in inspected]
         reasons = [reason for _, reason in inspected]
+
+        # Коробки скана -> трекер коробок; детекции робота внутри
+        # подтверждённой коробки до трекера робота не доходят
+        boxes = find_boxes(
+            clusters, detections, self.model, self.box_min_height, position[:2]
+        )
+        kept = self.box_tracker.step(
+            moment, boxes, [detection for detection in detections if detection is not None]
+        )
+        for i, detection in enumerate(detections):
+            if detection is not None and not any(detection is k for k in kept):
+                detections[i] = None
+                reasons[i] = "внутри коробки"
+
         opponent = self.tracker.step(
             moment, [detection for detection in detections if detection is not None]
         )
@@ -888,9 +920,10 @@ class RobotDetector(Node):
                 self.floor_plane,
             )
         )
-        boxes = find_boxes(clusters, detections, self.model, self.box_min_height)
         self.box_marker_publisher.publish(
-            make_box_markers(header, boxes, self.floor_plane)
+            make_box_markers(
+                header, self.box_tracker.tracks, self.box_tracker.config, self.floor_plane
+            )
         )
 
         stats = self.stats
@@ -900,7 +933,7 @@ class RobotDetector(Node):
         stats["clusters"] += len(clusters)
         stats["candidates"] += sum(detection is not None for detection in detections)
         stats["found"] += opponent is not None
-        stats["boxes"] += len(boxes)
+        stats["boxes"] += len(self.box_tracker.confirmed())
         self.report(opponent)
 
     def report(self, opponent):
@@ -917,7 +950,7 @@ class RobotDetector(Node):
             f"переднего плана {stats['points'] / frames:.0f} точек, "
             f"кластеров {stats['clusters'] / frames:.1f}, "
             f"похожих на робота {stats['candidates'] / frames:.1f}, "
-            f"предметов {stats['boxes'] / frames:.1f}, "
+            f"коробок {stats['boxes'] / frames:.1f}, "
             f"соперник найден в {100.0 * stats['found'] / frames:.0f}% сканов"
         )
         if opponent is not None:

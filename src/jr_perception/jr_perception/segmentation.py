@@ -311,6 +311,13 @@ class RobotModel:
     # ищется окружность радиуса radius, и дальше проверяются только точки не
     # дальше radius + contain_margin от её центра.
     contain_margin: float = 0.05
+    # Грани против окружности: у коробки и стены точки лежат на вертикальных
+    # гранях -- сторонах прямоугольника на плоскости, у робота -- на дуге.
+    # Кластер -- предмет, если невязка граней меньше plane_ratio невязки
+    # окружности корпуса (обе по всем точкам кластера). На синтетике с шумом
+    # дальности 1-2 см отношение у робота не меньше 1.85, у коробок
+    # 15x15x40 и 40x60x20 не больше 1.14 (95%). 0 -- проверка выключена.
+    plane_ratio: float = 1.5
     min_points: int = 3
     # сколько точек обода нужно для фита окружности
     min_rim_points: int = 4
@@ -386,6 +393,22 @@ def find_circle(
     return centers[best], int(counts[best])
 
 
+def plane_test(xy: np.ndarray, guess: np.ndarray, model: RobotModel) -> tuple:
+    """Лежат ли точки на вертикальных гранях лучше, чем на корпусе робота
+
+    :xy (N, 2) точки кластера
+    :guess (2,) начальный центр окружности корпуса
+    :model radius и plane_ratio
+
+    :return (planar, faces, circle): предмет ли это, невязки граней и
+    окружности радиуса radius, м
+    """
+    faces = rectangle_fit(xy)[3]
+    _, residual = fit_circle(xy, model.radius, guess)
+    circle = math.sqrt(float(np.mean(residual ** 2)))
+    return faces < model.plane_ratio * circle, faces, circle
+
+
 def inspect_cluster(
     points: np.ndarray, observer: np.ndarray, model: RobotModel, extract: bool = True
 ) -> tuple:
@@ -432,6 +455,11 @@ def inspect_cluster(
 
     rim = xy[heights <= model.rim_max_z]
     guess = edge_center(xy, rim, observer, model.radius)
+
+    if model.plane_ratio > 0.0:
+        planar, faces, circle = plane_test(xy, guess, model)
+        if planar:
+            return None, f"плоскость: {100 * faces:.1f} против окружности {100 * circle:.1f} см"
 
     if len(rim) < model.min_rim_points:
         # Для фита обода мало: вдали кольцо проходит над кромкой корпуса и
@@ -490,6 +518,11 @@ class Box:
     # высота верха над полом, м
     top: float
     points: int
+    # точки лежат на вертикальных гранях лучше, чем на корпусе робота
+    # (plane_test): только такие идут в трекер коробок
+    planar: bool = False
+    # невязка граней, м
+    faces_rms: float = 0.0
 
 
 def convex_hull(xy: np.ndarray) -> np.ndarray:
@@ -520,6 +553,14 @@ def convex_hull(xy: np.ndarray) -> np.ndarray:
 def oriented_rectangle(xy: np.ndarray) -> tuple:
     """Повёрнутый прямоугольник вокруг точек (N, 2), стороны -- по граням
 
+    :return (center, size, yaw), см. rectangle_fit
+    """
+    return rectangle_fit(xy)[:3]
+
+
+def rectangle_fit(xy: np.ndarray) -> tuple:
+    """Повёрнутый прямоугольник вокруг точек (N, 2), стороны -- по граням
+
     Направления-кандидаты -- стороны выпуклой оболочки. Лидар видит у коробки
     одну-две грани, и берётся направление, при котором точки в среднем ближе
     всего к сторонам прямоугольника: грани ложатся на стороны. Наименьшая
@@ -527,16 +568,23 @@ def oriented_rectangle(xy: np.ndarray) -> tuple:
     треугольник, и рамка по гипотенузе у него той же площади, что по
     катетам.
 
-    :return (center, size, yaw): центр (2,), длина вдоль yaw и ширина, yaw
+    Невязка -- СКО расстояния точек до ближайшей стороны. У вертикальных
+    граней (коробка, стена) это шум дальности: точки одной-двух граней лежат
+    на сторонах. У дуги корпуса робота точки между касаниями отходят от
+    сторон на сантиметры. Стороны для невязки -- по 2-му и 98-му перцентилям,
+    чтобы одиночный выброс не отодвигал сторону от грани.
+
+    :return (center, size, yaw, rms): центр (2,), длина вдоль yaw и ширина,
+    yaw, невязка, м
     """
     hull = convex_hull(xy)
     if len(hull) < 3:
         # все точки на одной прямой: прямоугольник вырождается в отрезок
         if len(hull) == 1:
-            return hull[0].astype(float), np.zeros(2), 0.0
+            return hull[0].astype(float), np.zeros(2), 0.0, 0.0
         edge = hull[-1] - hull[0]
         yaw = math.atan2(edge[1], edge[0])
-        return hull.mean(axis=0), np.array([float(np.linalg.norm(edge)), 0.0]), yaw
+        return hull.mean(axis=0), np.array([float(np.linalg.norm(edge)), 0.0]), yaw, 0.0
 
     edges = np.diff(np.vstack([hull, hull[:1]]), axis=0)
     # Прямоугольник с осью angle тот же, что с angle + pi/2. К сторонам
@@ -568,11 +616,19 @@ def oriented_rectangle(xy: np.ndarray) -> tuple:
     center = (u.max() + u.min()) / 2.0 * along[best] + (v.max() + v.min()) / 2.0 * across[best]
     yaw = float(angles[best])
     size = np.array([u.max() - u.min(), v.max() - v.min()])
+
+    low_u, high_u = np.percentile(u, [2.0, 98.0])
+    low_v, high_v = np.percentile(v, [2.0, 98.0])
+    to_side = np.minimum.reduce(
+        [np.abs(u - low_u), np.abs(high_u - u), np.abs(v - low_v), np.abs(high_v - v)]
+    )
+    rms = math.sqrt(float(np.mean(to_side ** 2)))
+
     if size[1] > size[0]:
         # длинная сторона -- вдоль yaw
         size = size[::-1]
         yaw += math.pi / 2.0
-    return center, size, yaw
+    return center, size, yaw, rms
 
 
 def find_boxes(
@@ -580,6 +636,7 @@ def find_boxes(
     detections: list,
     model: RobotModel,
     min_height: float,
+    observer: np.ndarray = None,
 ) -> list:
     """Предметы на сцене: кластеры, которые не робот
 
@@ -590,6 +647,8 @@ def find_boxes(
     :detections для каждого кластера Detection или None
     :model параметры робота: min_points, radius, max_extent
     :min_height верх предмета не ниже этого: ниже -- шум у пола, м
+    :observer (2,) положение лидара: для проверки граней против окружности;
+    None -- проверка не делается, planar всегда False
 
     :return список Box
     """
@@ -607,6 +666,11 @@ def find_boxes(
         if len(points) < model.min_points or points[:, 2].max() < min_height:
             continue
 
-        center, size, yaw = oriented_rectangle(points[:, :2])
-        boxes.append(Box(center, size, yaw, float(points[:, 2].max()), len(points)))
+        xy = points[:, :2]
+        center, size, yaw, faces = rectangle_fit(xy)
+        planar = False
+        if observer is not None and model.plane_ratio > 0.0:
+            rim = xy[points[:, 2] <= model.rim_max_z]
+            planar, faces, _ = plane_test(xy, edge_center(xy, rim, observer, model.radius), model)
+        boxes.append(Box(center, size, yaw, float(points[:, 2].max()), len(points), planar, faces))
     return boxes
