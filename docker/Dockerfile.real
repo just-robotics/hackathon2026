@@ -26,6 +26,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-nav2-lifecycle-manager ros-humble-rviz2 ros-humble-pcl-ros \
     ros-humble-teleop-twist-keyboard ros-humble-rosbag2-storage-mcap \
     && rm -rf /var/lib/apt/lists/*
+# FAST-LIO2 -- локализация стека (localization: fastlio в real.yaml):
+# hku-mars/FAST_LIO, ветка ROS2, закреплённый коммит. Зависит от
+# livox_ros_driver2 из /workspace; до кода стека, чтобы его правки не
+# пересобирали FAST-LIO2.
+RUN git clone -b ROS2 --recursive https://github.com/hku-mars/FAST_LIO.git /fastlio/src/FAST_LIO && \
+    git -C /fastlio/src/FAST_LIO checkout a4743b095409588842a5b30ddfa27e29d2f99164 && \
+    git -C /fastlio/src/FAST_LIO submodule update --init --recursive
+WORKDIR /fastlio
+RUN source /workspace/install/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
+    colcon build --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 # Build the same autonomous implementation, without Gazebo/Autoware or SLAM.
 COPY src/hsl_interfaces /solution/src/hsl_interfaces
 COPY src/hsl_decision /solution/src/hsl_decision
@@ -41,7 +51,7 @@ COPY src/hsl_sim_adapter /solution/src/hsl_sim_adapter
 COPY src/hsl_lidar_filter /solution/src/hsl_lidar_filter
 COPY src/hsl_real /solution/src/hsl_real
 WORKDIR /solution
-RUN source /workspace/install/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
+RUN source /fastlio/install/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
     colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 RUN echo 'source /solution/install/setup.bash' >> /root/.bashrc
 # GUI apps (rviz2) need the host's live Xwayland auth cookie; /run/user/1000 is

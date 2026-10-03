@@ -20,14 +20,20 @@ base_footprint (как у AMCL) во фрейме карты:
   TF map -> odom  такой, чтобы map -> odom -> ... -> base_link давал позу
                   FAST-LIO2 (как делает AMCL). Сразу map -> base_footprint
                   нельзя: у него уже есть родитель (odom).
+  /localization/ready, /localization/status (publish_ready) -- готовность
+                  для стека робота вместо монитора AMCL: поза FAST-LIO2
+                  свежая и TF map -> odom опубликован.
 """
 
+import json
 import math
+import time
 
 import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Bool, String
 from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -110,6 +116,12 @@ class FastLioBridge(Node):
         self.publish_tf = self.declare_parameter("publish_tf", True).value
         # TF map -> odom датируется вперёд на столько, как transform_tolerance AMCL
         self.tf_tolerance = self.declare_parameter("tf_tolerance", 0.1).value
+        # Готовность для стека робота (localization: fastlio): поза и TF не
+        # старше max_age по часам ноды
+        self.publish_ready = self.declare_parameter("publish_ready", False).value
+        self.max_age = self.declare_parameter("max_age", 0.5).value
+        self.last_pose = None
+        self.last_tf = None
 
         x, y, yaw = start
         self.map_from_start = matrix((x, y, 0.0), (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)))
@@ -122,6 +134,10 @@ class FastLioBridge(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.publisher = self.create_publisher(Odometry, target, 50)
         self.create_subscription(Odometry, source, self.on_odometry, 50)
+        if self.publish_ready:
+            self.ready_publisher = self.create_publisher(Bool, "/localization/ready", 10)
+            self.status_publisher = self.create_publisher(String, "/localization/status", 10)
+            self.create_timer(0.1, self.publish_readiness)
         self.get_logger().info(
             f"{source} -> {target} ({self.map_frame} -> {self.base_frame}), "
             f"старт ({x:.3f}, {y:.3f}, {math.degrees(yaw):.1f} град)"
@@ -184,6 +200,7 @@ class FastLioBridge(Node):
             t.angular.x, t.angular.y, t.angular.z = (float(v) for v in angular)
         self.last = (moment, map_from_base)
         self.publisher.publish(out)
+        self.last_pose = time.monotonic()
 
         if self.publish_tf:
             self.publish_map_to_odom(message.header.stamp, map_from_base)
@@ -222,6 +239,19 @@ class FastLioBridge(Node):
             out.transform.rotation.w,
         ) = (float(v) for v in quaternion(map_from_odom[:3, :3]))
         self.tf_broadcaster.sendTransform(out)
+        self.last_tf = time.monotonic()
+
+    def publish_readiness(self):
+        now = time.monotonic()
+        pose_fresh = self.last_pose is not None and now - self.last_pose <= self.max_age
+        transform_fresh = not self.publish_tf or (
+            self.last_tf is not None and now - self.last_tf <= self.max_age
+        )
+        ready = pose_fresh and transform_fresh
+        self.ready_publisher.publish(Bool(data=ready))
+        self.status_publisher.publish(String(data=json.dumps(dict(
+            ready=ready, source="fastlio", pose_fresh=pose_fresh,
+            transform_fresh=transform_fresh))))
 
 
 def main():

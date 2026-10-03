@@ -39,7 +39,7 @@ def main():
     def control(action,manual=False):
         script=(ROOT/'tools'/('record_control.py' if manual else 'real_control.py')).read_text()
         command='source /solution/install/setup.bash && python3 - '+action
-        if action=='enable' and not manual and cfg.get('localization')=='amcl':
+        if action=='enable' and not manual and cfg.get('localization') in ('amcl','fastlio'):
             command+=' --require-localization'
         if args.action=='stop' and not manual:command+=' --timeout 3'
         subprocess.run(compose+['exec','-T','real','bash','-lc',command],cwd=ROOT,env=env,input=script,text=True,check=True)

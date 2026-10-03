@@ -12,8 +12,8 @@ def load_config(path):
     optional = {'localization_file', 'lidar_filter_file', 'planning_file'}
     if not isinstance(config, dict) or not required <= set(config) <= required | optional:
         raise ValueError('real.yaml fields must be ' + str(sorted(required)))
-    if config['localization'] not in ('odometry', 'external_tf', 'amcl'):
-        raise ValueError('localization must be odometry, external_tf or amcl')
+    if config['localization'] not in ('odometry', 'external_tf', 'amcl', 'fastlio'):
+        raise ValueError('localization must be odometry, external_tf, amcl or fastlio')
     if type(config['ros_domain_id']) is not int or not 0 <= config['ros_domain_id'] <= 232:
         raise ValueError('ros_domain_id must be in [0,232]')
     if type(config['rviz']) is not bool:

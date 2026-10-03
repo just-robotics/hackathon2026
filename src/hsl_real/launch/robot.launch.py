@@ -28,7 +28,7 @@ def nodes(context):
     processes.extend(hardware_nodes(cfg,mission,drivers=drivers))
     add('hsl_lidar_filter','real_lidar_filter', parameters=(
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
-    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization']=='amcl'}])
+    add('hsl_real','real_observations', parameters=[{'odom_topic':cfg['odom_topic'],'lidar_topic':'/sensing/lidar/points_filtered','require_localization':cfg['localization'] in ('amcl','fastlio')}])
     # Облако до детектора: фильтры (свой робот, высота, дальность) в
     # base_footprint, затем сегментация земли linefit; детектор берёт облако
     # препятствий, и его собственные фильтры выключены.
@@ -53,7 +53,7 @@ def nodes(context):
         'MPPI.GoalCritic.cost_weight':15. if role=='guardian' else 5.,
         'costmap.plugins':['static_layer','inflation_layer']}])
     add('hsl_debug_control','motion_gate',parameters=[{'require_match_active':True}],name='hsl_motion_gate')
-    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':cfg['localization']=='amcl','role':role,'goal_center':mission['opponent']['start'][:2]}])
+    add('hsl_real','real_match',parameters=[{'active_seconds':float(mission['match']['active_seconds']),'require_localization':cfg['localization'] in ('amcl','fastlio'),'role':role,'goal_center':mission['opponent']['start'][:2]}])
     if cfg['localization']=='amcl':
         localization = cfg['localization_file']
         add('pointcloud_to_laserscan','pointcloud_to_laserscan_node',name='localization_scan',
@@ -63,6 +63,18 @@ def nodes(context):
             'initial_pose.x':x,'initial_pose.y':y,'initial_pose.z':0.,'initial_pose.yaw':yaw}],
             remappings=[('scan','/localization/scan')])
         add('hsl_real','localization_monitor',parameters=[localization,{'odom_topic':cfg['odom_topic']}])
+    if cfg['localization']=='fastlio':
+        # FAST-LIO2 вместо AMCL: облако в CustomMsg на лету, лидар-инерциальная
+        # одометрия, мост переводит её в позу base_footprint в map от старта
+        # робота и публикует map -> odom (как AMCL), а с ним и готовность
+        # /localization/ready вместо localization_monitor.
+        launch_share = Path(get_package_share_directory('jr_launch'))
+        add('jr_perception','livox_custom.py',parameters=[{'cloud_topic':cfg['lidar_topic'],'custom_topic':'/livox/lidar_custom'}])
+        add('fast_lio','fastlio_mapping',name='laser_mapping',
+            parameters=[str(launch_share/'config/perception/fastlio.param.yaml')])
+        x,y,yaw = mission['robot']['start']
+        add('jr_perception','fastlio_bridge.py',parameters=[{'x':float(x),'y':float(y),'yaw':float(yaw),
+            'base_frame':'base_footprint','lidar_frame':'livox','publish_tf':True,'publish_ready':True}])
     if cfg['map_file']:
         add('nav2_map_server','map_server', name='map_server', parameters=[{'yaml_filename':cfg['map_file']}])
         add('nav2_lifecycle_manager','lifecycle_manager', name='map_lifecycle_manager',parameters=[{
@@ -78,6 +90,7 @@ def nodes(context):
         directory.mkdir(parents=True,exist_ok=True)
         topics=[cfg['odom_topic'],cfg['lidar_topic'],'/livox/imu','/tf','/tf_static','/map',
             '/amcl_pose','/initialpose','/localization/scan','/localization/ready','/localization/status',
+            '/Odometry','/localization/fastlio/odometry',
             '/navigation/self','/navigation/observation_diagnostics','/navigation/scan','/navigation/obstacle_grid','/opponent/odom','/opponent/markers','/opponent/foreground','/perception/obstacle_cloud','/navigation/opponent_visible','/navigation/detector_diagnostics',
             '/navigation/intent','/navigation/behavior','/navigation/indication','/navigation/global_path','/navigation/nav2_reference',
             '/navigation/local_path','/navigation/global_status','/navigation/mppi_diagnostics',
