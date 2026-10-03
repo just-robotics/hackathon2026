@@ -6,8 +6,8 @@
 1. облако переводится в систему мира по собственной позе на момент скана
    (localization/pose, ground truth p3d) и статическому TF до лидара. Если
    pose_topic пуст, лидар неподвижен, и хватает статического TF;
-2. вычитается фон: пол, стены из .world и всё за ними и/или фон, записанный
-   лидаром (record_background.py);
+2. вычитается фон: пол, стены из .world и всё за ними, фон, записанный
+   лидаром (record_background.py), или карта занятости из map_topic;
 3. остаток разбивается на кластеры, и среди них ищутся похожие на Kobuki
    (segmentation.inspect_cluster);
 4. трекер связывает детекции во времени и по движению восстанавливает курс.
@@ -27,9 +27,9 @@ import numpy as np
 import rclpy
 
 from geometry_msgs.msg import Point
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
@@ -335,6 +335,15 @@ class RobotDetector(Node):
         ).value
         z_slice = self.declare_parameter("z_slice", 0.25).value
         background_file = self.declare_parameter("background_file", "").value
+        # Фон из карты занятости (nav_msgs/OccupancyGrid), например /map, по
+        # которой локализуется AMCL. Строится в рантайме на первом скане после
+        # прихода карты: арена -- свободная область вокруг робота, остальное
+        # фон. Пусто -- не используется.
+        self.map_topic = self.declare_parameter("map_topic", "").value
+        # запас фона вокруг стен карты -- на неточность карты и локализации, м
+        self.map_margin = self.declare_parameter("map_margin", 0.15).value
+        # фон за краем карты, м
+        self.map_pad = self.declare_parameter("map_pad", 8.0).value
         # точка в ячейке фона выкидывается, только если не выше верха
         # предмета в ней на столько, м
         self.background_margin = self.declare_parameter(
@@ -367,11 +376,15 @@ class RobotDetector(Node):
             "base_frame", f"{prefix}base_footprint"
         ).value
 
-        if not world and not background_file:
+        if not world and not background_file and not self.map_topic:
             self.get_logger().error(
-                "Фон не задан: нужен world (стены из .world) или "
-                "background_file (фон, записанный record_background.py)"
+                "Фон не задан: нужен world (стены из .world), "
+                "background_file (фон, записанный record_background.py) "
+                "или map_topic (карта занятости)"
             )
+            raise SystemExit(1)
+        if background_file and self.map_topic:
+            self.get_logger().error("Заданы и background_file, и map_topic: нужен один")
             raise SystemExit(1)
 
         # Фон из .world: стены полигона, заданные боксами
@@ -436,6 +449,17 @@ class RobotDetector(Node):
         self.marker_publisher = self.create_publisher(
             MarkerArray, "opponent/markers", 10
         )
+        # последняя карта; фон из неё строится в process, когда известно,
+        # где робот
+        self.occupancy = None
+        if self.map_topic:
+            # map_server публикует карту один раз, transient local
+            self.create_subscription(
+                OccupancyGrid,
+                self.map_topic,
+                self.on_map,
+                QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+            )
 
         self.stats = self.empty_stats()
         self.last_log = time.monotonic()
@@ -454,6 +478,10 @@ class RobotDetector(Node):
                 f"{len(self.grid['keys'])} ячеек по {self.grid['cell']:.2f} м из "
                 f"{background_file}, пол z = {a:.4f} x + {b:.4f} y + {c:.3f}"
             )
+        if self.map_topic:
+            sources.append(
+                f"карта занятости {self.map_topic}, запас у стен {self.map_margin:.2f} м"
+            )
         pose = (
             f"лидар неподвижен в {self.world_frame}"
             if self.static
@@ -468,6 +496,45 @@ class RobotDetector(Node):
         return dict.fromkeys(
             ("frames", "seconds", "points", "clusters", "candidates", "found"), 0
         )
+
+    def on_map(self, message: OccupancyGrid):
+        if message.header.frame_id and message.header.frame_id != self.world_frame:
+            self.get_logger().warning(
+                f"Карта во фрейме {message.header.frame_id}, а world_frame "
+                f"{self.world_frame}: фон не совпадёт"
+            )
+        # новая карта -- фон перестраивается на следующем скане
+        self.occupancy = message
+        self.grid = None
+
+    def map_background(self, seed: np.ndarray):
+        """Построить фон из последней карты, seed -- точка внутри арены"""
+        info = self.occupancy.info
+        resolution = float(info.resolution)
+        values = np.asarray(self.occupancy.data, dtype=np.int8).reshape(
+            info.height, info.width
+        )
+        self.grid, found = background.from_occupancy(
+            values,
+            resolution,
+            (info.origin.position.x, info.origin.position.y),
+            seed,
+            int(round(self.map_margin / resolution)),
+            int(round(self.map_pad / resolution)),
+            self.world_frame,
+        )
+        self.floor_plane = self.grid["plane"]
+        if found:
+            self.get_logger().info(
+                f"Фон из {self.map_topic}: карта {info.width}x{info.height} по "
+                f"{resolution} м, арена вокруг ({seed[0]:.2f}, {seed[1]:.2f}), "
+                f"{len(self.grid['keys'])} ячеек фона"
+            )
+        else:
+            self.get_logger().warning(
+                f"Робот в ({seed[0]:.2f}, {seed[1]:.2f}) не в свободной клетке "
+                f"{self.map_topic}: ареной считаются все свободные клетки карты"
+            )
 
     def on_pose(self, message: Odometry):
         moment = stamp_seconds(message.header.stamp)
@@ -570,6 +637,15 @@ class RobotDetector(Node):
         rotation, position = self.sensor_in_world(message.header.frame_id, pose)
         if rotation is None:
             return
+
+        if self.map_topic and self.grid is None:
+            if self.occupancy is None:
+                self.get_logger().warning(
+                    f"Жду карту {self.map_topic}, скан пропущен",
+                    throttle_duration_sec=5.0,
+                )
+                return
+            self.map_background(position[:2])
 
         points = cloud_to_xyz(message)
         # ближние точки -- свои пластины: лучи круче -45 градусов упираются в
