@@ -1,0 +1,19 @@
+<launch>
+
+  <arg name="use_sim_time" default="false"/>
+  <arg name="namespace" default="localization"/>
+
+  <push-ros-namespace namespace="$(var namespace)"/>
+  <node pkg="robot_body_filter" exec="robot_body_filter_node" name="crop_box_filter_node">
+    <param from="$(find-pkg-share jr_launch)/config/sensing/crop.param.yaml"/>
+    <remap from="~/input/pointcloud" to="/livox/lidar"/>
+    <remap from="~/output/pointcloud" to="/sensing/lidar/cropped/pointcloud"/>
+  </node>
+
+  <node pkg="dbscan_filter" exec="dbscan_filter_node" name="dbscan_filter_node">
+    <param from="$(find-pkg-share dbscan_filter)/config/dbscan.param.yaml"/>
+    <remap from="~/input/pointcloud" to="/sensing/lidar/cropped/pointcloud"/>
+    <remap from="~/output/pointcloud" to="/sensing/lidar/dbscan/pointcloud"/>
+  </node>
+
+</launch>

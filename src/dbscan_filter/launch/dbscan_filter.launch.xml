@@ -1,0 +1,11 @@
+<launch>
+  <arg name="input" default="/sensing/lidar/cropped/pointcloud"/>
+  <arg name="output" default="/sensing/lidar/dbscan/pointcloud"/>
+
+  <push-ros-namespace namespace="localization"/>
+  <node pkg="dbscan_filter" exec="dbscan_filter_node" name="dbscan_filter_node">
+    <param from="$(find-pkg-share dbscan_filter)/config/dbscan.param.yaml"/>
+    <remap from="~/input/pointcloud" to="$(var input)"/>
+    <remap from="~/output/pointcloud" to="$(var output)"/>
+  </node>
+</launch>
