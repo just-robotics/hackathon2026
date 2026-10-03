@@ -1,24 +1,7 @@
 import sys
 from pathlib import Path
-from math import cos,sin,pi
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/hsl_planning'))
-from hsl_planning.obstacle_memory import ObstacleMemory
 from hsl_planning.core import Pose2,VoxelWorld,astar,safe_segment
-
-
-def test_unmapped_box_memory_clear_and_expire():
-    memory=ObstacleMemory(lifetime=8.)
-    own=Pose2(0,0)
-    memory.update([(1,0,.2)],own,0.)
-    assert memory.points(1.)==[(1,0,.2)]
-    memory.update([(0.5,0,.2)],own,1.)  # nearer obstacle occludes old hit
-    assert len(memory.points(1.))==2
-    memory.update([(2,0,.2)],own,2.)  # ray now sees through old boxes
-    assert memory.points(2.)==[(2,0,.2)]
-    assert not memory.points(11.)
-    memory.update([(1,0,.4)],own,0.)  # simulation reset
-    assert memory.points(0.)==[(1,0,.4)]
-
 
 def test_diagonal_disk_can_pass_but_does_not_cut_a_corner():
     world=VoxelWorld(.15,.23)

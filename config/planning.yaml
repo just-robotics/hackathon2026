@@ -2,19 +2,18 @@
 # Hard body/swept envelope and soft MPPI proximity cost are separate.
 global:
   resolution: 0.10
-  robot_radius: 0.23  # Kobuki body 0.178 + 0.052 m clearance
+  robot_radius: 0.20  # Kobuki body 0.178 + 0.022 m clearance
   local_safety_margin: 0.0
-  obstacle_memory_lifetime: 8.0
-  small_box_confirmation_window: 1.2  # Three consistent processed scans; no stale samples.
   pose_timeout: 1.2
   scan_timeout: 1.8
   intent_timeout: 1.0
 local:
+  MPPI.PathAngleCritic.max_angle_to_furthest: 0.35  # Keep alignment cost until heading is within 20 degrees.
   MPPI.time_steps: 60  # prediction horizon 3.0 s at model_dt 0.05; swept-check covers it all
   MPPI.ObstaclesCritic.repulsion_weight: 1.0
   MPPI.ObstaclesCritic.critical_weight: 10.0
-  MPPI.ObstaclesCritic.collision_margin_distance: 0.05
-  MPPI.ObstaclesCritic.inflation_radius: 0.45
-  MPPI.ObstaclesCritic.cost_scaling_factor: 8.0
-  costmap.inflation_layer.inflation_radius: 0.45
-  costmap.inflation_layer.cost_scaling_factor: 8.0
+  MPPI.ObstaclesCritic.collision_margin_distance: 0.02
+  MPPI.ObstaclesCritic.inflation_radius: 0.6
+  MPPI.ObstaclesCritic.cost_scaling_factor: 2.0
+  costmap.inflation_layer.inflation_radius: 0.6
+  costmap.inflation_layer.cost_scaling_factor: 2.0

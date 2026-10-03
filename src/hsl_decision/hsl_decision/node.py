@@ -54,7 +54,7 @@ class DecisionManager(Node):
         self.logged_indication = None
         self.grid = None
         self.create_subscription(Odometry, "navigation/self", self.on_own, 10)
-        self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 10)
+        self.create_subscription(Odometry, "opponent/odom", self.on_opponent, 10)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
                                  qos_profile_sensor_data)
         self.create_subscription(PointCloud2, "navigation/map_points", self.on_map,

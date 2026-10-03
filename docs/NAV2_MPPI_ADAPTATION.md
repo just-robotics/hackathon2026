@@ -13,13 +13,13 @@ config/match.yaml, reverse применяется только к исследо
 включается динамически только guardian/CAPTURE. Весь перемещаемый footprint
 проверяется перед выдачей команды. Нет скрытого fallback.
 
-Текущая costmap: StaticLayer читает исходную /map, ObstacleLayer с
-marking+clearing читает navigation/nav2_scan из filtered obstacle_scan.
-ObstacleMemory/obstacle_grid остаётся у глобального планировщика и диагностики.
-Раньше динамическая память подавалась через StaticLayer; это отменено в
-текущем дереве, чтобы штатная очистка облачного слоя могла убирать его отметки.
-Фильтр собственных real-возвратов работает до AMCL и адаптера.
-Реальная блокировка движения ещё не подтверждена как исправленная.
+Текущая costmap: StaticLayer читает исходную `/map`, InflationLayer создаёт
+штатные штрафы расстояния от статических стен. ObstacleLayer отключён по
+указанию пользователя. A* также читает только known_grid; scan и map_points
+не добавляют occupancy. obstacle_grid — диагностическая копия статической
+карты. Детекторы продолжают работать, но их результаты не обновляют карту.
+Костмапа от детектора планируется как будущий вход, пока не подключённый.
+Трек соперника используется в тактическом выборе цели/маршрута.
 
 Исторические испытания ниже относятся к указанным версиям; актуальные
 ограничения и следующие проверки — [PROJECT_STATUS.md](PROJECT_STATUS.md).
@@ -183,8 +183,10 @@ optimizer/модели или снятие collision-check. Остальные c
 
 The stock StaticLayer reads the original `/map` for both namespaces.
 `navigation/obstacle_grid` remains global-planner memory/diagnostics; it is
-not an input to MPPI StaticLayer. The stock ObstacleLayer marks and clears
-`navigation/nav2_scan`, derived from semantically filtered obstacle_scan.
+not an input to MPPI StaticLayer. The stock ObstacleLayer marks `navigation/nav2_scan` (unknown obstacles)
+and ray-clears `navigation/nav2_clearing_scan` (full semantically filtered
+returns including mapped walls). Map-matching wall returns do not thicken
+static occupancy; bounded wall tolerance can hide protrusions within it.
 This restores normal ray and footprint clearing of live observations rather
 than repeatedly importing them as static-map cells. Neither the collision
 footprint nor the swept trajectory check is reduced. Upstream self-return

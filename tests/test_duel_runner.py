@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 import json
 import pytest
-from run_duel_series import classify_runtime, validate_runtime_metadata, roles_for_run, container_name
+from run_duel_series import classify_runtime, validate_runtime_metadata, roles_for_run, container_name, parameter_snapshot_json
 from match_config import load_config, configuration_environment
 
 
@@ -46,7 +46,7 @@ def test_manual_referee_is_rejected_before_motion_can_be_enabled():
         params[prefix + "decision_manager"] = {"role": role, "own_max_speed": 0.5,
             "own_start": json.loads(env["DUEL_FIRST_START"] if prefix == "/" else env["DUEL_SECOND_START"]),
             "opponent_start": json.loads(env["DUEL_SECOND_START"] if prefix == "/" else env["DUEL_FIRST_START"])}
-        params[prefix + "opponent_detector"] = {"use_sim_time": True, "opponent_max_height": 0.46, "robot.max_gap_share": 0.12, "robot.line_ratio": 0.35, "strong_arc_min_span_deg": 90.0, "allow_merged_strong": False, "strong_min_inlier_fraction": 0.95, "strong_rectangle_ratio": 0.70}
+        params[prefix + "robot_detector"] = {"use_sim_time": True, "world_frame":"map", "background_topic":"/map", "pose_topic":"navigation/self"}
         params[prefix + "hsl_motion_gate"] = {"require_match_active": True}
         params[prefix + "native_mppi"] = {
             "role": role, "random_seed": seed,
@@ -139,3 +139,9 @@ def test_invalid_fixture_height_is_rejected_before_launch(value, extra, message)
                             text=True, capture_output=True, timeout=10)
     assert result.returncode == 2
     assert message in result.stderr
+
+
+def test_parameter_snapshot_accepts_dds_warning_but_not_ambiguous_json():
+    assert parameter_snapshot_json('123.456 [76] warning\n{"/node": {"role":"guardian"}}\n') == {"/node":{"role":"guardian"}}
+    with pytest.raises(RuntimeError):
+        parameter_snapshot_json('{}\n{}\n')

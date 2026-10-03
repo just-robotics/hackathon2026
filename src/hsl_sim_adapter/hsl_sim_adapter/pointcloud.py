@@ -1,6 +1,6 @@
 """PointCloud2 decoding for observation transport and offline replay.
 
-Production detector is native C++.
+No detection or classification is performed here.
 """
 import numpy as np
 from sensor_msgs.msg import PointField

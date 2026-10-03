@@ -38,14 +38,14 @@
       ObstaclesCritic:
         enabled: true
         cost_power: 1
-        repulsion_weight: 1.5
-        critical_weight: 20.0
+        repulsion_weight: 1.0
+        critical_weight: 10.0
         consider_footprint: true
         collision_cost: 100000.0
-        collision_margin_distance: 0.10
+        collision_margin_distance: 0.02
         near_goal_distance: 0.35
-        inflation_radius: 0.65
-        cost_scaling_factor: 5.0
+        inflation_radius: 0.40
+        cost_scaling_factor: 8.0
       GoalCritic:
         enabled: true
         cost_power: 1
@@ -77,7 +77,7 @@
         cost_weight: 6.0
         offset_from_furthest: 4
         threshold_to_consider: 0.35
-        max_angle_to_furthest: 1.0
+        max_angle_to_furthest: 0.35
         forward_preference: false
       PreferForwardCritic:
         enabled: false
@@ -86,9 +86,9 @@
         threshold_to_consider: 0.35
     costmap:
       global_frame: map
-      # Kobuki collision body radius .178 m plus .052 m protected clearance.
+      # Kobuki collision body radius .178 m plus .032 m protected clearance.
       # Matches trajectory_planner.robot_radius; MPPI proximity cost is separate.
-      robot_radius: 0.23
+      robot_radius: 0.21
       footprint_padding: 0.0
       resolution: 0.05
       width: 4
@@ -99,27 +99,13 @@
       transform_tolerance: 0.20
       track_unknown_space: true
       always_send_full_costmap: true
-      plugins: [static_layer, obstacle_layer, inflation_layer]
+      plugins: [static_layer, inflation_layer]  # Occupancy comes only from /map.
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_topic: /map
         map_subscribe_transient_local: true
         subscribe_to_updates: true
-      obstacle_layer:
-        plugin: hsl_nav2_control::SemanticObstacleLayer
-        observation_sources: cloud
-        cloud:
-          data_type: PointCloud2
-          # Mark only the semantically filtered obstacle_scan; /map stays static.
-          marking: true
-          clearing: true
-          min_obstacle_height: 0.08
-          max_obstacle_height: 0.60
-          obstacle_min_range: 0.0
-          obstacle_max_range: 4.0
-          raytrace_min_range: 0.0
-          raytrace_max_range: 4.5
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.65
-        cost_scaling_factor: 5.0
+        inflation_radius: 0.40
+        cost_scaling_factor: 8.0

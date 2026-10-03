@@ -1,0 +1,64 @@
+# Детектор соперника (jr_perception/robot_detector.py). /** -- одни и те же
+# параметры для ноды в любом пространстве имён: /defender, /attacker.
+/**:
+  ros__parameters:
+
+    # Topics. ОТНОСИТЕЛЬНЫЕ: под namespace робота резолвятся в
+    # /<робот>/livox/lidar и /<робот>/localization/pose.
+    cloud_topic: "livox/lidar"
+    # своя поза во фрейме world: ground truth от gazebo_ros_p3d
+    pose_topic: "localization/pose"
+    world_frame: "world"
+    opponent_frame: "opponent"
+
+    # Фон. Из .world вычитаются боксы этих моделей: totami_built -- стены
+    # полигона totami, polygon_rosbag_built -- панели мира polygon_rosbag
+    # (по записи с реального полигона); моделей, которых в мире нет, просто
+    # нет. Если дописать Obstacle_1 ... Obstacle_5, коробки тоже уйдут в фон,
+    # и в облаке останется только соперник.
+    background_models: ["totami_built", "polygon_rosbag_built"]
+    z_slice: 0.25
+    # запас вокруг стен: 3 СКО шума дальности (0.02) и немного на позу
+    wall_margin: 0.08
+    # Пол: порог floor_z для пологих лучей плюс floor_noise * sin наклона
+    # луча -- столько по высоте даёт шум дальности у отвесного луча.
+    floor_z: 0.012
+    floor_noise: 0.06
+    ceiling_z: 0.70
+    # точки ближе к лидару -- свои пластины
+    self_range: 0.30
+    # шаг сетки кластеризации: зазор в пару ячеек разделяет кластеры
+    cluster_tolerance: 0.10
+    log_period: 5.0
+
+    # Kobuki в облаке соседа: корпус R=0.178 до z=0.124, пластины до 0.41.
+    robot:
+      radius: 0.178
+      rim_max_z: 0.115
+      max_height: 0.43
+      max_extent: 0.42
+      min_points: 3
+      min_rim_points: 4
+      outlier: 0.05
+      fit_rms_max: 0.035
+      line_ratio: 0.7
+      measurement_std: 0.03
+      fallback_std: 0.10
+
+    # Фильтр Калмана с постоянной скоростью; курс -- из вектора скорости.
+    # accel_std меньше -- сильнее сглаживание у стоящего робота, но дольше
+    # догонять резкий старт.
+    tracker:
+      accel_std: 0.5
+      position_std: 0.01
+      initial_speed_std: 0.5
+      heading_speed: 0.05
+      omega_time: 0.5
+      gate: 9.21
+      confirm_hits: 3
+      tentative_coast: 0.35
+      max_coast: 1.5
+      max_tracks: 8
+      move_threshold: 0.3
+      move_min_hits: 10
+      reacquire_radius: 0.35

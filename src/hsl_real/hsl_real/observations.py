@@ -11,7 +11,7 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header, Bool, String
 from tf2_ros import Buffer, TransformListener
 from hsl_sim_adapter.cloud import make_cloud, transform
-from hsl_perception.cloud import cloud_xyz
+from hsl_sim_adapter.pointcloud import cloud_xyz
 from .cloud_geometry import map_xyz
 
 

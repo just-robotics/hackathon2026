@@ -16,13 +16,9 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy, qos
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Bool, Float32, String
 
-from .obstacle_memory import ObstacleMemory
-from .obstacle_filter import SmallBoxFilter
-from hsl_sim_adapter.cloud import make_cloud
-from hsl_perception.cloud import cloud_xyz
 
 from .core import (Pose2, VoxelWorld, astar, moving_capture_goal, coverage_target, reachable_frontier_route,
-                   reachable_intercept, navigation_obstacles, evade_target, evade_objective_route,
+                   reachable_intercept, evade_target, evade_objective_route,
                    path_heading_error, reachable_target,
                    checked_recovery_target, turn_alignment_is_progress, safe_segment,
                    reusable_route, continuous_short_goal_route,
@@ -83,7 +79,7 @@ class TrajectoryPlanner(Node):
         super().__init__("trajectory_planner")
         self.declare_parameter("planning_frame", "map")
         self.declare_parameter("resolution", 0.10)
-        self.declare_parameter("robot_radius", 0.23)
+        self.declare_parameter("robot_radius", 0.21)
         self.declare_parameter("pose_timeout", 1.2)
         self.declare_parameter("scan_timeout", 1.8)
         self.declare_parameter("intent_timeout", 1.0)
@@ -128,11 +124,6 @@ class TrajectoryPlanner(Node):
             raise ValueError("arena_bounds must be [min_x,min_y,max_x,max_y]")
         self.arena_bounds = (tuple(configured_bounds)
                              if configured_bounds != default_arena_bounds else None)
-        self.scan_points = []
-        self.obstacle_memory = ObstacleMemory(lifetime=float(
-            self.declare_parameter("obstacle_memory_lifetime", 8.0).value))
-        self.small_box_filter = SmallBoxFilter(float(
-            self.declare_parameter("small_box_confirmation_window", 1.2).value))
         self.static_grid = None
         self.dirty = True
         self.global_path = []
@@ -154,16 +145,13 @@ class TrajectoryPlanner(Node):
         # draining old poses/intents after a costly planning/scan callback.
         latest_sensor = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         self.create_subscription(Odometry, "navigation/self", self.on_own, 1)
-        self.create_subscription(Odometry, "navigation/opponent", self.on_opponent, 1)
+        self.create_subscription(Odometry, "opponent/odom", self.on_opponent, 1)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 1)
         self.create_subscription(PointCloud2, "navigation/map_points", self.on_map,
                                  qos_profile_sensor_data)
         self.create_subscription(PointCloud2, "navigation/scan", self.on_scan,
                                  latest_sensor)
         grid_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        self.ignored_scan_pub = self.create_publisher(PointCloud2, "navigation/ignored_obstacles", qos_profile_sensor_data)
-        self.obstacle_scan_pub = self.create_publisher(PointCloud2, "navigation/obstacle_scan", qos_profile_sensor_data)
-        self.obstacle_filter_diag_pub = self.create_publisher(String, "navigation/obstacle_filter_diagnostics", 10)
         self.obstacle_grid_pub = self.create_publisher(OccupancyGrid, "navigation/obstacle_grid", grid_qos)
         self.create_timer(.2, self.publish_obstacle_grid)
         if self.require_match_active:
@@ -210,36 +198,21 @@ class TrajectoryPlanner(Node):
 
     def on_map(self, msg):
         if msg.header.frame_id == self.frame:
-            points, _ = self.small_box_filter.filter(read_xyz(msg), seconds(msg.header.stamp))
-            self.map_points = points.tolist()
+            # Adapters publish static-wall samples (sim) or an empty cloud
+            # (real). Only distinct scans may advance box confirmation time.
+            # A newer map heartbeat used to prune older pending scan views.
+            self.map_points = read_xyz(msg)
             self.dirty = True
 
     def on_scan(self, msg):
         if msg.header.frame_id == self.frame:
-            raw = cloud_xyz(msg)
-            scan_stamp = seconds(msg.header.stamp)
-            protected = ([[self.opponent[0].x, self.opponent[0].y]]
-                if self.opponent and 0 <= scan_stamp-self.opponent[1] <= .3 else [])
-            points, diagnostic = self.small_box_filter.filter(raw, scan_stamp, protected)
-            self.scan_points = points.tolist()
-            self.obstacle_memory.forget(self.small_box_filter.ignored)
-            self.ignored_scan_pub.publish(make_cloud(msg.header, self.small_box_filter.ignored.tolist()))
-            self.obstacle_scan_pub.publish(make_cloud(msg.header, self.scan_points))
-            self.obstacle_filter_diag_pub.publish(String(data=json.dumps(dict(
-                stamp_s=seconds(msg.header.stamp), **diagnostic))))
+            # Sensor freshness only. Occupancy comes exclusively from known_grid.
             self.scan_stamp = seconds(msg.header.stamp)
-            if self.own and abs(self.scan_stamp-self.own[1]) <= self.pose_timeout:
-                self.obstacle_memory.update(self.scan_points, self.own[0], self.scan_stamp)
-                self.publish_obstacle_grid()
-            self.dirty = True
 
     def on_known_grid(self, msg):
         if msg.header.frame_id != self.frame or msg.info.width <= 0 or msg.info.resolution <= 0:
             return
         self.static_grid = deepcopy(msg)
-        self.small_box_filter.set_grid(msg.info.resolution,
-            [msg.info.origin.position.x,msg.info.origin.position.y],
-            msg.info.width,msg.info.height,msg.data)
         resolution = msg.info.resolution
         width = msg.info.width
         origin = msg.info.origin.position
@@ -261,22 +234,12 @@ class TrajectoryPlanner(Node):
         self.grid_free = free
         self.dirty = True
 
-    def observed_obstacles(self):
-        enemy = (self.opponent[0] if self.role == "guardian" and self.opponent
-                 and 0 <= self.now()-self.opponent[1] <= 1.0 else None)
-        return self.obstacle_memory.points(self.now(), exclude=enemy)
-
     def publish_obstacle_grid(self):
         if self.static_grid is None:
             return
         grid = deepcopy(self.static_grid)
         grid.header.stamp = self.get_clock().now().to_msg()
-        origin, resolution = grid.info.origin.position, grid.info.resolution
-        for x,y,_ in self.observed_obstacles():
-            col = int((x-origin.x)//resolution)
-            row = int((y-origin.y)//resolution)
-            if 0 <= col < grid.info.width and 0 <= row < grid.info.height:
-                grid.data[row*grid.info.width+col] = 100
+        # Compatibility diagnostic topic: static data, no detector overlays.
         self.obstacle_grid_pub.publish(grid)
 
     def publish_empty(self, reason):
@@ -318,6 +281,9 @@ class TrajectoryPlanner(Node):
                 or now - self.scan_stamp > self.scan_timeout
                 or now - seconds(self.intent.header.stamp) > self.intent_timeout):
             self.publish_empty("STALE_INPUT")
+            return
+        if self.static_grid is None:
+            self.publish_empty("NO_STATIC_MAP")
             return
         own = self.own[0]
         intent = self.intent
@@ -393,9 +359,8 @@ class TrajectoryPlanner(Node):
             "enemy_velocity": list(enemy_velocity),
             "enemy_prediction": [enemy_future.x, enemy_future.y] if enemy_future else None})
         if self.dirty:
-            static_points, scan_points = navigation_obstacles(
-                self.grid_points + self.observed_obstacles(), self.map_points, self.scan_points, enemy)
-            self.world.update(static_points, scan_points, own,
+            # Map occupancy comes only from known_grid, never LiDAR/track outputs.
+            self.world.update(self.grid_points, [], own,
                               self.grid_free, self.grid_bounds)
             self.dirty = False
         if pending_native_recovery or self.recovery_goal is not None:

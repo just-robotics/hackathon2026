@@ -84,16 +84,6 @@ Visualization Manager:
     Color Transformer: FlatColor
     Flat Color: 100; 210; 255
   - Class: rviz_default_plugins/PointCloud2
-    Name: Obstacle scan (planner input)
-    Enabled: true
-    Topic:
-      Value: /navigation/obstacle_scan
-      Reliability Policy: Best Effort
-    Size (m): 0.05
-    Style: Points
-    Color Transformer: FlatColor
-    Flat Color: 255; 140; 0
-  - Class: rviz_default_plugins/PointCloud2
     Name: Raw filtered lidar
     Enabled: false
     Topic:
@@ -107,7 +97,7 @@ Visualization Manager:
     Name: Opponent (tracked)
     Enabled: true
     Topic:
-      Value: /navigation/opponent
+      Value: /opponent/odom
       Reliability Policy: Reliable
     Position Tolerance: 0.05
     Angle Tolerance: 0.1
@@ -120,6 +110,13 @@ Visualization Manager:
       Head Radius: 0.1
       Shaft Length: 0.3
       Shaft Radius: 0.05
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Detector objects
+    Enabled: true
+    Topic:
+      Value: /opponent/markers
+      Reliability Policy: Reliable
+    Queue Size: 10
   Tools:
   - Class: rviz_default_plugins/Interact
   - Class: rviz_default_plugins/MoveCamera

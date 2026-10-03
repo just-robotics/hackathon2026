@@ -39,3 +39,14 @@ def test_horizon_can_be_changed_without_losing_ros_integer_type(tmp_path):
     cfg=load_planning(p)
     assert type(cfg['local']['MPPI.time_steps']) is int
     assert cfg['local']['MPPI.time_steps']==30
+
+
+def test_native_yaml_fallback_matches_external_soft_clearance_defaults():
+    native=yaml.safe_load((ROOT/'src/hsl_nav2_control/config/native_mppi.yaml').read_text())['/**']['ros__parameters']
+    effective=load_planning()
+    for key,value in effective['local'].items():
+        parts=key.split('.')
+        current=native
+        for part in parts:
+            current=current[part]
+        assert current==value, key

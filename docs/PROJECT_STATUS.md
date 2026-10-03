@@ -4,49 +4,29 @@
 
 ## Актуальная сводка дерева — 03.10.2026
 
-Checkpoint 1c695e3, origin 197fdb4. Последующие изменения пока не закоммичены.
-История ниже относится к конкретным версиям, текущую работоспособность надо
-проверять на текущем дереве. Приоритет пользователя — реальные raw bag/объекты.
+HEAD и origin/feature/decision-manager: fb98475. Есть незакоммиченные
+изменения; прежние результаты ниже относятся к своим версиям.
 
-- Управление: штатный C++ Nav2 MPPI. Фильтр LiDAR hsl_lidar_filter и детектор
-  hsl_perception_cpp — C++. Python detector node удалён; geometry/tracker
-  удалены; общей геометрией фильтра коробок остаётся hsl_perception.geometry.
-- AMCL получает очищенное облако. Raw AMCL эксперимент удалён: пользы в
-  сравнимом replay не установлено. Сырые данные bag сохраняются.
-- Параметры A*/контура/мягких штрафов MPPI — внешний planning.yaml sim+real.
-  Радиус по умолчанию0,23м, тело0,178м обязательно; скорость не ограничена
-  отдельным исследовательским порогом.
-- StaticLayer читает /map. SemanticObstacleLayer marking/raytrace + удаление
-  подтверждённых узких коробок из динамического слоя. Память8с у A*/diagnostics.
-  Box identity требует3 скана с согласованной объединённой формой,
-  окно1,2с/до7сканов; ambiguous/broad/wall сохраняются.
-- Исторически C++ core/full-rate Python oracle совпали на2630 clouds/1510 fresh до1,5e-15м
-  после одинакового xorshift32 RANSAC. Это fidelity, не semantic accuracy.
-- Полные real raw replay181529/182315 через C++/AMCL не повторили старые
-  разрывы own/TF5–10с. Planner берёт последнюю pose/intent/scan с KEEP_LAST1;
-  сравнимый15242360с probe снизил STALE_INPUT201→0. Полный плотный scan
-  сохраняется до проверки формы: прежнее uniform decimation6000/5000 теряло
-  редкие грани. Real14 установлен и прошёл полные151820/152423; real15/sim12
-  собраны с внешним integer MPPI.time_steps(default60).
-  Позднее собраны real16/sim14 с экспериментальным ограничением weak identity
-  (подробности в последнем цикле); финальная дуэль этой версии не завершена.
-  Это транспорт и вычисления на реальных данных, не физическая езда.
-- Full181529 sourceoverride с плотным входом:54ignoredframes/1888points,
-  подтверждённая устойчивая узкая форма[2,82;0,88]; все датчики поданы,
-  finalcmd0. Все типы/ориентации реальных коробок ещё не проверены, labels нет.
-- Push yaw45 предыдущего sim11: цель за6,66с,0,277м/с, коробка сдвинута1,474м,
-  стен/robot collisions0; полный artifact сохранён. Механика реального
-  толкания этим не подтверждена.
-- Последняя debugduel серия seed0..2: explorer_goal2/3, captures0/3;
-  скорости E0,240/0,291/0,291, G0,027/0,111/0,111м/с. Seed0 страж остановился
-  около[2,227;1,834], часто swept_collision cost254;90% отказов во второй
-  половине3-секундного горизонта. Сравнение нового sim12 с30steps ухудшило
-  скорость стража0,209→0,137; default60 восстановлен. Повтор seed1 снова
-  показал остановку стража (0,132м/с), seed2 дал поимку (0,218м/с).
-  Прежняя короткая поимка другой версии не подтверждает исправность этого дерева.
-- Незавершённое: остановки стража, избегание/recovery исследователя seed0,
-  распознавание реальных robot/box без semantic labels, ambiguous untracked
-  body fragments и полная оценочная серия. Replaycounts не считать точностью.
+- Приоритет последнего запроса — реальная сборка, без новых прогонов.
+- Подключён `jr_perception` из origin/feature/detector b985515 напрямую.
+  Сегментация, tracker и recognition YAML не изменены; ROS-интеграция
+  добавляет фон из `/map`, готовность и свежесть выходного трека.
+- Raw `/livox/lidar` → detector → `/opponent/odom` → decision/A*/MPPI.
+  `/opponent/markers` отображает кластеры объектов, включая коробки.
+  Отдельного adapter node нет; старые hsl_perception(_cpp), SmallBoxFilter,
+  obstacle memory, semantic layer и их специальные инструменты удалены.
+- AMCL сохраняет очищенное облако от C++ hsl_lidar_filter.
+- Костмапа static-only: A* known_grid, MPPI StaticLayer+InflationLayer.
+  Параметры MPPI из локального planning.yaml сохранены (radius0,6/scaling2).
+  Радиус контура пользователя0,20м сохранён; удалены только настройки старой
+  памяти препятствий и подтверждения маленьких коробок.
+- Реальный образ jr_real_image собран, установленный launch проверен без
+  запуска ROS nodes. Новые bag/replay/физическая езда текущей версии
+  не проверялись по последнему указанию пользователя.
+- Детектор исходной ветки может coasting-предсказывать потерянный трек;
+  fresh Odometry/visible не равно новой измеренной детекции. MarkerArray
+  показывает коробки как кластеры, не классифицирует маленькая/большая.
+  Перед изменением алгоритмов/порогов детектора спросить пользователя.
 
 ## 02.10.2026 — общий checkpoint
 
@@ -4104,3 +4084,334 @@ Fetch повторён с --no-recurse-submodules: обычный fetch обно
 Текущая ветка не расходится с origin перед новым checkpoint.
 Все изменения подготовлены к commit и push feature/decision-manager
 по явному запросу пользователя; фактический SHA фиксируется в Git.
+
+## 03.10.2026 — совместная проверка detector/planner после e98f688
+
+Пользователь разрешил прогоны и попросил проверять изменения вместе.
+Ограничение предыдущего checkpoint «без прогонов» отменено этим запросом.
+Сначала исправлен static launch audit: planning_config присутствует в context,
+слои параметров native_mppi объединяются с правильным приоритетом. Проверка
+в jr_image без сети/ROS процессов прошла для обеих ролей и namespaces.
+Fallback YAML MPPI согласован с внешним planning.yaml; прежде без внешнего
+конфига возвращались inflation0.65/critical20 вместо0.45/10.
+
+Базовая общая дуэль: seed0, explorer/guardian, старты config/match.yaml,
+штатные коробки enabled, лимит90sim s, ROS_DOMAIN_ID76, Gazebo11421,
+private Compose hsl-joint-check. Команда:
+python3 benchmarks/run_duel_series.py --isolated-project hsl-joint-check
+--ros-domain-id 76 --gazebo-port 11421 --runs 1 --start-seed 0
+--first-role explorer --active-s 90 --trace --record-detector-scans
+--wall-timeout-s 750
+Результаты: results/isolated/hsl-joint-check/series-20261003T083233Z.
+Explorer_goal за18.0sim s; скорость explorer0.325/guardian0.131м/с.
+Explorer24fresh, ошибка median0.00760/p900.01204м; guardian0fresh,
+только1strong frame и SEARCH. Минимальная парная дистанция≈0.508м.
+MPPI swept rejects explorer7/guardian49 trace samples; 11guardian samples
+имеют static254, остальные не подтверждают статическое препятствие.
+Lateral global p90≈0.073м для обеих ролей. Это не успешная поимка.
+
+Полные облака этого же заезда повторены offline с C++ ядром. Добавлены
+детальные weak reasons (rim_sparse, line_fit, arc_span, inlier, rectangle,
+merged), без изменения численных вычислений. Старый профиль: explorer24/
+guardian0peer_near. Главные weak reasons line_fit247/320; строгая проверка
+линии .35 подавляла rim даже при наличии точек соперника. Вариант line_ratio
+.50 + arc75° дал85/56peer_near и0other на этом наборе; rectangle .70,
+inlier .95, gap .12 и требование3strong остаются. Это proximity labels,
+не измерение полной semantic accuracy/visibility recall. Real профиль не
+изменён. Новые значения применены к simulation launch и offline defaults.
+
+Совместный кандидат: hard radius .21м (body .178+clearance .032),
+collision_margin_distance .03м; repulsion1/critical10/inflation.45/scaling8.
+Глобальный и локальный контуры получают один radius, swept-check сохранён.
+Static map_points больше не вызывают statefulSmallBoxFilter: sim adapter
+публикует только known-wall samples, real adapter — empty heartbeat. Раньше
+более новый heartbeat мог удалить pending scan views/box identities.
+Подтверждение коробок теперь получает время только из отдельных scan.
+189Python tests/1skip и C++ unit успешны. Образ обновлён инкрементально
+через /tmp/hsl-joint-incremental.Dockerfile FROM предыдущий jr_image, COPY src,
+colcon --packages-select hsl_perception_cpp hsl_planning hsl_sim_adapter
+hsl_nav2_control (Release, symlink-install). SHA28918fd90798.
+Запущен повтор той же общей дуэли, результаты ещё не оценены.
+Цель active; устойчивое обнаружение/поимка и узкие проходы ещё не доказаны.
+
+Повтор series-20261003T083958Z остановлен до разрешения движения:
+проверка runtime_snapshot в harness ожидала старые line_ratio.35/arc90.
+Исправлены ожидаемые значения на .50/75, сама проверка не отключалась.
+Это инфраструктурная ошибка, не оценочный заезд. Остался собственный
+private runtime с закрытым движением; следующий запуск того же проекта
+штатно удаляет его перед стартом. Updated static launch audit прошёл.
+
+Общий повтор series-20261003T084203Z завершён guardian_capture за8.4sim s,
+seed0, тот же старт/коробки. Скорости explorer0.260/guardian0.297м/с;
+collisions/wall/robot/small_box_contacts0 у обоих; RTF0.518. Explorer9fresh,
+guardian10fresh (9aligned); median error0.00306/0.00531м, p900.01391/
+0.01214м, aligned error>0.3 и box_near_false0. SEARCH→CAPTURE у стража,
+GOAL→EVADE у исследователя. Swept trace6/2 (раньше7/49).
+В активном referee окне ABS lateral global median/p90: explorer0.0081/
+0.0465м, guardian0.06145/0.1137м. База explorer0.02705/0.0696, guardian
+0.0076/0.089. Для стража отклонение выросло при переходе search→capture;
+не выдавать улучшение скорости/поимки за улучшение всех метрик.
+P90 соседнего изменения cmd_omega:0.0479/0.0765рад/с (база.0526/.1144),
+интервалы команд нерегулярны; это не нормированный jerk.
+Численный unit для44см диагонального прохода: radius.21 допускает route
+и каждый segment; прежний .23 отклоняет прямой segment. Проверка касается
+геометрии point walls, не исполнения MPPI внутри реального44см прохода.
+Запущены ещё2повтора seeds1/2, alternate physical roles, trace без полного
+повторного capture для сокращения нагрузки. Результат одной поимки не
+доказывает устойчивость и не завершает общую цель.
+
+Повторы завершились:
+
+| Seed | Физические роли first/second | Исход | sim s | Explorer mean м/с | Guardian mean м/с | wall/robot collisions |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | explorer/guardian | guardian_capture | 8.4 | 0.260 | 0.297 | 0/0 |
+| 1 | explorer/guardian | guardian_capture | 9.6 | 0.230 | 0.256 | 0/0 |
+| 2 | guardian/explorer | guardian_capture | 20.2 | 0.236 | 0.232 | 0/0 |
+
+Seeds1/2: results/isolated/hsl-joint-check/series-20261003T084433Z.
+RTF.564/.539. Detector fresh explorer/guardian12/10(seed1),122/126(seed2);
+p90 aligned errors≤0.021м, error>0.3м0 и initial-box-near false0.
+Сохранённые траектории показывают actual minimum center-to-static-occupied-
+cell-center distance.285–.317м (база.332–.348). Это точечная дистанция,
+не измеренная свободная ширина коридора и не footprint clearance.
+Роботы реагируют друг на друга в этих трёх условиях, floor mean.2 соблюдён,
+зарегистрированных wall/robot contacts нет. Долгая серия, более узкий44см
+проход в физическом Gazebo, повторная реальная валидация и все виды occlusion
+не проверены. Поэтому общая цель не объявлена завершённой.
+После изменения runtime contract полный pytest сначала обнаружил устаревший
+fixture .35/90 в test_duel_runner; он синхронизирован .50/75. Проверка
+чужого run_id/role/seed/reverse permission остаётся. Private worlds после
+каждого содержательного заезда удалены harness, init/daemon не трогались.
+Следующий шаг: целевой совместный runtime-тест тесного прохода и разбор
+отклонения стража на обновляемой capture reference, без новых общих серий
+до появления конкретной гипотезы. Текст цели/промпта не менялся.
+
+Финальный полный pytest:190passed/1skip. Native unit и updated static
+launch audit прошли, git diff --check чистый. Новые изменения этого цикла
+ещё не закоммичены и не отправлены; предыдущий checkpoint e98f688 в origin.
+
+## 03.10.2026 — targeted diagonal fixture и проверка real profile
+
+Для отдельных fixture добавлен --obstacles-config в run_duel_series и
+HSL_SIM_OBSTACLES_FILE в Compose. Default остаётся прежним. Runtime snapshot
+проверяет SHA именно выбранного файла. benchmarks/scenarios содержит
+narrow_diagonal_match.yaml и narrow_diagonal_obstacles.yaml; обычные
+match.yaml/simulation_obstacles.yaml не менялись.
+
+Первый placement [1.05,1.605,.7332] широкого бокса пересекал стены8/9,
+SAT подтвердил ошибку fixture. series-20261003T085429Z timeout90sim s,
+speed .070/.026; не использовать его как тест физически допустимого узкого
+проезда. Следующий placement [.439,1.046,.526] ставит box вдоль стены,
+но округление оставило ~0.7мм пересечение со стеной8. Его результат
+series-20261003T085845Z explorer_goal32.9sim s, speed .200/.175,
+wall/robot collisions0; оба detector работали (200/112fresh, p90errors
+.0172/.0274м, aligned error>.3/initial-box-near false0). Пересечение
+траектории с сегментом узкого места не найдено: роботы выбрали обход.
+Это не доказательство проезда через тесный проход. После этого box pose
+уточнён до [.4415,1.0417,.526], SAT теперь не обнаруживает wall overlaps.
+
+Guardian47swept trace samples;38dynamic-only,9static присутствуют.
+Остановка PURSUE при own≈[1.126,1.18] имеет rejection index50–57/60
+на2.5–2.85s будущего прогноза, а не текущий contour. Гипотеза: трёхсекундный
+прогноз в тесных поворотах чрезмерно задерживает доступное движение.
+Кандидат horizon40steps/2.0s, все40steps всё ещё проходят swept-check.
+Максимальные скорости не изменены. Конфиг/defaults/YAML синхронизированы.
+Изменения Python/YAML доставлены overlay COPYsrc поверх symlink-install
+image, SHA876065cef1a4; новые C++ вычисления не менялись.
+
+По вопросу пользователя проверены real и новый simulation profiles на
+одних761полных filtered clouds реального bag151820 (768raw,7initial missing
+recorded TF). Повтор использует cachedpreparedinput предыдущей проверки:
+input.bin SHA совпадает; параметры фильтра совпадают с current config.
+Real325fresh — как прежде; simulation50fresh. Это не semantic precision/
+recall и не replay всего ROS стека. Production real profile НЕ менялся:
+line_ratio.50/arc75/inlier.80/gap.25/strong_extent.25, simulation сохраняет
+inlier.95/gap.12/rectangle.70. Не переносить sim thresholds на реальный
+стек по одному успешному Gazebo. Report в ignored results/real-bags-profile-
+check-20261003/report.json. Исправлен accessor speed в NativeReplay, нужный
+replay_real_shapes.py (новый native bridge ранее его не предоставлял).
+
+## 03.10.2026 — прекращение утолщения статических стен динамическими сканами
+
+Horizon40 в корректном fixture (seed3, series-20261003T091108Z) ухудшил
+результат: explorer_goal37.4s, E.128/G.078м/с, wall/robot collisions0,
+RTF.503. Guardian428swept samples, все dynamic-only; застревал у
+[1.094,1.09] на25+sim s, часто rejected cell[1.275,.925]. Detector видел
+соперника у обеих ролей; отказ не объясняется отсутствием трека. Горизонт
+возвращён60, сокращение прогноза не оставлено в production.
+
+По записи scan40.0:57точек возле этой клетки; все совпадают с occupied
+статической стеной при допуске .04м + полудиагональ клетки. Симуляционный
+ray noise stddev=.02м; собственный робот/соперник не объясняют эту группу
+(peer≈[2.25,2.07]). Гипотеза: noisy wall returns повторно утолщают стены
+в динамической costmap; повторная оптимизация начинается в том же запрете.
+
+StaticWallReturns отделяет map-matching возвраты от неизвестных объектов.
+Параметр global.static_wall_tolerance=.04м,0 отключает, разрешено0…0.08.
+Применяется после SmallBoxFilter, численный детектор не менялся. StaticLayer
+и known_grid сохраняют стены. obstacle_scan наносит только неизвестные
+объекты; clearing_scan сохраняет все возвраты после фильтра коробок.
+MPPI читает отдельные marking/clearing sources, оба проходят исключение
+наблюдаемого соперника guardian. ObstacleMemory также получает полный набор
+для ray clearing и отдельный набор для marking. При наличии known_grid
+A* не добавляет noisy map_points обратно к статическим occupied centres.
+Не расширяли blind radius, не отключали проверку всего rollout/footprint,
+не вводили новый лимит скорости. Ограничение: выступы у стены в пределах
+допуска могут быть неотличимы от шума; допуск можно отключить в YAML.
+
+Тесты: стеновой шум отделяется,15см выступ/unknown/outside сохраняются,
+нулевой допуск отключает сопоставление. Wall ray удаляет старую box occupancy
+без нового нанесения стены.192passed/1skip; C++ сборка 4изменённых пакетов
+прошла. Overlay содержит NumPy реализацию без новой SciPy зависимости.
+
+series-20261003T092918Z не стартовал (parameter snapshot timeout), движение
+не разрешалось. Во время запуска сменился адрес wlo1 с192.168.1.6 на
+172.20.10.3; старые DDS участники пытались отправлять на прежний адрес/VPN.
+series-20261003T095947Z прерван до старта: ROS TF между контейнерами также
+не появился. Только runtime нашего private Compose project удалён.
+Добавлен optional HSL_CYCLONEDDS_URI в sim common.yaml (default прежний),
+для private испытания выбран lo+unicast127.0.0.1. Hardware Compose не менялся.
+Runner сохраняет override в effective_environment. Это инфраструктурные
+нестарты, не метрики поведения. Следующий запуск: тот же seed3/fixture,
+проверка выхода стража из прежде блокировавшей позиции.
+
+Перед этими изменениями fetched origin и fast-forward HEAD e98f688→fb98475;
+4чужих коммита меняют RViz/real Docker GUI, не пересекаются с правками.
+Все новые изменения сохранены незакоммиченными; goal/prompt не редактировались.
+
+Повтор с wall dedup/horizon60: series-20261003T100334Z, seed3,
+explorer_goal, E.224/G.155м/с, collisions0. Guardian прошёл прежнюю позицию
+[1.094,1.09], но остановился после смены направления около[1.099,.745].
+Большинство команд в паузе result=ok и vx≈0, yaw≈.5 при path bearing≈1.57:
+гипотеза преждевременного отключения PathAngleCritic при пороге1rad.
+
+Следующий эксперимент: shared MPPI.PathAngleCritic.max_angle_to_furthest
+1.0→.35rad, вынесен в planning.yaml/default/native fallback.
+series-20261003T100754Z, seed3, корректный тот же fixture: guardian_capture,
+G.254м/с, E.055м/с, collisions0. Страж улучшился, исследователь существенно
+замедлился: этот общий порог НЕ считать окончательным решением. Следующий
+шаг — разобрать explorer rotation/route смены и отделить настройки
+направления стража от допуска forward/reverse исследователя; затем совместный
+повтор стандартных стартов. Текущий diff содержит эксперимент .35 для обеих
+ролей. Цель пока не завершена: минимальная средняя .2 у обоих не подтверждена.
+
+Нестарт series-20261003T100122Z вызван DDS warning перед JSON snapshot.
+Runner теперь принимает ровно один однострочный JSON object среди строк
+лога; неоднозначный вывод отклоняется. Тест прошёл. Loopback DDS задан
+современным Interfaces/NetworkInterface XML, все subsequent private runtimes
+автоматически очищены, живых Gazebo миров не осталось.
+
+## 03.10.2026 — static-only costmap по указанию пользователя
+
+Пользователь заморозил детекторы робота/коробок и указал: сейчас передавать
+статическую карту как костмапу; в будущем источник будет от детектора.
+В этом цикле алгоритмы/профили/фильтр классификации не менялись. Предыдущие
+незакоммиченные изменения детектора сохранены, дополнительных правок нет.
+
+MPPI plugins теперь только StaticLayer(`/map`) и InflationLayer. Убраны
+cloud marking/clearing subscriptions/publishers wrapper, связанные с
+ObstacleLayer; свежесть scan всё ещё проверяется. A* world.update получает
+только grid_points из known_grid и пустой scan. Нет переноса map_points,
+ObstacleMemory, трека робота или классов коробок в occupancy. Без static_grid
+планировщик публикует NO_STATIC_MAP. obstacle_grid сохраняет диагностический
+интерфейс, но содержит точную копию data статической карты.
+
+SmallBoxFilter и его diagnostic clouds продолжают работать; они не влияют
+на карту. Wall-return dedup больше не включён в transport; новый helper
+сохранён без изменений как ранее написанная заготовка. static_wall_tolerance
+удалён из активного planning.yaml/defaults. ObstacleMemory module и параметр
+lifetime оставлены как заготовка, сейчас в активном planner memory нет.
+Трек соперника остаётся у decision/тактики перехвата и убегания: это выбор
+маршрута, не запись occupancy. Широкие и маленькие коробки вне статической
+карты теперь не препятствия для A*/MPPI; физические коллизии Gazebo сохраняются.
+Будущий detector costmap interface не реализовывался и не заявляется готовым.
+
+Проверки:193passed/1skip, git diff --check, Compose config прошёл (warning
+VEHICLE_ID пустой в прямом вызове без helm). Incremental sim image пересобран,
+SHA75be343101bf. Без Gazebo/hardware выполнен ROS transport test в network-none
+контейнере: известная стена сохраняется; LiDAR/map_points с препятствием на
+свободном пути не изменяют A* occupancy; obstacle_grid.data==known_grid.data.
+/tmp/hsl-static-wiring.py и /tmp/hsl-static-wiring.log — команда/результат.
+Свежих дуэлей после static-only ещё не было; результаты предыдущих заездов
+относятся к прежней динамической costmap. На hardware нужно пересобрать real
+image перед использованием новых источников планирования. README/AGENTS/
+DIAGNOSTICS/NAV2_MPPI_ADAPTATION актуализированы. Не коммитили/не пушили.
+
+## 03.10.2026 — большая коробка также подвижна
+
+Причина неподвижности: unknown_box_large не имела movable:true, генератор
+создавал static=true. В основном simulation_obstacles.yaml и отдельном
+narrow fixture добавлены movable:true, mass=.30кг, friction=.30 (приблизительные,
+не измеренные параметры реальной коробки). Размер/поза/коллизия сохранены.
+Детекторы не менялись, костмапа остаётся статической. YAML монтируется с
+хоста; нужно пересоздать симуляционный мир, сборка не требуется.
+Существующий SDF-тест обновлён для всех четырёх movable моделей:5passed.
+Gazebo push trial не проводился в этом цикле, static=false проверен в SDF.
+README/AGENTS обновлены, git diff --check чистый. Не коммитили/не пушили.
+
+## 03.10.2026 — немного свободнее costmap, без прогона
+
+По запросу пользователя уменьшена мягкая зона инфляции .45→.40м в
+ObstaclesCritic и InflationLayer, collision_margin_distance .03→.02м.
+Защитный радиус .21м, весь swept-check, веса, скорости и источники карты
+сохранены. Детекторы не менялись. planning.yaml/defaults/native YAML
+синхронизированы. load_planning и проверка соответствия native fallback
+прошли, git diff --check чистый. Симуляция/заезды/сборка не запускались.
+YAML подключается с хоста: параметры обычного запуска вступают в силу после
+перезапуска стека без пересборки. Результат езды с этими числами не проверен.
+
+## 03.10.2026 — исходный feature/detector вместо прежнего detector/box stack
+
+Гипотеза/задача: вернуть исходный jr_perception из origin/feature/detector
+b985515, напрямую на raw LiDAR, без нашего прежнего C++ detector и
+классификатора коробок. Пользователь разрешил поправить ROS-интерфейс в
+самом детекторе и отменил прогоны после добавления; последний приоритет —
+реальная сборка, симуляцию пока отложить.
+
+Изменено: старые hsl_perception(_cpp), SmallBoxFilter, obstacle memory,
+semantic layer и их специальные replay/benchmark удалены. Общий декодер
+PointCloud2, нужный real_observations, перенесён в hsl_sim_adapter.pointcloud.
+Новый detector запускается напрямую из jr_perception; отдельного adapter
+node/пакета нет. ROS-интеграция добавляет background_topic=/map, ожидание
+карты и health/visible. Raw /livox/lidar и собственная navigation/self на
+stamp → исходная сегментация/фит/tracker → opponent/odom. Decision, A* и
+native MPPI читают этот топик. MarkerArray opponent/markers подключён к RViz
+и записи start_real. AMCL продолжает использовать filtered cloud.
+Костмапа static-only, numeric MPPI unchanged. Удалены только два неиспользуемых
+параметра старого box/memory из global planning config. Радиус тела0,20,
+все local параметры planning.yaml (inflation0,6/scaling2) сохранены.
+
+Сегментация, tracker, background, record_background, detector_eval и оба
+recognition YAML побайтно сверены с b985515. AST исходного process после
+исключения health-публикаций совпадает; функции формы, преобразования
+Odometry/MarkerArray, интерполяции позы и sensor TF не менялись. Перед
+алгоритмическими правками или изменением recognition params нужно спросить
+пользователя. Фон статической 2D-карты задаёт occupied>=50, walls до0,70м,
+полz=0, нулевой поворот origin; его корректность на новых bag пока не оценена.
+
+Реальная сборка:
+`docker build -t jr_real_image:latest -f docker/Dockerfile.real .`
+Успешно10пакетов, image sha256:bba509fae9ad2d6d2c56dea549c49fd40b8e3e8ab674f1a1bb1328dbc16498e8.
+Лог /tmp/hsl-branch-real-build2.log. Аудит установленного real launch:
+`docker run --rm --network none -v "$PWD/config:/config:ro" -v "$PWD/benchmarks/audit_real_detector_launch.py:/tmp/audit.py:ro" --entrypoint bash jr_real_image:latest -c 'source /solution/install/setup.bash && python3 /tmp/audit.py'`
+passed: raw input, timestamped own pose, map background, detector executable,
+StaticLayer+InflationLayer, старые пакеты отсутствуют; ROS nodes не запускались.
+Core tests162passed/1skip; helm tests43passed. git diff --check чистый.
+
+Новые bag найдены в hsl2026Extra/recordings_last8. Первый093554-autonomous
+259с содержит raw LiDAR, navigation/self, TF и /map; пользователь описал
+езду вокруг другого робота. Replay не запускался по последнему указанию.
+Метрик распознавания до/после нет; сборка не доказательство распознавания.
+Исходный tracker может выдавать coasting-прогноз, visible означает свежесть
+выхода, а не новую измеренную детекцию. Коробки — кластеры в MarkerArray,
+семантического small/large classifier у этой ветки нет.
+
+Симуляционные исходники топиков согласованы: wheel odom второго робота
+/opponent/wheel/odom, чтобы не конкурировать с robot detect /opponent/odom.
+Финальный sim-образ/заезд после всех изменений не проверялись и не являются
+подтверждённым результатом этого цикла. Реальный робот/драйверы не запускались.
+Следующий шаг по разрешению пользователя: проверить новый detector на первом
+bag с записанными map pose/TF, затем аппаратный запуск. Не менять recognition
+по результатам без согласования. Не коммитили/не пушили. Предыдущее дерево
+сохранено в /tmp/hsl-before-detector.patch и архиве
+/tmp/hsl-replaced-detectors-20261003.tar.gz; goal text не изменялся.
