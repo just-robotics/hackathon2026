@@ -4,21 +4,28 @@ FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LD_LIBRARY_PATH=/usr/local/lib
+# Драйверы Kobuki и Livox -- первыми: этот слой зависит только от базового
+# образа и drivers/src, поэтому правки зависимостей и кода стека ниже не
+# пересобирают драйверы. Здесь -- только то, что нужно им.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake python3-colcon-common-extensions python3-yaml python3-numpy \
-    ros-humble-rmw-cyclonedds-cpp ros-humble-ecl-core ros-humble-ecl-tools \
-    ros-humble-ecl-console ros-humble-ecl-mobile-robot ros-humble-diagnostic-updater \
-    ros-humble-robot-state-publisher ros-humble-joint-state-publisher ros-humble-xacro \
-    ros-humble-nav2-mppi-controller ros-humble-nav2-controller \
-    ros-humble-nav2-map-server ros-humble-nav2-amcl ros-humble-pointcloud-to-laserscan \
-    ros-humble-nav2-lifecycle-manager ros-humble-rviz2 ros-humble-pcl-ros \
-    ros-humble-teleop-twist-keyboard ros-humble-rosbag2-storage-mcap libapr1-dev \
+    build-essential cmake python3-colcon-common-extensions \
+    ros-humble-ecl-core ros-humble-ecl-tools ros-humble-ecl-console ros-humble-ecl-mobile-robot \
+    ros-humble-diagnostic-updater ros-humble-robot-state-publisher \
+    ros-humble-joint-state-publisher ros-humble-xacro libapr1-dev \
     && rm -rf /var/lib/apt/lists/*
 # Provided hardware packages, with their original licenses. SDK2 is in the base.
 COPY drivers/src /workspace/src
 WORKDIR /workspace
 RUN source /opt/ros/humble/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
     colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+# Зависимости стека: меняются чаще, поэтому после драйверов.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-yaml python3-numpy ros-humble-rmw-cyclonedds-cpp \
+    ros-humble-nav2-mppi-controller ros-humble-nav2-controller \
+    ros-humble-nav2-map-server ros-humble-nav2-amcl ros-humble-pointcloud-to-laserscan \
+    ros-humble-nav2-lifecycle-manager ros-humble-rviz2 ros-humble-pcl-ros \
+    ros-humble-teleop-twist-keyboard ros-humble-rosbag2-storage-mcap \
+    && rm -rf /var/lib/apt/lists/*
 # Build the same autonomous implementation, without Gazebo/Autoware or SLAM.
 COPY src/hsl_interfaces /solution/src/hsl_interfaces
 COPY src/hsl_decision /solution/src/hsl_decision
