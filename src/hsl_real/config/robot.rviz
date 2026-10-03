@@ -23,6 +23,15 @@ Visualization Manager:
       Durability Policy: Transient Local
     Color Scheme: map
     Alpha: 0.55
+  - Class: rviz_default_plugins/Map
+    Name: Obstacle costmap
+    Enabled: false
+    Topic:
+      Value: /navigation/obstacle_grid
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+    Color Scheme: costmap
+    Alpha: 0.65
   - Class: rviz_default_plugins/RobotModel
     Name: Robot
     Enabled: true
@@ -55,6 +64,15 @@ Visualization Manager:
     Topic:
       Value: /navigation/local_path
       Reliability Policy: Reliable
+  - Class: rviz_default_plugins/Path
+    Name: Nav2 reference path
+    Enabled: false
+    Color: 170; 120; 255
+    Line Style: Lines
+    Line Width: 0.03
+    Topic:
+      Value: /navigation/nav2_reference
+      Reliability Policy: Reliable
   - Class: rviz_default_plugins/PointCloud2
     Name: Robot scan
     Enabled: true
@@ -65,6 +83,43 @@ Visualization Manager:
     Style: Points
     Color Transformer: FlatColor
     Flat Color: 100; 210; 255
+  - Class: rviz_default_plugins/PointCloud2
+    Name: Obstacle scan (planner input)
+    Enabled: true
+    Topic:
+      Value: /navigation/obstacle_scan
+      Reliability Policy: Best Effort
+    Size (m): 0.05
+    Style: Points
+    Color Transformer: FlatColor
+    Flat Color: 255; 140; 0
+  - Class: rviz_default_plugins/PointCloud2
+    Name: Raw filtered lidar
+    Enabled: false
+    Topic:
+      Value: /sensing/lidar/points_filtered
+      Reliability Policy: Best Effort
+    Size (m): 0.025
+    Style: Points
+    Color Transformer: FlatColor
+    Flat Color: 255; 255; 0
+  - Class: rviz_default_plugins/Odometry
+    Name: Opponent (tracked)
+    Enabled: true
+    Topic:
+      Value: /navigation/opponent
+      Reliability Policy: Reliable
+    Position Tolerance: 0.05
+    Angle Tolerance: 0.1
+    Keep: 1
+    Shape:
+      Value: Arrow
+      Color: 255; 40; 40
+      Alpha: 1
+      Head Length: 0.2
+      Head Radius: 0.1
+      Shaft Length: 0.3
+      Shaft Radius: 0.05
   Tools:
   - Class: rviz_default_plugins/Interact
   - Class: rviz_default_plugins/MoveCamera
