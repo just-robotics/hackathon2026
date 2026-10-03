@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-robot-state-publisher ros-humble-joint-state-publisher ros-humble-xacro \
     ros-humble-nav2-mppi-controller ros-humble-nav2-controller \
     ros-humble-nav2-map-server ros-humble-nav2-amcl ros-humble-pointcloud-to-laserscan \
-    ros-humble-nav2-lifecycle-manager ros-humble-rviz2 \
+    ros-humble-nav2-lifecycle-manager ros-humble-rviz2 ros-humble-pcl-ros \
     ros-humble-teleop-twist-keyboard ros-humble-rosbag2-storage-mcap libapr1-dev \
     && rm -rf /var/lib/apt/lists/*
 # Provided hardware packages, with their original licenses. SDK2 is in the base.
@@ -25,6 +25,8 @@ COPY src/hsl_decision /solution/src/hsl_decision
 COPY src/hsl_planning /solution/src/hsl_planning
 COPY src/jr_perception /solution/src/jr_perception
 COPY src/jr_map /solution/src/jr_map
+COPY src/jr_launch /solution/src/jr_launch
+COPY src/linefit_ground_segmentation_ros2 /solution/src/linefit_ground_segmentation_ros2
 COPY src/hsl_nav2_control /solution/src/hsl_nav2_control
 COPY src/hsl_debug_control /solution/src/hsl_debug_control
 # Shared cloud/grid utilities are imported by real_observations; no simulator nodes run.
