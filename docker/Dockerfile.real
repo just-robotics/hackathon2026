@@ -20,6 +20,11 @@ COPY drivers/src /workspace/src
 WORKDIR /workspace
 RUN source /opt/ros/humble/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
     colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+# robot_body_filter: TF for clouds and Eigen; a separate layer keeps the
+# driver build above cached.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-tf2-eigen ros-humble-tf2-sensor-msgs ros-humble-visualization-msgs \
+    && rm -rf /var/lib/apt/lists/*
 # Build the autonomous implementation and FAST-LIO2, without Gazebo/Autoware.
 COPY src/fast_lio /solution/src/fast_lio
 RUN rm /solution/src/fast_lio/COLCON_IGNORE
@@ -27,6 +32,10 @@ COPY src/hsl_interfaces /solution/src/hsl_interfaces
 COPY src/hsl_decision /solution/src/hsl_decision
 COPY src/hsl_planning /solution/src/hsl_planning
 COPY src/jr_perception /solution/src/jr_perception
+# Detector input filters and their configs (jr_launch/config)
+COPY src/robot_body_filter /solution/src/robot_body_filter
+COPY src/dbscan_filter /solution/src/dbscan_filter
+COPY src/jr_launch /solution/src/jr_launch
 COPY src/jr_map /solution/src/jr_map
 COPY src/hsl_nav2_control /solution/src/hsl_nav2_control
 COPY src/hsl_debug_control /solution/src/hsl_debug_control

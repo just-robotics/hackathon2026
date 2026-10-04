@@ -1,5 +1,5 @@
 # FAST-LIO2 под Livox Mid-360 как локализация детектора
-# (jr_detector_fastlio.launch.xml): облако -- CustomMsg от livox_custom.py,
+# (jr_detector_fastlio_bag.launch.py): облако -- CustomMsg от livox_custom.py,
 # который переводит PointCloud2 драйвера на лету. Мелкие фильтры под арену в
 # несколько метров, облако /cloud_registered публикуется целиком (dense).
 /**:

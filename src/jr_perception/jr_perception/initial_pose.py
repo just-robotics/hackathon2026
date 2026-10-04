@@ -113,11 +113,30 @@ def main():
             result[:, j] = hit.mean(axis=1)
         return result
 
+    def score_cells(rows: np.ndarray, cols: np.ndarray, yaws: np.ndarray, target: np.ndarray) -> np.ndarray:
+        """То же, что score, для поз в центрах клеток (rows, cols)
+
+        Из центра клетки точка попадает в клетку col + floor(0.5 + x / resolution):
+        сдвиг в клетках от кандидата не зависит, и вместо координат всех поз
+        складываются целые индексы в сетке с полями, за картой -- промах.
+        """
+        pad = int(np.ceil(np.hypot(walls[:, 0], walls[:, 1]).max() / resolution)) + 2
+        padded = np.zeros((height + 2 * pad, width + 2 * pad), dtype=bool)
+        padded[pad:-pad, pad:-pad] = target
+        stride = padded.shape[1]
+        start = (rows + pad) * stride + cols + pad
+        result = np.zeros((len(rows), len(yaws)))
+        for j, yaw in enumerate(yaws):
+            c, s = math.cos(yaw), math.sin(yaw)
+            shift = np.floor(0.5 + walls @ np.array([[c, s], [-s, c]]) / resolution).astype(int)
+            result[:, j] = padded.ravel()[start[:, None] + shift[:, 1] * stride + shift[:, 0]].mean(axis=1)
+        return result
+
     # грубо: центры свободных клеток, курс через 2 градуса, стены с запасом в клетку
     rows, cols = np.nonzero(free)
     candidates = origin + (np.c_[cols, rows] + 0.5) * resolution
     yaws = np.radians(np.arange(0.0, 360.0, 2.0))
-    coarse = score(candidates, yaws, grow(occupied, 1))
+    coarse = score_cells(rows, cols, yaws, grow(occupied, 1))
     best = np.unravel_index(np.argmax(coarse), coarse.shape)
     position, yaw = candidates[best[0]], yaws[best[1]]
     second = np.sort(coarse.ravel())[-1]
