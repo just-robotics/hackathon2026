@@ -1,0 +1,23 @@
+<launch>
+
+  <arg name="use_sim_time" default="false"/>
+  <arg name="namespace" default="localization"/>
+  <arg name="keep_input_frame" default="false" description="true: облако на выходе во фрейме лидара, а не base_footprint"/>
+
+  <push-ros-namespace namespace="$(var namespace)"/>
+  <node pkg="robot_body_filter" exec="robot_body_filter_node" name="crop_box_filter_node">
+    <param from="$(find-pkg-share jr_launch)/config/sensing/crop.param.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="keep_input_frame" value="$(var keep_input_frame)"/>
+    <remap from="~/input/pointcloud" to="/livox/lidar"/>
+    <remap from="~/output/pointcloud" to="/sensing/lidar/cropped/pointcloud"/>
+  </node>
+
+  <node pkg="dbscan_filter" exec="dbscan_filter_node" name="dbscan_filter_node">
+    <param from="$(find-pkg-share dbscan_filter)/config/dbscan.param.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="~/input/pointcloud" to="/sensing/lidar/cropped/pointcloud"/>
+    <remap from="~/output/pointcloud" to="/sensing/lidar/dbscan/pointcloud"/>
+  </node>
+
+</launch>

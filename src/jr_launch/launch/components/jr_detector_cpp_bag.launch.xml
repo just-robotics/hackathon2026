@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- C++ детектор соперника (opponent_detector_cpp) на бэгах, вход — облако
+     после robot_body_filter и dbscan_filter.
+
+     /livox/lidar -> robot_body_filter (корпус и пол, base_footprint)
+       -> dbscan_filter (шум) -> /sensing/lidar/dbscan/pointcloud -> детектор.
+     Поза — FAST-LIO2 через fastlio_bridge.py сразу во фрейме map
+     (/localization/fastlio/odometry), без AMCL.
+
+     Порядок: бэг на паузе с ключами clock и start-paused, потом этот launch,
+     потом пробел в терминале бэга. Повтор бэга (-l) не годится: FAST-LIO2
+     продолжит с конца прошлого прохода. В бэге нужны /livox/lidar,
+     /livox/imu, /tf и /tf_static; если /map нет (ручные записи), задайте map.
+     В autonomous-записях map -> odom уже есть в /tf от AMCL робота, поэтому
+     там publish_tf:=false. -->
+<launch>
+  <arg name="x" default="0.5" description="старт base_footprint на карте, м"/>
+  <arg name="y" default="0.5"/>
+  <arg name="yaw" default="0.0" description="рад"/>
+  <arg name="map" default="" description="карта Nav2 .yaml, если /map нет в бэге"/>
+  <arg name="publish_tf" default="true" description="TF map -> odom от моста"/>
+  <arg name="rviz" default="true"/>
+
+  <node pkg="jr_perception" exec="livox_custom.py" name="livox_custom" output="screen">
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="fast_lio" exec="fastlio_mapping" name="laser_mapping" output="screen">
+    <param from="$(find-pkg-share jr_launch)/config/perception/fastlio.param.yaml"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node pkg="jr_perception" exec="fastlio_bridge.py" name="fastlio_bridge" output="screen">
+    <param name="x" value="$(var x)"/>
+    <param name="y" value="$(var y)"/>
+    <param name="yaw" value="$(var yaw)"/>
+    <param name="publish_tf" value="$(var publish_tf)"/>
+    <param name="map_frame" value="map"/>
+    <param name="odometry_topic" value="/localization/fastlio/odometry"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <group if="$(eval '\'$(var map)\' != \'\'')">
+    <node pkg="nav2_map_server" exec="map_server" name="map_server" output="screen">
+      <param name="yaml_filename" value="$(var map)"/>
+      <param name="use_sim_time" value="true"/>
+    </node>
+    <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="map_lifecycle_manager" output="screen">
+      <param name="autostart" value="true"/>
+      <param name="node_names" value="[map_server]"/>
+      <param name="use_sim_time" value="true"/>
+    </node>
+  </group>
+
+  <!-- фильтрация облака: robot_body_filter + dbscan_filter; group — чтобы
+       namespace localization из этого include не задел ноды ниже. Облако
+       остаётся во фрейме лидара: детектор считает лучи от начала координат
+       облака, и в base_footprint датчик оказался бы на полу -->
+  <group>
+    <include file="$(find-pkg-share jr_launch)/launch/components/jr_localization.launch.xml">
+      <arg name="use_sim_time" value="true"/>
+      <arg name="keep_input_frame" value="true"/>
+    </include>
+  </group>
+
+  <node pkg="jr_perception" exec="opponent_detector_cpp" name="opponent_detector_cpp" output="screen">
+    <param from="$(find-pkg-share jr_perception)/config/real_cpp.yaml"/>
+    <param name="cloud_topic" value="/sensing/lidar/dbscan/pointcloud"/>
+    <param name="pose_topic" value="/localization/fastlio/odometry"/>
+    <param name="use_sim_time" value="true"/>
+  </node>
+
+  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz2"
+        args="-d $(find-pkg-share jr_launch)/config/perception/detector_cpp.rviz">
+    <param name="use_sim_time" value="true"/>
+  </node>
+</launch>
