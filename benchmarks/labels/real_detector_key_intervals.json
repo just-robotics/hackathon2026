@@ -622,6 +622,114 @@
       "anchor_stamp_s": 1791021355.9792094,
       "source": "User described rotating among boxes; direct visual spot-check of real raw Livox scan near t=78 s in results/real-detector-labeling/new-095433/grid-01.png shows walls/boxes and no separate visible robot-shaped cluster. This does not assert absence in unsampled intervals.",
       "confidence": "manual_spotcheck"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021532.2405758,
+      "end_s": 1791021532.2605758,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.08,
+          0.02
+        ],
+        "tolerance_m": 0.25
+      },
+      "anchor_stamp_s": 1791021532.2505758,
+      "source": "Manual inspection of all real filtered returns in the late robot/box ROI, colored by world height .045–.60 m, in results/real-detector-labeling/v15-eighth-late-1.png. Robot body is visible separately from the stationary box. Approximate body center inferred from visible surface; one inspected scan only, not an interval visibility claim. Same recorded local-odom pose as the detector inputs.",
+      "confidence": "manual_approximate_single_scan"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021532.6400414,
+      "end_s": 1791021532.6600413,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.19,
+          0.04
+        ],
+        "tolerance_m": 0.25
+      },
+      "anchor_stamp_s": 1791021532.6500413,
+      "source": "Manual inspection of all real filtered returns in the late robot/box ROI, colored by world height .045–.60 m, in results/real-detector-labeling/v15-eighth-late-1.png. Robot body is visible separately from the stationary box. Approximate body center inferred from visible surface; one inspected scan only, not an interval visibility claim. Same recorded local-odom pose as the detector inputs.",
+      "confidence": "manual_approximate_single_scan"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021533.0400453,
+      "end_s": 1791021533.0600452,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.25,
+          0.13
+        ],
+        "tolerance_m": 0.25
+      },
+      "anchor_stamp_s": 1791021533.0500453,
+      "source": "Manual inspection of all real filtered returns in the late robot/box ROI, colored by world height .045–.60 m, in results/real-detector-labeling/v15-eighth-late-1.png. Robot body is visible separately from the stationary box. Approximate body center inferred from visible surface; one inspected scan only, not an interval visibility claim. Same recorded local-odom pose as the detector inputs.",
+      "confidence": "manual_approximate_single_scan"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021533.8404224,
+      "end_s": 1791021533.8604224,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.4,
+          0.34
+        ],
+        "tolerance_m": 0.25
+      },
+      "anchor_stamp_s": 1791021533.8504224,
+      "source": "Manual inspection of all real filtered returns in the late robot/box ROI, colored by world height .045–.60 m, in results/real-detector-labeling/v15-eighth-late-1.png. Robot body is visible separately from the stationary box. Approximate body center inferred from visible surface; one inspected scan only, not an interval visibility claim. Same recorded local-odom pose as the detector inputs.",
+      "confidence": "manual_approximate_single_scan"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021534.2401414,
+      "end_s": 1791021534.2601414,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.44,
+          0.43
+        ],
+        "tolerance_m": 0.25
+      },
+      "anchor_stamp_s": 1791021534.2501414,
+      "source": "Manual inspection of all real filtered returns in the late robot/box ROI, colored by world height .045–.60 m, in results/real-detector-labeling/v15-eighth-late-1.png. Robot body is visible separately from the stationary box. Approximate body center inferred from visible surface; one inspected scan only, not an interval visibility claim. Same recorded local-odom pose as the detector inputs.",
+      "confidence": "manual_approximate_single_scan"
+    },
+    {
+      "bag": "recordings_last8/20261003T095829.438480Z-bag",
+      "start_s": 1791021534.6409292,
+      "end_s": 1791021534.6609292,
+      "visibility": "visible",
+      "motion": "moving",
+      "frame": "odom_local",
+      "center": {
+        "xy_m": [
+          1.55,
+          0.52
+        ],
+        "tolerance_m": 0.25
+      },
+      "anchor_stamp_s": 1791021534.6509292,
+      "source": "Manual inspection of all real filtered returns in the late robot/box ROI, colored by world height .045–.60 m, in results/real-detector-labeling/v15-eighth-late-1.png. Robot body is visible separately from the stationary box. Approximate body center inferred from visible surface; one inspected scan only, not an interval visibility claim. Same recorded local-odom pose as the detector inputs.",
+      "confidence": "manual_approximate_single_scan"
     }
   ]
 }

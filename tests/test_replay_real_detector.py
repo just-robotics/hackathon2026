@@ -53,6 +53,7 @@ def test_headless_command_is_scoped_to_current_source_and_own_domain(tmp_path):
     assert '--count 0 --expect any --rate 0.5 --from-seconds 2.0' in script
     assert 'rviz-config' not in script and 'ros2 launch' not in script
     assert shlex.quote(str(bag)) in script
+    assert '--source-bag ' + shlex.quote(str(bag)) in script
 
 
 def test_list_and_dry_run_never_start_docker(tmp_path, monkeypatch, capsys):

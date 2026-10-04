@@ -860,6 +860,8 @@ private:
           ",\"support\":" << candidate.support_count <<
           ",\"contradictory\":" << candidate.contradictory_count <<
           ",\"complete_body_viable\":" << (candidate.complete_body_viable ? "true" : "false") <<
+          ",\"confirmed_continuation_only\":" <<
+          (candidate.confirmed_continuation_only ? "true" : "false") <<
           ",\"temporal_change\":" << (candidate.temporal_change ? "true" : "false") <<
           ",\"middle_to_upper_ratio\":" << candidate.middle_to_upper_ratio << '}';
       }

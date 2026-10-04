@@ -84,6 +84,7 @@ struct Candidate {
   double middle_to_upper_ratio = 0.0;  // middle / (middle + upper)
   bool weak_body_observation = false; // geometry valid, uncertain layer evidence
   bool continuation_body_observation = false; // partial body, confirmed track only
+  bool confirmed_continuation_only = false; // full finer component; cannot seed any track
   bool tall_broad_body = false; // independent size/height explanation
   bool complete_body_viable = false; // complete object passes hard shape/ray/map gates
   bool temporal_change = false; // proposal from a changed real return at fixed sensor pose
@@ -162,6 +163,8 @@ private:
   struct InternalTrack;
   std::vector<InternalTrack> tracks_;
   std::uint64_t next_track_id_ = 1;
+  struct BoxWitness;
+  std::vector<BoxWitness> box_witnesses_;
   struct MotionTrack;
   std::vector<MotionTrack> motion_tracks_;
   std::uint64_t next_motion_id_ = 1;
