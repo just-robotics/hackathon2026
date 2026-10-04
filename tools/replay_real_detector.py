@@ -179,6 +179,8 @@ def container_command(args, selected: Path, run_name: str, output: Path) -> list
                    '--count', '0', '--expect', 'any', '--rate', str(args.rate),
                    '--from-seconds', str(args.from_seconds),
                    '--log', str(output_container / 'detector.log')]
+    if (selected / 'metadata.yaml').is_file():
+        replay_tail += ['--source-bag', str(selected_container)]
     if not args.headless:
         replay_tail += ['--rviz-config', '/replay/benchmarks/real_detector_once.rviz',
                         '--rviz-log', str(output_container / 'rviz.log'), '--hold-seconds', '-1']

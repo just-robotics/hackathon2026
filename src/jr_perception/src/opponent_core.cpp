@@ -568,12 +568,15 @@ struct Detector::InternalTrack {
   bool velocity_valid = false;
   bool measured_this_frame = false;
   bool associated = false;
+  // A motion-proven body may remain visible after it stops. Every update
+  // still requires full current geometry and a tight association gate.
+  bool motion_body_track = false;
   std::deque<std::pair<double, Vec3>> measurements;
 };
 
 // This track is independent of the complete-body, static-capable tracker.
 // It only confirms coherent target motion while the sensor itself is still.
-// Its observations never count as strong hits for InternalTrack.
+// Full current body proof is required before it can join InternalTrack.
 struct Detector::MotionTrack {
   struct Observation {
     double stamp = 0.0;
@@ -584,7 +587,17 @@ struct Detector::MotionTrack {
   double last_stamp = 0.0;
   bool assigned = false;
   bool confirmed = false;
+  // Reuse the ordinary body identity once both evidence paths agree.
+  std::uint64_t body_track_id = 0;
   std::deque<Observation> history;
+};
+
+struct Detector::BoxWitness {
+  double ux = 1.0, uy = 0.0, min_u = 0.0, max_u = 0.0, min_v = 0.0, max_v = 0.0;
+  double min_z = 0.0, max_z = 0.0, first_stamp = 0.0, last_stamp = 0.0;
+  Vec3 center, sensor_pose;
+  int hits = 0;
+  bool confirmed = false;
 };
 
 Detector::Detector(Config config) : config_(std::move(config)) {}
@@ -598,6 +611,7 @@ void Detector::reset()
   next_track_id_ = 1;
   motion_tracks_.clear();
   next_motion_id_ = 1;
+  box_witnesses_.clear();
   temporal_frames_.clear();
   temporal_point_count_ = 0;
   last_stamp_ = -1.0;
@@ -678,7 +692,8 @@ Result Detector::process(const Frame & frame)
     {
       tracks_.clear();
       motion_tracks_.clear();
-      temporal_frames_.clear();
+      box_witnesses_.clear();
+  temporal_frames_.clear();
       temporal_point_count_ = 0;
       result.status = "map_alignment_inconsistent";
       last_stamp_ = frame.stamp;
@@ -696,6 +711,7 @@ Result Detector::process(const Frame & frame)
 
   std::vector<std::size_t> novel_foreground;
   const TemporalFrame * reference = nullptr;
+  bool stationary_reference = false;
   double nearest_lag_error = 0.20;
   for (const auto & prior : temporal_frames_) {
     const double lag = frame.stamp - prior.stamp;
@@ -712,6 +728,7 @@ Result Detector::process(const Frame & frame)
     std::abs(std::remainder(sensor_pose.z - reference->sensor_pose.z,
       2.0 * kPi)) <= 0.06)
   {
+    stationary_reference = true;
     constexpr double cell_size = 0.08;
     std::unordered_map<std::uint64_t, std::vector<Vec3>> old_cells;
     old_cells.reserve(reference->points.size());
@@ -875,6 +892,234 @@ Result Detector::process(const Frame & frame)
     }
   }
 
+  // A coarse component may join a robot and a nearby box. Reconsider complete
+  // components at finer connectivity only to continue a recently confirmed
+  // track. This evidence cannot seed a track or create a motion-only target;
+  // free-ray and map checks still use every return in the current cloud.
+  if (had_previous_prediction) {
+    std::vector<std::size_t> indices(all.size());
+    for (std::size_t i = 0; i < indices.size(); ++i) {indices[i] = i;}
+    const auto fine = complete_components.empty() ? segment(indices, 0.07) : complete_components;
+    for (const auto & members : fine) {
+      if (members.size() < 20) {continue;}
+      Vec3 mean;
+      for (const auto index : members) {
+        mean.x += all[index].position.x;
+        mean.y += all[index].position.y;
+      }
+      mean.x /= members.size();
+      mean.y /= members.size();
+      bool near_track = false;
+      for (const auto & track : tracks_) {
+        if (track.confirmed && frame.stamp - track.last_strong_stamp <= 1.0 &&
+          norm2(track.center.x - mean.x, track.center.y - mean.y) < 0.55)
+        {
+          near_track = true;
+          break;
+        }
+      }
+      if (!near_track) {continue;}
+      auto candidate = describe_component(
+        all, members, sensor, map, config_, pose_sigma).candidate;
+      if (!candidate.complete_body_viable || candidate.robot_probability < 0.65 ||
+        candidate.robot_probability < std::max({candidate.box_probability,
+          candidate.wall_probability, candidate.artifact_probability}) ||
+        candidate.width < 0.26 || candidate.width > 0.43 ||
+        candidate.depth < 0.14 || candidate.depth > 0.53 ||
+        candidate.height < 0.25 || candidate.height > 0.43 ||
+        candidate.angular_bins < 5 || candidate.support_count < 20) {continue;}
+      bool nearby = false;
+      for (const auto & track : tracks_) {
+        if (track.confirmed && frame.stamp - track.last_strong_stamp <= 1.0 &&
+          norm2(track.center.x - candidate.center_map.x,
+            track.center.y - candidate.center_map.y) < 0.28) {nearby = true; break;}
+      }
+      if (!nearby) {continue;}
+      bool represented = false;
+      for (const auto & existing : result.candidates) {
+        if ((existing.decision == Decision::accepted || existing.weak_body_observation) &&
+          existing.complete_body_viable && existing.width >= 0.26 && existing.width <= 0.43 &&
+          existing.depth >= 0.14 && existing.depth <= 0.53 &&
+          existing.height >= 0.25 && existing.height <= 0.43 &&
+          norm2(existing.center_map.x - candidate.center_map.x,
+            existing.center_map.y - candidate.center_map.y) < 0.25) {
+          represented = true; break;
+        }
+      }
+      if (represented) {continue;}
+      candidate.confirmed_continuation_only = true;
+      candidate.reason = "confirmed_fine_body;" + candidate.reason;
+      candidate.decision = Decision::accepted;
+      result.candidates.push_back(std::move(candidate));
+    }
+  }
+
+  // Explain a merged component with a complete body and an earlier box.
+  // Box witnesses are learned from
+  // independent complete components before they merge with the known body.
+  // Previously complete box evidence may be partly hidden by the known
+  // robot. Current opaque face returns can keep it observable; they never
+  // establish a new box or change the independent geometry/confirmation.
+  if (stationary_reference) {
+    for (auto & box:box_witnesses_) {
+      if (!box.confirmed || frame.stamp-box.last_stamp>3.0 || norm2(sensor_pose.x-box.sensor_pose.x,sensor_pose.y-box.sensor_pose.y)>0.035 ||
+        std::abs(std::remainder(sensor_pose.z-box.sensor_pose.z,2.0*kPi))>0.06) {continue;}
+      std::size_t count=0,boundary=0;std::unordered_set<int> heights;
+      for (const auto & point:all) {
+        const auto & p=point.position;
+        const double u=box.ux*p.x+box.uy*p.y,v=-box.uy*p.x+box.ux*p.y;
+        if (u<box.min_u-0.03 || u>box.max_u+0.03 || v<box.min_v-0.03 || v>box.max_v+0.03 ||
+          p.z<box.min_z-0.03 || p.z>box.max_z+0.03) {continue;}
+        ++count;heights.insert(static_cast<int>(p.z/0.05));
+        boundary+=std::min({std::abs(u-box.min_u),std::abs(box.max_u-u),std::abs(v-box.min_v),std::abs(box.max_v-v)})<=0.035;
+      }
+      if (count>=20 && heights.size()>=3 && boundary>=count*0.80) {box.last_stamp=frame.stamp;}
+    }
+  }
+  box_witnesses_.erase(std::remove_if(box_witnesses_.begin(), box_witnesses_.end(),
+    [&](const BoxWitness & box) {
+      return frame.stamp - box.last_stamp > 3.0 ||
+        norm2(sensor_pose.x-box.sensor_pose.x,sensor_pose.y-box.sensor_pose.y)>0.035 ||
+        std::abs(std::remainder(sensor_pose.z-box.sensor_pose.z,2.0*kPi))>0.06;
+    }), box_witnesses_.end());
+  bool have_motion_body = false;
+  for (const auto & track : tracks_) {
+    if (track.motion_body_track && track.confirmed &&
+      frame.stamp-track.last_strong_stamp<=0.70) {have_motion_body=true;break;}
+  }
+  if (stationary_reference || have_motion_body) {
+    std::vector<std::size_t> indices(all.size());
+    for (std::size_t i=0;i<indices.size();++i) {indices[i]=i;}
+    const auto fine = complete_components.empty() ? segment(indices,0.07) : complete_components;
+    for (const auto & members : fine) {
+      if (members.size()<30 || members.size()>500) {continue;}
+      Vec3 mean;
+      double bottom=1e9,top=-1e9;
+      bool body_overlap=false;
+      for (auto index:members) {
+        const auto & p=all[index].position;
+        mean.x+=p.x;mean.y+=p.y;bottom=std::min(bottom,p.z);top=std::max(top,p.z);
+        for (const auto & track:tracks_) {
+          if (!track.confirmed) {continue;}
+          const double d=norm2(p.x-track.center.x,p.y-track.center.y);
+          body_overlap|=d<0.28;
+        }
+      }
+      if (body_overlap || top<0.28 || top>0.50 || bottom>0.14 || top-bottom<0.20) {continue;}
+      mean.x/=members.size();mean.y/=members.size();
+      BoxWitness best;
+      double area=1e9;
+      for (int ai=0;ai<36;++ai) {
+        const double angle=ai*kPi/72.0,ux=std::cos(angle),uy=std::sin(angle);
+        double min_u=1e9,max_u=-1e9,min_v=1e9,max_v=-1e9;
+        for (auto index:members) {
+          const auto & p=all[index].position;
+          const double u=ux*p.x+uy*p.y,v=-uy*p.x+ux*p.y;
+          min_u=std::min(min_u,u);max_u=std::max(max_u,u);min_v=std::min(min_v,v);max_v=std::max(max_v,v);
+        }
+        if ((max_u-min_u)*(max_v-min_v)<area) {
+          area=(max_u-min_u)*(max_v-min_v);
+          best.ux=ux;best.uy=uy;best.min_u=min_u;best.max_u=max_u;best.min_v=min_v;best.max_v=max_v;
+        }
+      }
+      const double du=best.max_u-best.min_u,dv=best.max_v-best.min_v;
+      if (std::max(du,dv)>0.43 || std::min(du,dv)>0.23 || std::max(du,dv)<0.10) {continue;}
+      std::size_t boundary=0;std::unordered_set<int> height_cells;
+      for (auto index:members) {
+        const auto & p=all[index].position;
+        const double u=best.ux*p.x+best.uy*p.y,v=-best.uy*p.x+best.ux*p.y;
+        boundary+=std::min({u-best.min_u,best.max_u-u,v-best.min_v,best.max_v-v})<=0.025;
+        height_cells.insert(static_cast<int>(p.z/0.05));
+      }
+      if (boundary<members.size()*0.80 || height_cells.size()<5) {continue;}
+      // A single visible face does not reveal depth; use the known 15cm box
+      // size behind the observed opaque face rather than a zero-depth slab.
+      if (du<0.07) {
+        const double u=best.ux*sensor.x+best.uy*sensor.y;
+        if (u<(best.min_u+best.max_u)*0.5) {best.max_u=best.min_u+0.15;}
+        else {best.min_u=best.max_u-0.15;}
+      }
+      if (dv<0.07) {
+        const double v=-best.uy*sensor.x+best.ux*sensor.y;
+        if (v<(best.min_v+best.max_v)*0.5) {best.max_v=best.min_v+0.15;}
+        else {best.min_v=best.max_v-0.15;}
+      }
+      best.center=mean;best.min_z=bottom;best.max_z=top;best.sensor_pose=sensor_pose;
+      best.first_stamp=frame.stamp;best.last_stamp=frame.stamp;best.hits=1;
+      BoxWitness * match=nullptr;
+      for (auto & box:box_witnesses_) {
+        if (norm2(box.center.x-mean.x,box.center.y-mean.y)<0.06 && frame.stamp-box.last_stamp<0.5) {match=&box;break;}
+      }
+      if (match) {
+        if (match->confirmed) {
+          // Freeze the independently established geometry: do not follow a
+          // box that moves or absorb new neighboring returns into its volume.
+          std::size_t compatible=0;
+          for (auto index:members) {
+            const auto & p=all[index].position;
+            const double u=match->ux*p.x+match->uy*p.y,v=-match->uy*p.x+match->ux*p.y;
+            compatible+=u>=match->min_u-0.03 && u<=match->max_u+0.03 &&
+              v>=match->min_v-0.03 && v<=match->max_v+0.03 &&
+              p.z>=match->min_z-0.03 && p.z<=match->max_z+0.03;
+          }
+          if (compatible>=members.size()*0.80) {match->last_stamp=frame.stamp;}
+        } else {
+          best.first_stamp=match->first_stamp;best.hits=match->hits+1;
+          best.confirmed=best.hits>=5 && frame.stamp-best.first_stamp>=0.40;
+          *match=best;
+        }
+      } else if (box_witnesses_.size()<16) {box_witnesses_.push_back(best);}
+    }
+    std::size_t added=0;
+    if (have_motion_body) {
+      for (const auto & members:fine) {
+        if (members.size()<50 || members.size()>1000) {continue;}
+        for (const auto & box:box_witnesses_) {
+          if (!box.confirmed) {continue;}
+          std::vector<std::size_t> body,box_returns;
+          std::size_t boundary=0;std::unordered_set<int> heights;
+          for (auto index:members) {
+            const auto & p=all[index].position;
+            const double u=box.ux*p.x+box.uy*p.y,v=-box.uy*p.x+box.ux*p.y;
+            const bool inside=u>=box.min_u-0.03 && u<=box.max_u+0.03 &&
+              v>=box.min_v-0.03 && v<=box.max_v+0.03 && p.z>=box.min_z-0.03 && p.z<=box.max_z+0.03;
+            if (inside) {
+              box_returns.push_back(index);heights.insert(static_cast<int>(p.z/0.05));
+              boundary+=std::min({std::abs(u-box.min_u),std::abs(box.max_u-u),std::abs(v-box.min_v),std::abs(box.max_v-v)})<=0.035;
+            } else {body.push_back(index);}
+          }
+          // Every return belongs to one full model. The current box must still
+          // support the old independent volume with vertical and face coverage.
+          if (box_returns.size()<20 || heights.size()<5 || boundary<box_returns.size()*0.80 ||
+            body.size()<30 || body.size()<members.size()*0.25) {continue;}
+          auto candidate=describe_component(all,body,sensor,map,config_,pose_sigma).candidate;
+          if (!candidate.complete_body_viable || candidate.robot_probability<0.65 ||
+            candidate.robot_probability<std::max({candidate.box_probability,candidate.wall_probability,candidate.artifact_probability}) ||
+            candidate.width<0.26 || candidate.width>0.43 || candidate.depth<0.14 || candidate.depth>0.53 ||
+            candidate.height<0.25 || candidate.height>0.43 || candidate.angular_bins<5 || candidate.support_count<20) {continue;}
+          bool near=false;
+          for (const auto & track:tracks_) {
+            if (track.motion_body_track && track.confirmed && frame.stamp-track.last_strong_stamp<=0.70 &&
+              norm2(candidate.center_map.x-track.center.x,candidate.center_map.y-track.center.y)<0.28) {near=true;break;}
+          }
+          if (!near) {continue;}
+          bool represented=false;
+          for (const auto & other:result.candidates) {
+            if (other.complete_body_viable && other.width>=0.26 && other.width<=0.43 && other.depth<=0.53 &&
+              (other.decision==Decision::accepted || other.confirmed_continuation_only) &&
+              norm2(other.center_map.x-candidate.center_map.x,other.center_map.y-candidate.center_map.y)<0.12) {represented=true;break;}
+          }
+          if (represented) {continue;}
+          candidate.confirmed_continuation_only=true;candidate.decision=Decision::accepted;
+          candidate.reason="joint_full_body_static_box;box_support="+std::to_string(box_returns.size())+";"+candidate.reason;
+          result.candidates.push_back(std::move(candidate));
+          if (++added>=8) {break;}
+        }
+        if (added>=8) {break;}
+      }
+    }
+  }
+
   for (auto & candidate : result.candidates) {
     if ((candidate.decision == Decision::rejected &&
       !candidate.continuation_body_observation) ||
@@ -886,7 +1131,26 @@ Result Detector::process(const Frame & frame)
     double best_distance = std::numeric_limits<double>::infinity();
     InternalTrack * match = nullptr;
     for (auto & track : tracks_) {
-      if (track.associated ||
+      if (track.motion_body_track) {
+        const bool supported_partial_width = candidate.width >= 0.23 &&
+          candidate.depth >= 0.28 && candidate.height >= 0.27 &&
+          candidate.angular_bins >= 7 && candidate.support_count >= 30;
+        const bool class_supported = candidate.decision == Decision::accepted ||
+          (candidate.robot_probability >= 0.65 &&
+          candidate.robot_probability >= std::max({candidate.box_probability,
+            candidate.wall_probability, candidate.artifact_probability}));
+        if (!candidate.complete_body_viable ||
+          (candidate.width < 0.26 && !supported_partial_width) ||
+          candidate.width > 0.43 || candidate.depth < 0.14 || candidate.depth > 0.53 ||
+          candidate.height < 0.25 || candidate.height > 0.43 ||
+          candidate.angular_bins < 5 || candidate.support_count < 20 || !class_supported)
+        {
+          continue;
+        }
+      }
+      if ((candidate.confirmed_continuation_only &&
+        (!track.confirmed || frame.stamp - track.last_strong_stamp > 1.0)) ||
+        track.associated ||
         frame.stamp - track.last_measurement_stamp > config_.max_track_age_s)
       {
         continue;
@@ -899,6 +1163,15 @@ Result Detector::process(const Frame & frame)
       const double distance = norm2(
         candidate.center_map.x - track.center.x,
         candidate.center_map.y - track.center.y);
+      // A low-score ambiguous fragment cannot move an identity onto another
+      // object just because its covariance admits a broad association gate.
+      if (((candidate.decision != Decision::accepted &&
+        candidate.robot_probability < 0.65) ||
+        candidate.confirmed_continuation_only || track.motion_body_track) &&
+        distance >= 0.28)
+      {
+        continue;
+      }
       const double gate = clamp(
         0.25 + 2.0 * std::sqrt(track.position_variance +
           candidate.position_covariance[0]), 0.32, 0.80);
@@ -908,7 +1181,8 @@ Result Detector::process(const Frame & frame)
       }
     }
     if (!match) {
-      if (candidate.decision != Decision::accepted) {continue;}
+      if (candidate.decision != Decision::accepted ||
+        candidate.confirmed_continuation_only) {continue;}
       InternalTrack track;
       track.id = next_track_id_++;
       track.center = candidate.center_map;
@@ -1059,7 +1333,7 @@ Result Detector::process(const Frame & frame)
       match->consistent_velocity_hits >= 2;
     match->last_measurement_stamp = frame.stamp;
     match->measured_this_frame = true;
-    if (candidate.decision == Decision::accepted) {
+    if (candidate.decision == Decision::accepted || match->motion_body_track) {
       match->last_strong_stamp = frame.stamp;
       match->measured_hits = observation_dt <= config_.max_track_gap_s ?
         match->measured_hits + 1 : 1;
@@ -1161,6 +1435,7 @@ Result Detector::process(const Frame & frame)
   bool has_motion_measurement = false;
   Candidate * selected_motion_candidate = nullptr;
   for (auto & candidate : result.candidates) {
+    if (candidate.confirmed_continuation_only && candidate.track_id == 0) {continue;}
     // Upper returns can dominate the moving robot's body, but that geometry
     // also appears on boxes. Do not weaken the ordinary static-body gate.
     const bool temporal_shape = candidate.temporal_change &&
@@ -1190,6 +1465,11 @@ Result Detector::process(const Frame & frame)
     // motion fit on every observation to reject a jump onto a nearby box.
     double best_distance = 0.28;
     for (auto & track : motion_tracks_) {
+      if (candidate.confirmed_continuation_only &&
+        track.body_track_id != candidate.track_id)
+      {
+        continue;
+      }
       if (track.assigned || frame.stamp - track.last_stamp > 0.55) {continue;}
       const auto & last = track.history.back().center;
       const double distance = norm2(
@@ -1200,6 +1480,7 @@ Result Detector::process(const Frame & frame)
       }
     }
     if (!match) {
+      if (candidate.confirmed_continuation_only) {continue;}
       MotionTrack track;
       // Keep motion-only IDs distinct from the ordinary track IDs and within
       // the range used by the ROS marker publisher.
@@ -1287,12 +1568,83 @@ Result Detector::process(const Frame & frame)
     }
   }
   if (has_motion_measurement) {
-    // Link the selected current-cloud evidence to its motion-only track in
-    // diagnostics without changing the ordinary track association.
+    const auto associated_body_id = selected_motion_candidate->track_id;
+    const auto proven_motion_id = motion_measurement.id;
+    // Publish the selected current body. When geometry supports ordinary
+    // tracking too, keep one identity for both paths.
     selected_motion_candidate->track_id = motion_measurement.id;
     result.has_measurement = true;
     result.measurement = motion_measurement;
     result.tracks.push_back(motion_measurement);
+    // Motion establishes identity; full current body evidence can then
+    // continue it when the robot slows or stops. No prediction is published.
+    const auto & body = *selected_motion_candidate;
+    if (body.complete_body_viable && body.angular_bins >= 5 && body.support_count >= 20 &&
+      (body.decision == Decision::accepted ||
+      (body.robot_probability >= 0.65 && body.robot_probability >=
+        std::max({body.box_probability, body.wall_probability, body.artifact_probability}))) &&
+      body.width >= 0.26 && body.width <= 0.43 &&
+      body.depth >= 0.14 && body.depth <= 0.53 &&
+      body.height >= 0.25 && body.height <= 0.43) {
+      InternalTrack * adopted = nullptr;
+      for (auto & track : tracks_) {
+        if (track.id == associated_body_id &&
+          norm2(track.center.x - body.center_map.x,
+            track.center.y - body.center_map.y) < 0.28)
+        {
+          adopted = &track;
+          break;
+        }
+      }
+      if (!adopted) {
+        for (auto & track : tracks_) {
+          if (track.id == proven_motion_id) {
+            adopted = &track;
+            break;
+          }
+        }
+      }
+      if (!adopted) {
+        tracks_.emplace_back();
+        adopted = &tracks_.back();
+        adopted->id = motion_measurement.id;
+      }
+      // Restart velocity evidence on adoption: motion confirmation alone
+      // does not establish a reliable public twist.
+      adopted->velocity = {};
+      adopted->velocity_variance = 9.0;
+      adopted->velocity_hits = 0;
+      adopted->consistent_velocity_hits = 0;
+      adopted->velocity_valid = false;
+      adopted->prediction_velocity_valid = false;
+      adopted->center = body.center_map;
+      adopted->position_variance = body.position_covariance[0];
+      adopted->probability = body.robot_probability;
+      adopted->last_stamp = frame.stamp;
+      adopted->last_measurement_stamp = frame.stamp;
+      adopted->last_strong_stamp = frame.stamp;
+      adopted->measured_hits = config_.confirmation_hits;
+      adopted->confirmed = true;
+      adopted->motion_body_track = true;
+      adopted->measurements.clear();
+      adopted->measurements.emplace_back(frame.stamp, body.center_map);
+      adopted->measured_this_frame = true;
+      adopted->associated = true;
+      for (auto & moving : motion_tracks_) {
+        if (moving.id == proven_motion_id) {
+          moving.body_track_id = adopted->id;
+          break;
+        }
+      }
+      motion_measurement.id = adopted->id;
+      selected_motion_candidate->track_id = adopted->id;
+      result.measurement = motion_measurement;
+      result.tracks.erase(std::remove_if(result.tracks.begin(), result.tracks.end(),
+        [&](const Track & track) {
+          return track.id == proven_motion_id || track.id == adopted->id;
+        }), result.tracks.end());
+      result.tracks.push_back(motion_measurement);
+    }
   }
   result.status = result.has_measurement ? "measured_robot" :
     (result.candidates.empty() ? "no_foreground_objects" : "no_confirmed_robot");

@@ -290,6 +290,8 @@ void write_result(
       (candidate.weak_body_observation ? "true" : "false") <<
       ",\"continuation_body_observation\":" <<
       (candidate.continuation_body_observation ? "true" : "false") <<
+      ",\"confirmed_continuation_only\":" <<
+      (candidate.confirmed_continuation_only ? "true" : "false") <<
       ",\"tall_broad_body\":" <<
       (candidate.tall_broad_body ? "true" : "false") <<
       ",\"temporal_change\":" <<

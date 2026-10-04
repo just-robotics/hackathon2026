@@ -38,7 +38,7 @@ from replay_cached_baseline import Zstd, cloud_from_cache, occupancy_from_cache,
 NS = 1_000_000_000
 
 
-def validate_cache(cache, manifest):
+def validate_cache(cache, manifest, source_bag=None):
     """Check bytes and preprocessing provenance before publishing any data."""
     schema = manifest['schema']
     if schema not in ('real-detector-cache-v1', 'real-detector-cache-local-v1'):
@@ -82,7 +82,11 @@ def validate_cache(cache, manifest):
             raise ValueError(f'{name} no longer matches cache manifest')
     # Old source bags may have been deleted by the user. Their recorded hashes
     # remain part of the checked signature; verify original files when mounted.
-    bag_dir = Path(manifest['bag_dir'])
+    # A cache may have been extracted under a different container mount. An
+    # explicitly selected live bag must be verified at its current path.
+    bag_dir = source_bag.resolve() if source_bag is not None else Path(manifest['bag_dir'])
+    if source_bag is not None and not bag_dir.is_dir():
+        raise ValueError(f'original source bag is unavailable: {bag_dir}')
     checked_sources = 0
     if bag_dir.is_dir():
         for item in manifest['sources']:
@@ -93,7 +97,9 @@ def validate_cache(cache, manifest):
     return dict(cache_signature=signature, cache_manifest_sha256=sha256(cache / 'manifest.json'),
                 cache_artifacts_verified=True, preprocessing_sources_verified=True,
                 filter_signature_verified=True, original_source_files_verified=checked_sources,
-                original_source_available=bag_dir.is_dir()), mapless
+                original_source_available=bag_dir.is_dir(),
+                original_source_path=str(bag_dir),
+                recorded_source_path=manifest['bag_dir']), mapless
 
 
 def message_stamp_ns(message):
@@ -242,6 +248,8 @@ def validate_outputs(node, sent_rows, world_frame, *, complete):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('cache', type=Path)
+    parser.add_argument('--source-bag', type=Path,
+                        help='Verify the original MCAP at its current path when the cache moved')
     parser.add_argument('--executable', type=Path, required=True)
     parser.add_argument('--profile', type=Path, required=True)
     parser.add_argument('--from-seconds', type=float, default=161.)
@@ -265,7 +273,7 @@ def main():
         parser.error('--hold-seconds must be >= 0 or -1')
     cache = args.cache.resolve()
     manifest = json.loads((cache / 'manifest.json').read_text())
-    provenance, mapless = validate_cache(cache, manifest)
+    provenance, mapless = validate_cache(cache, manifest, args.source_bag)
     world_frame = 'odom' if mapless else 'map'
     with (cache / 'frames.tsv').open() as stream:
         all_rows = [row for row in csv.DictReader(stream, delimiter='\t')
