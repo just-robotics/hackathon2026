@@ -20,11 +20,6 @@ COPY drivers/src /workspace/src
 WORKDIR /workspace
 RUN source /opt/ros/humble/setup.bash && CMAKE_BUILD_PARALLEL_LEVEL=1 \
     colcon build --parallel-workers 2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-# robot_body_filter: TF for clouds and Eigen; a separate layer keeps the
-# driver build above cached.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-humble-tf2-eigen ros-humble-tf2-sensor-msgs ros-humble-visualization-msgs \
-    && rm -rf /var/lib/apt/lists/*
 # Build the autonomous implementation and FAST-LIO2, without Gazebo/Autoware.
 COPY src/fast_lio /solution/src/fast_lio
 RUN rm /solution/src/fast_lio/COLCON_IGNORE
