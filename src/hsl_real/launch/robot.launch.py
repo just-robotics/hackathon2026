@@ -31,8 +31,19 @@ def nodes(context):
         [cfg['lidar_filter_file']] if cfg.get('lidar_filter_file') else []) + [{'lidar_topic':cfg['lidar_topic']}])
     add('hsl_real','real_observations', parameters=[{'odom_topic':'/localization/kinematic_state' if cfg['localization']=='fastlio' else cfg['odom_topic'],
         'lidar_topic':'/sensing/lidar/points_filtered','require_localization':localized}])
-    add('jr_perception','opponent_detector_cpp',parameters=[
-        str(Path(get_package_share_directory('jr_perception'))/'config/real_cpp.yaml'),
+    add('robot_body_filter','robot_body_filter_node',name='crop_box_filter_node',parameters=[
+        str(Path(get_package_share_directory('jr_perception'))/'config/anton_crop.yaml'),
+        {'keep_input_frame':True,'static_boxes.body.min_x':-0.25,
+         'static_boxes.body.min_y':-0.25,'static_boxes.body.max_x':0.25,
+         'static_boxes.body.max_y':0.25}],remappings=[
+        ('~/input/pointcloud','/sensing/lidar/points_filtered'),
+        ('~/output/pointcloud','/sensing/lidar/cropped/pointcloud')])
+    add('dbscan_filter','dbscan_filter_node',parameters=[
+        str(Path(get_package_share_directory('dbscan_filter'))/'config/dbscan.param.yaml')],
+        remappings=[('~/input/pointcloud','/sensing/lidar/cropped/pointcloud'),
+                    ('~/output/pointcloud','/sensing/lidar/dbscan/pointcloud')])
+    add('jr_perception','robot_detector.py',name='robot_detector',parameters=[
+        str(Path(get_package_share_directory('jr_perception'))/'config/anton_real.yaml'),
         {'pose_topic':'/localization/kinematic_state' if cfg['localization']=='fastlio' else '/navigation/self'}])
     add('hsl_decision','decision_manager', parameters=[{'role':role,'own_max_speed':speed,
         'own_start':start_polygon(mission['robot']),'opponent_start':start_polygon(mission['opponent'])}])
@@ -95,6 +106,8 @@ def nodes(context):
             '/navigation/planning_diagnostics','/navigation/native_ready','/navigation/planner_status','/navigation/mppi_cmd_vel','/navigation/native_mppi_cycle_ms',
             '/native_mppi/costmap','/native_mppi/costmap_updates','/native_mppi/costmap_raw',
             '/sensing/lidar/points_filtered','/sensing/lidar/filter_diagnostics',
+            '/sensing/lidar/cropped/pointcloud','/sensing/lidar/dbscan/pointcloud',
+            '/opponent/robot_markers','/opponent/box_markers','/opponent/foreground',
             '/match/allowed','/match/active','/real/match_finished','/cmd_vel','/diagnostics']
         processes.append(ExecuteProcess(cmd=['ros2','bag','record','-s','mcap','-o',str(directory/'bag')]+topics,
             output='screen',sigterm_timeout='60',sigkill_timeout='10'))

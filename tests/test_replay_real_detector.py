@@ -49,7 +49,7 @@ def test_headless_command_is_scoped_to_current_source_and_own_domain(tmp_path):
     assert any(m.endswith('dst=/replay,readonly') for m in mounts)
     assert any(f'src={tmp_path}' in m and m.endswith(',readonly') for m in mounts)
     script = command[-1]
-    assert '--packages-select jr_perception --parallel-workers 1' in script
+    assert '--packages-select jr_perception robot_body_filter dbscan_filter --parallel-workers 1' in script
     assert '--count 0 --expect any --rate 0.5 --from-seconds 2.0' in script
     assert 'rviz-config' not in script and 'ros2 launch' not in script
     assert shlex.quote(str(bag)) in script

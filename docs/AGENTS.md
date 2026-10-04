@@ -97,16 +97,14 @@ raw LiDAR + IMU → /Odometry → fastlio_bridge → /localization/lio_odometry
   ignored_obstacles и результаты классификации не меняют occupancy.
 - obstacle_grid — копия статической карты для совместимости диагностики.
   Нет памяти/обновления динамических препятствий в активном планировании.
-- В реальном launch активен `jr_perception/opponent_detector_cpp`: входы
-  `/sensing/lidar/points_filtered`, `/map`, stamped TF сенсора и map-поза
-  `/localization/kinematic_state` при FAST-LIO2 или `/navigation/self` иначе.
-  Профиль `src/jr_perception/config/real_cpp.yaml`; один издатель
-  `/opponent/odom`, только при подтверждённом измерении текущего скана.
-  Ориентация корпуса неизвестна, tracking frame совмещён с осями `map`;
-  надёжная скорость задаётся в этих осях. Прогноз только диагностический.
-  Маркеры и `/navigation/detector_diagnostics` показывают кандидатов,
-  причины решений и потери/замещение сканов. Алгоритмы и параметры
-  распознавания не менять без предварительного согласования пользователя.
+- В ветке `feature/anton-final-detector` активен оригинальный Python-детектор
+  Антона `41e0d7d`: filtered Livox → robot_body_filter → dbscan_filter →
+  `robot_detector.py`; `/map`, stamped `/localization/kinematic_state` при
+  FAST-LIO2 или `/navigation/self` иначе. Профиль `anton_real.yaml`.
+  Алгоритм, фильтры и пороги перенесены без изменений по запросу пользователя.
+  `/opponent/odom` включает прогноз; отдельной диагностики C++ нет.
+  C++ v26 сохранён как неактивный сравнительный вариант.
+  Результаты в results/anton-corpus; последние пять bag — mapless odom ablation.
 - Следующие пункты описывают старый Python-детектор `jr_perception` из
   feature/detector b985515, оставшийся в симуляционных сценариях.
 - Вход: сырое `/livox/lidar`, timestamped `navigation/self`, TF базы/лидара,

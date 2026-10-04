@@ -27,6 +27,8 @@ COPY src/hsl_interfaces /solution/src/hsl_interfaces
 COPY src/hsl_decision /solution/src/hsl_decision
 COPY src/hsl_planning /solution/src/hsl_planning
 COPY src/jr_perception /solution/src/jr_perception
+COPY src/robot_body_filter /solution/src/robot_body_filter
+COPY src/dbscan_filter /solution/src/dbscan_filter
 COPY src/jr_map /solution/src/jr_map
 COPY src/hsl_nav2_control /solution/src/hsl_nav2_control
 COPY src/hsl_debug_control /solution/src/hsl_debug_control

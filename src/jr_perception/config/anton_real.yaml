@@ -1,0 +1,40 @@
+# Детектор соперника на бэгах с едущего робота
+# (jr_detector_fastlio_bag.launch.py).
+# Облако -- после robot_body_filter (корпус и пол) и dbscan_filter (шум
+# вблизи), во фрейме лидара: self_range и проверки детектора считаются от
+# самого датчика. Поза base_footprint во фрейме map -- FAST-LIO2 через
+# fastlio_bridge.py. Фон -- карта занятости из /map (карта полигона из
+# map_server), строится детектором в рантайме.
+# Пороги робота -- как у бэгов с реального Kobuki (robot_detector_bag.param.yaml).
+/**:
+  ros__parameters:
+    cloud_topic: "/sensing/lidar/dbscan/pointcloud"
+    pose_topic: "/localization/kinematic_state"
+    world_frame: "map"
+    base_frame: "base_footprint"
+    opponent_frame: "opponent"
+    world: ""
+    map_topic: "/map"
+    # запас фона у стен: облако смещено относительно карты на 5-10 см
+    map_margin: 0.15
+    max_range: 6.0
+    robot:
+      max_height: 0.50
+      min_top: 0.25
+      min_points: 10
+      min_extent: 0.22
+      # Коробки 0.15x0.15x0.40 и 0.40x0.60x0.20 лидар видит одной-двумя
+      # гранями: точки лежат на сторонах прямоугольника. У Kobuki точки и
+      # внутри круга (стойки, пластины). На 8 бэгах полигона 03.10 без этой
+      # проверки коробки выдавались соперником в 45% сканов записей без робота.
+      face_rms: 0.025
+      min_thickness: 0.06
+      # Пробел между средней и верхней пластинами Kobuki (только стойки);
+      # коробки и ноги сплошные по высоте
+      max_hole_ratio: 0.8
+    tracker:
+      # робота, поставленного после ложного «едущего» трека, выдавать через 3 с
+      reacquire_time: 3.0
+      # трек без надёжных детекций дольше 1 с уступает треку, у которого они есть:
+      # трекер не залипает на коробке, когда рядом поставили робота
+      switch_after: 1.0

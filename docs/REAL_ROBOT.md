@@ -12,7 +12,7 @@
 ```text
 Kobuki USB → /odom → map-поза → decision → global planner → Nav2 MPPI → gate → /cmd_vel → Kobuki
 Livox → /livox/lidar → real_lidar_filter → /sensing/lidar/points_filtered
-                                           ├→ jr_perception C++ → /opponent/odom, /opponent/markers
+                                           ├→ crop → DBSCAN → jr_perception Python → /opponent/odom
                                            ├→ LaserScan → AMCL
                                            └→ cloud в map → /navigation/scan → decision / planner / MPPI / gate
 ```
@@ -371,7 +371,7 @@ odom/TF, AMCL, localization ready/status, собственным/чужим тр
 глобальной/локальной траекторией, MPPI/planning/detector диагностикой, match и cmd_vel.
 После пересборки записываются также navigation/scan, obstacle_grid,
 opponent/odom, opponent/markers, отфильтрованное облако и диагностика детектора.
-C++ детектор получает `/sensing/lidar/points_filtered`; планировщик использует
+В этой ветке детектор получает `/sensing/lidar/dbscan/pointcloud` после crop и DBSCAN; планировщик использует
 статическую карту.
 После заезда используйте `helm stop_real`, чтобы завершить metadata.yaml.
 В консоли печатается каталог сессии. При следующем старте старая сессия
@@ -451,19 +451,15 @@ InflationLayer. ObstacleLayer отключён; `obstacle_grid` — диагно
 `real.yaml: planning_file` указывает на `planning.yaml`; его же использует
 симуляция. Радиус одинаков у A* и MPPI, значения меньше тела Kobuki
 (0,178 м) отклоняются. Фильтр `hsl_lidar_filter/real_lidar_filter` — C++; AMCL и наблюдения получают
-очищенное облако. В реальном launch работает `jr_perception/opponent_detector_cpp`:
-он получает `/sensing/lidar/points_filtered`, собственную map-позу и `/map`.
-При FAST-LIO2 поза приходит из `/localization/kinematic_state`, в других
-режимах из `/navigation/self`. Параметры находятся в
-`src/jr_perception/config/real_cpp.yaml`. В `/opponent/odom` публикуется только
-подтверждённое текущим облаком измерение центра робота в `map`. Ориентация
-корпуса неизвестна: tracking frame совмещён с осями `map`, covariance угла
-велика. Скорость в этих осях выдаётся только при надёжной оценке.
-Прогноз остаётся в диагностике и маркерах, не в Odometry и не в
-`/navigation/opponent_visible`. Decision и планировщик читают
-`/opponent/odom`; `/opponent/markers` отображает кандидатов с причинами
-отклонения, треки, выбранное измерение и отдельный прогноз. В RViz включены
-маркеры; стрелка Odometry выключена, так как heading неизвестен.
+очищенное облако. В ветке `feature/anton-final-detector` реальный launch запускает оригинальный
+`jr_perception/robot_detector.py` из `41e0d7d` после `robot_body_filter` и
+`dbscan_filter`. Профили `anton_real.yaml`, `anton_crop.yaml`, `dbscan.param.yaml`.
+При FAST-LIO2 поза — `/localization/kinematic_state`, иначе `/navigation/self`.
+В `/opponent/odom` поступают измерения **и прогноз трека**; `twist` задаёт
+скорость вдоль оценённого курса `opponent`. Маркеры классов:
+`/opponent/robot_markers`, `/opponent/box_markers`. Топики C++ диагностики
+и `navigation/opponent_visible` эта версия не публикует.
+Все восемь bag прогнаны; последние пять без карты, с записанной odom.
 Костмапа состоит из StaticLayer и
 InflationLayer; результаты детектора её не обновляют.
 `navigation/observation_diagnostics` записывает счётчики очередей/просроченных

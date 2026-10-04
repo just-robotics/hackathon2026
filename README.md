@@ -155,7 +155,8 @@ helm replay_detector --bag 20261003T095806.834495Z-bag
 helm replay_detector --bag /absolute/path/SESSION/bag --rate 0.5
 ```
 
-Открывается обычный RViz с LiDAR и маркерами текущего C++-детектора.
+В этой ветке открывается обычный RViz с LiDAR и маркерами детектора Антона.
+Перенос исходного `41e0d7d` без изменения алгоритма.
 Скрипт собирает пакет из этого checkout; по умолчанию ищет bag в соседнем
 `hsl2026Extra` (другой каталог — `--bag-root PATH`). `--from-seconds N`
 начинает с указанной секунды без прежней истории трека; `--headless`
@@ -172,22 +173,23 @@ helm replay_detector --bag /absolute/path/SESSION/bag --rate 0.5
 `наблюдения → детектор/decision manager → A* → Nav2 C++ MPPI → motion_gate → cmd_vel`
 
 MPPI — единственный контроллер движения. MPC и Python MPPI удалены;
-прежние варианты доступны в истории Git. В реальном launch детектор —
-`jr_perception/opponent_detector_cpp`, читающий очищенное облако Livox и
-позу на времени скана. В симуляционных сценариях остаётся Python-детектор
-`jr_perception/robot_detector.py` с отдельными маркерами классов. Старые `hsl_perception`,
-`hsl_perception_cpp` и фильтр/классификатор коробок удалены.
+прежние варианты доступны в истории Git. В ветке `feature/anton-final-detector`
+реальный launch запускает `robot_body_filter → dbscan_filter → jr_perception/robot_detector.py`
+из коммита Антона `41e0d7d`. Алгоритм и пороги перенесены без правок;
+поза адаптирована к `/localization/kinematic_state`. C++ v26 остаётся
+неактивным сравнительным вариантом. `/opponent/odom` включает прогноз при
+пропусках измерения. Все восемь реальных bag прогнаны; последние пять — с записанной odom без карты.
 В симуляции точная поза используется для собственного робота;
 ground truth соперника доступен referee и оценке.
 
 | Данные | Кто использует |
 | --- | --- |
 | Сырое `/livox/lidar` | Фильтр LiDAR и FAST-LIO2 |
-| `/sensing/lidar/points_filtered` | Реальный C++ детектор, AMCL и наблюдения |
+| `/sensing/lidar/points_filtered` | Фильтр корпуса/пола, затем DBSCAN/детектор; AMCL и наблюдения |
 | `/localization/kinematic_state` (FAST-LIO2) или `navigation/self` | Поза реального детектора; `navigation/self` также читает decision manager и планирование |
-| `/opponent/odom` | Подтверждённое текущим облаком измерение центра; decision manager и A* |
-| `/opponent/markers` | Кандидаты с причинами, треки, измерение и отдельный прогноз |
-| `/opponent/robot_markers`, `/opponent/box_markers` | Только старый Python-детектор вне реального launch |
+| `/opponent/odom` | Измерение или прогноз трека; decision manager и A* |
+| `/opponent/markers` | Исторический топик C++ v26; в этой ветке не публикуется |
+| `/opponent/robot_markers`, `/opponent/box_markers` | Роботы и предметы активного Python-детектора |
 | `/map`, `navigation/known_grid` | Статический фон детектора, A*, StaticLayer MPPI |
 | `navigation/scan` | Свежесть LiDAR для планирования и диагностика |
 | `navigation/obstacle_grid` | Диагностическая копия статической карты |
@@ -205,7 +207,7 @@ ground truth соперника доступен referee и оценке.
 
 В `start_real` независимый от TF фильтр стоит сразу после LiDAR:
 `/livox/lidar → /sensing/lidar/points_filtered`. Очищенное облако получают AMCL,
-адаптер наблюдений и реальный C++ детектор.
+адаптер наблюдений и реальный детектор Антона.
 Raw сохраняется для диагностики. `start_real_bag_record` записывает raw;
 фильтр реальных штанг в симуляции не запускается.
 

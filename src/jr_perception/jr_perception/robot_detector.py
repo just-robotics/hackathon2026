@@ -7,7 +7,7 @@
    (localization/pose, ground truth p3d) и статическому TF до лидара. Если
    pose_topic пуст, лидар неподвижен, и хватает статического TF;
 2. вычитается фон: пол, стены из .world и всё за ними, фон, записанный
-   лидаром (record_background.py), или карта занятости из background_topic;
+   лидаром (record_background.py), или карта занятости из map_topic;
 3. остаток разбивается на кластеры, и среди них ищутся похожие на Kobuki
    (segmentation.inspect_cluster);
 4. трекер связывает детекции во времени и по движению восстанавливает курс.
@@ -19,7 +19,6 @@
 
 import array
 import dataclasses
-import json
 import math
 import time
 from collections import deque
@@ -33,13 +32,12 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2, PointField
-from std_msgs.msg import Bool, Header, String
+from std_msgs.msg import Header
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from jr_map.sdf_map_server import collect_boxes
 from jr_perception import background
-from jr_perception.map_background import OccupiedCenters
 from jr_perception.segmentation import (
     RobotModel,
     arena_bounds,
@@ -230,8 +228,6 @@ def new_marker(header: Header, ns: str, index: int, kind: int, rgba: tuple) -> M
 # букв: подписи маркеров -- латиницей и без пробелов, части -- строками.
 # Причины отказа из segmentation.inspect_cluster переводятся по словам.
 REASON_WORDS = (
-    ("плоскость", "planes"),
-    ("окружности", "circle"),
     ("широкий, внутри", "wide,inside"),
     ("круга корпуса нет", "no_hull_circle"),
     ("мало точек", "few_points"),
@@ -478,7 +474,7 @@ class RobotDetector(Node):
         # которой локализуется AMCL. Строится в рантайме на первом скане после
         # прихода карты: арена -- свободная область вокруг робота, остальное
         # фон. Пусто -- не используется.
-        self.map_topic = self.declare_parameter("background_topic", "").value
+        self.map_topic = self.declare_parameter("map_topic", "").value
         # запас фона вокруг стен карты -- на неточность карты и локализации, м
         self.map_margin = self.declare_parameter("map_margin", 0.15).value
         # фон за краем карты, м
@@ -498,10 +494,6 @@ class RobotDetector(Node):
         ).value
         self.self_range = self.declare_parameter("self_range", 0.30).value
         self.wall_margin = self.declare_parameter("wall_margin", 0.08).value
-        self.visibility_min_fraction = self.declare_parameter("map_visibility_min_fraction", .5).value
-        self.visibility_endpoint_margin = self.declare_parameter("map_visibility_endpoint_margin", .08).value
-        if not 0 < self.visibility_min_fraction <= 1 or self.visibility_endpoint_margin < 0:
-            raise ValueError('Invalid detector map visibility parameters')
         self.floor_z = self.declare_parameter("floor_z", 0.012).value
         self.floor_noise = self.declare_parameter("floor_noise", 0.06).value
         self.ceiling_z = self.declare_parameter("ceiling_z", 0.70).value
@@ -526,13 +518,12 @@ class RobotDetector(Node):
             self.get_logger().error(
                 "Фон не задан: нужен world (стены из .world), "
                 "background_file (фон, записанный record_background.py) "
-                "или background_topic (карта занятости)"
+                "или map_topic (карта занятости)"
             )
             raise SystemExit(1)
-        # Карта -- запасной фон: при world или background_file она не нужна
-        # (в симуляторе бенчмарк передаёт и world, и /map)
-        if world or background_file:
-            self.map_topic = ""
+        if background_file and self.map_topic:
+            self.get_logger().error("Заданы и background_file, и map_topic: нужен один")
+            raise SystemExit(1)
 
         # Фон из .world: стены полигона, заданные боксами
         self.boxes = []
@@ -565,7 +556,6 @@ class RobotDetector(Node):
                     f"{self.world_frame}: ячейки не совпадут"
                 )
 
-        self.center_map = None
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         # поворот и смещение лидара в base_frame, а без позы -- сразу в
@@ -606,11 +596,8 @@ class RobotDetector(Node):
             MarkerArray, "opponent/box_markers", 10
         )
         # последняя карта; фон из неё строится в process, когда известно,
-        # где робот. Пока робот не в свободной клетке (AMCL ещё не сошёлся),
-        # фон временный и раз в секунду строится заново.
+        # где робот
         self.occupancy = None
-        self.map_ready = False
-        self.map_attempt = 0.0
         if self.map_topic:
             # map_server публикует карту один раз, transient local
             self.create_subscription(
@@ -620,10 +607,6 @@ class RobotDetector(Node):
                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
             )
 
-        self.health_publisher = self.create_publisher(String, "navigation/detector_diagnostics", 10)
-        self.visible_publisher = self.create_publisher(Bool, "navigation/opponent_visible", 10)
-        self.last_opponent_stamp = None
-        self.create_timer(0.1, self.publish_visibility)
         self.stats = self.empty_stats()
         self.last_log = time.monotonic()
 
@@ -670,13 +653,6 @@ class RobotDetector(Node):
         # новая карта -- фон перестраивается на следующем скане
         self.occupancy = message
         self.grid = None
-        self.map_ready = False
-        self.center_map = OccupiedCenters(message)
-
-    def publish_visibility(self):
-        now = self.get_clock().now().nanoseconds * 1e-9
-        stamp = self.last_opponent_stamp
-        self.visible_publisher.publish(Bool(data=stamp is not None and 0 <= now - stamp <= 0.3))
 
     def map_background(self, seed: np.ndarray):
         """Построить фон из последней карты, seed -- точка внутри арены"""
@@ -695,7 +671,6 @@ class RobotDetector(Node):
             self.world_frame,
         )
         self.floor_plane = self.grid["plane"]
-        self.map_ready = found
         if found:
             self.get_logger().info(
                 f"Фон из {self.map_topic}: карта {info.width}x{info.height} по "
@@ -705,9 +680,7 @@ class RobotDetector(Node):
         else:
             self.get_logger().warning(
                 f"Робот в ({seed[0]:.2f}, {seed[1]:.2f}) не в свободной клетке "
-                f"{self.map_topic}: пока ареной считаются все свободные клетки "
-                "карты, фон перестраивается, когда робот окажется в арене",
-                throttle_duration_sec=5.0,
+                f"{self.map_topic}: ареной считаются все свободные клетки карты"
             )
 
     def on_pose(self, message: Odometry):
@@ -812,17 +785,14 @@ class RobotDetector(Node):
         if rotation is None:
             return
 
-        if self.map_topic and not self.map_ready:
+        if self.map_topic and self.grid is None:
             if self.occupancy is None:
                 self.get_logger().warning(
                     f"Жду карту {self.map_topic}, скан пропущен",
                     throttle_duration_sec=5.0,
                 )
                 return
-            now = time.monotonic()
-            if self.grid is None or now - self.map_attempt >= 1.0:
-                self.map_attempt = now
-                self.map_background(position[:2])
+            self.map_background(position[:2])
 
         points = cloud_to_xyz(message)
         # ближние точки -- свои пластины: лучи круче -45 градусов упираются в
@@ -862,44 +832,11 @@ class RobotDetector(Node):
         ]
         detections = [detection for detection, _ in inspected]
         reasons = [reason for _, reason in inspected]
-        rejected_centers = 0
-        rejected_visibility = 0
-        if self.center_map is not None:
-            for index, detection in enumerate(detections):
-                if detection is not None and self.center_map.contains(detection.center):
-                    detections[index] = None
-                    reasons[index] = "центр в занятой клетке карты"
-                    rejected_centers += 1
-                elif detection is not None:
-                    cluster = clusters[index]
-                    rim = cluster[cluster[:, 2] <= self.model.rim_max_z, :2]
-                    support = rim[np.abs(np.linalg.norm(rim-detection.center, axis=1)-self.model.radius)
-                                  <= self.model.outlier]
-                    fraction = self.center_map.visible_fraction(position[:2], support,
-                                                               self.visibility_endpoint_margin)
-                    if len(support) < self.model.min_rim_points or fraction < self.visibility_min_fraction:
-                        detections[index] = None
-                        reasons[index] = f"нет видимого обода: {len(support)} точек, {fraction:.0%}"
-                        rejected_visibility += 1
         opponent = self.tracker.step(
             moment, [detection for detection in detections if detection is not None]
         )
-        rejected_track = opponent is not None and self.center_map is not None and self.center_map.contains(
-            [opponent.state[X], opponent.state[Y]])
-        rejected_track_visibility = opponent is not None and self.center_map is not None and not self.center_map.body_visible(
-            position[:2], [opponent.state[X], opponent.state[Y]], self.model.radius,
-            self.visibility_min_fraction, self.visibility_endpoint_margin)
-        if rejected_track or rejected_track_visibility:
-            opponent = None
 
         header = Header(stamp=message.header.stamp, frame_id=self.world_frame)
-        self.last_opponent_stamp = moment if opponent is not None else None
-        self.publish_visibility()
-        self.health_publisher.publish(String(data=json.dumps(dict(
-            stamp_s=moment, backend="jr_perception_branch", costmap_source="static",
-            map_rejected_candidates=rejected_centers, map_rejected_track=bool(rejected_track),
-            visibility_rejected_candidates=rejected_visibility,
-            visibility_rejected_track=bool(rejected_track_visibility)))))
         if opponent is not None:
             self.odometry_publisher.publish(
                 track_to_odometry(header, self.opponent_frame, opponent)
@@ -920,10 +857,7 @@ class RobotDetector(Node):
             make_robot_markers(
                 header,
                 detections,
-                [track for track in self.tracker.tracks if self.center_map is None or
-                 (not self.center_map.contains([track.state[X], track.state[Y]]) and
-                  self.center_map.body_visible(position[:2], [track.state[X], track.state[Y]],
-                      self.model.radius, self.visibility_min_fraction, self.visibility_endpoint_margin))],
+                self.tracker.tracks,
                 opponent,
                 self.model,
                 self.floor_plane,

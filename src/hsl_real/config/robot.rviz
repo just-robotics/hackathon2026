@@ -111,10 +111,17 @@ Visualization Manager:
       Shaft Length: 0.3
       Shaft Radius: 0.05
   - Class: rviz_default_plugins/MarkerArray
-    Name: Detector objects
+    Name: Detector robots
     Enabled: true
     Topic:
-      Value: /opponent/markers
+      Value: /opponent/robot_markers
+      Reliability Policy: Reliable
+    Queue Size: 10
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Detector boxes
+    Enabled: true
+    Topic:
+      Value: /opponent/box_markers
       Reliability Policy: Reliable
     Queue Size: 10
   Tools:

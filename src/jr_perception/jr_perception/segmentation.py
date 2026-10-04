@@ -301,19 +301,39 @@ class RobotModel:
     # робота 0.28-0.34 на 0.5-3 м, а узкие высокие предметы (ножки, стойки)
     # дают 0.1-0.2.
     min_extent: float = 0.0
-    # Пробел между нижними пластинами и верхней: у реального Kobuki там
-    # только тонкие стойки. Доля точек кластера в этом слое не больше
-    # max_gap_share; 1 -- проверка выключена.
-    gap_min_z: float = 0.25
-    gap_max_z: float = 0.34
-    max_gap_share: float = 1.0
+    # Грани. Лидар видит у коробки (0.15x0.15x0.40, 0.40x0.60x0.20) и стены
+    # одну-две вертикальные грани, и все точки лежат на сторонах
+    # прямоугольника (face_fit). У Kobuki точки есть и внутри круга: стойки,
+    # пластины, лидар. Кластер -- предмет, если СКО расстояния точек до
+    # ближайшей стороны меньше face_rms или он тоньше min_thickness (видна
+    # одна грань). По реальным бэгам у робота СКО 3.4-6.5 см (5-95%), а у
+    # половины принятых за него коробок и стен -- меньше 2 см. 0 -- выключено:
+    # в симуляции робот вдали -- одна дуга корпуса без точек внутри.
+    face_rms: float = 0.0
+    min_thickness: float = 0.0
+    # Пробел между пластинами. У Kobuki плотно корпус с нижней и средней
+    # пластинами (до 0.25 м) и верхняя пластина (0.397), а между ними --
+    # только тонкие стойки. Коробка и ноги сплошные по высоте. Плотность
+    # точек в слое стоек (на метр высоты) делится на большую из плотностей
+    # корпуса и верхней пластины: больше max_hole_ratio -- предмет. По
+    # реальным бэгам у робота медиана 0.1-0.3, у сплошных предметов 0.7-1.1.
+    # Проверка -- когда в корпусе и пластине вместе не меньше
+    # min_profile_points точек. 0 -- выключено (в симуляции стойки прозрачны).
+    body_min_z: float = 0.03
+    body_max_z: float = 0.25
+    hole_min_z: float = 0.26
+    hole_max_z: float = 0.37
+    plate_min_z: float = 0.38
+    plate_max_z: float = 0.46
+    max_hole_ratio: float = 0.0
+    min_profile_points: int = 10
     # Если кластер шире робота (робот прижался к стене или предмету), в нём
     # ищется окружность радиуса radius, и дальше проверяются только точки не
     # дальше radius + contain_margin от её центра.
     contain_margin: float = 0.05
     min_points: int = 3
     # сколько точек обода нужно для фита окружности
-    min_rim_points: int = 12
+    min_rim_points: int = 4
     # точки обода дальше от окружности -- выбросы
     outlier: float = 0.05
     # предельная невязка фита окружности, м
@@ -321,13 +341,6 @@ class RobotModel:
     # окружность должна описывать обод заметно лучше прямой: прямой кусок
     # грани коробки описывается прямой не хуже
     line_ratio: float = 0.7
-    # Reject shapes better explained by flat box faces than a Kobuki circle.
-    # Zero disables the check for comparison on identical recorded inputs.
-    plane_ratio: float = 0.8
-    # Flat faces must improve RMS by more than the LiDAR noise allowance (m).
-    plane_min_improvement: float = 0.015
-    # A partially hidden short arc cannot reliably distinguish these models.
-    plane_min_arc: float = math.pi / 2.0
     # СКО центра: по фиту окружности и по центроиду без обода, м
     measurement_std: float = 0.03
     fallback_std: float = 0.10
@@ -393,27 +406,6 @@ def find_circle(
     return centers[best], int(counts[best])
 
 
-def plane_test(xy: np.ndarray, guess: np.ndarray, model: RobotModel) -> tuple:
-    """Лежат ли точки на вертикальных гранях лучше, чем на корпусе робота
-
-    :xy (N, 2) точки одного обода после удаления выбросов
-    :guess (2,) найденный центр окружности корпуса
-    :model радиус, пороги преимущества граней и видимого угла
-
-    :return (planar, faces, circle): предмет ли это, невязки граней и
-    окружности радиуса radius, м
-    """
-    faces = rectangle_fit(xy)[3]
-    _, residual = fit_circle(xy, model.radius, guess)
-    circle = math.sqrt(float(np.mean(residual ** 2)))
-    angles = np.sort(np.mod(np.arctan2(xy[:, 1]-guess[1],xy[:, 0]-guess[0]),2*math.pi))
-    span = 2*math.pi-float(np.max(np.diff(np.r_[angles,angles[0]+2*math.pi])))
-    planar = (span >= model.plane_min_arc and
-              faces < model.plane_ratio * circle and
-              circle-faces >= model.plane_min_improvement)
-    return planar, faces, circle
-
-
 def inspect_cluster(
     points: np.ndarray, observer: np.ndarray, model: RobotModel, extract: bool = True
 ) -> tuple:
@@ -453,19 +445,28 @@ def inspect_cluster(
     if extent < model.min_extent:
         return None, f"узкий: {extent:.2f}"
 
+    if model.face_rms > 0.0 or model.min_thickness > 0.0:
+        thickness, faces = face_fit(xy)
+        if thickness < model.min_thickness:
+            return None, f"грань: толщина {100 * thickness:.0f} см"
+        if faces < model.face_rms:
+            return None, f"грани: точки на них, {100 * faces:.1f} см"
+
     heights = points[:, 2]
-    gap = float(np.mean((heights >= model.gap_min_z) & (heights < model.gap_max_z)))
-    if gap > model.max_gap_share:
-        return None, f"нет пробела: {100 * gap:.0f}%"
+    if model.max_hole_ratio > 0.0:
+        ratio, counted = hole_ratio(heights, model)
+        if counted >= model.min_profile_points and ratio > model.max_hole_ratio:
+            return None, f"нет пробела между пластинами: {ratio:.2f}"
 
     rim = xy[heights <= model.rim_max_z]
     guess = edge_center(xy, rim, observer, model.radius)
 
     if len(rim) < model.min_rim_points:
-        # Sparse wall fragments must not prolong an existing robot track
-        # through a weak centroid fallback. Require enough measured rim
-        # points before accepting either a strong or a weak observation.
-        return None, f"мало точек обода: {len(rim)} из {model.min_rim_points}"
+        # Для фита обода мало: вдали кольцо проходит над кромкой корпуса и
+        # ложится на верхнюю грань или пластину. Направление на центр по
+        # краям остаётся точным, а дальность -- с точностью до радиуса,
+        # отсюда большая СКО.
+        return Detection(guess, model.fallback_std, strong=False), ""
 
     center, residual = fit_circle(rim, model.radius, guess)
     inliers = np.abs(residual) <= model.outlier
@@ -480,13 +481,6 @@ def inspect_cluster(
     if rms > model.fit_rms_max:
         return None, f"не окружность: невязка {100 * rms:.1f} см"
 
-    # Both models see the same inlier rim, not upper plates and supports.
-    # Small fit differences and short visible arcs do not veto a robot.
-    if model.plane_ratio > 0.0:
-        planar, faces, circle = plane_test(arc, center, model)
-        if planar:
-            return None, f"плоскость: {100 * faces:.1f} против окружности {100 * circle:.1f} см"
-
     straight = line_rms(arc)
     if rms > model.line_ratio * straight:
         # Короткую дугу от прямой по форме не отличить: так выглядит робот,
@@ -497,11 +491,53 @@ def inspect_cluster(
         # уже идущий продлит. Центр по краям с большой СКО: центр фита
         # короткой дуги гуляет с поворотом робота, и вблизи с ним трек
         # дрожал сильнее.
-        if model.min_top > 0.0 or model.max_gap_share < 1.0:
+        if model.min_top > 0.0 or model.max_hole_ratio > 0.0:
             return Detection(guess, model.fallback_std, strong=False), ""
         return None, f"прямая: {100 * rms:.1f} против {100 * straight:.1f} см"
 
     return Detection(center, model.measurement_std, strong=True), ""
+
+
+def face_fit(xy: np.ndarray) -> tuple:
+    """Насколько точки лежат на вертикальных гранях: (толщина, невязка), м
+
+    Прямоугольник -- oriented_rectangle: одна-две видимые грани коробки
+    ложатся на его стороны. Стороны -- по 2-му и 98-му перцентилям, чтобы
+    одиночный выброс не отодвигал сторону от грани. Невязка -- СКО
+    расстояния точек до ближайшей стороны, толщина -- меньшая сторона.
+
+    :xy (N, 2) точки кластера
+    """
+    _, _, yaw = oriented_rectangle(xy)
+    along = np.array([math.cos(yaw), math.sin(yaw)])
+    u, v = xy @ along, xy @ np.array([-along[1], along[0]])
+    low_u, high_u = np.percentile(u, [2.0, 98.0])
+    low_v, high_v = np.percentile(v, [2.0, 98.0])
+    to_side = np.minimum.reduce(
+        [np.abs(u - low_u), np.abs(high_u - u), np.abs(v - low_v), np.abs(high_v - v)]
+    )
+    thickness = float(min(high_u - low_u, high_v - low_v))
+    return thickness, math.sqrt(float(np.mean(to_side ** 2)))
+
+
+def hole_ratio(heights: np.ndarray, model: RobotModel) -> tuple:
+    """Пробел между пластинами: (отношение плотностей, точек в корпусе и пластине)
+
+    Плотность -- точек на метр высоты слоя. Слой стоек делится на более
+    плотный из корпуса и верхней пластины: вблизи пластину срезает поле
+    зрения лидара (вверх он видит на 7 градусов), а корпус бывает закрыт
+    предметом перед роботом.
+
+    :heights (N,) высоты точек кластера над полом
+    """
+    def layer(low: float, high: float) -> tuple:
+        count = int(np.count_nonzero((heights >= low) & (heights < high)))
+        return count, count / (high - low)
+
+    body, body_density = layer(model.body_min_z, model.body_max_z)
+    _, hole_density = layer(model.hole_min_z, model.hole_max_z)
+    plate, plate_density = layer(model.plate_min_z, model.plate_max_z)
+    return hole_density / max(body_density, plate_density, 1e-9), body + plate
 
 
 def detect_robot(
@@ -607,79 +643,6 @@ def oriented_rectangle(xy: np.ndarray) -> tuple:
         size = size[::-1]
         yaw += math.pi / 2.0
     return center, size, yaw
-
-
-def rectangle_fit(xy: np.ndarray) -> tuple:
-    """Повёрнутый прямоугольник вокруг точек (N, 2), стороны -- по граням
-
-    Направления-кандидаты -- стороны выпуклой оболочки. Лидар видит у коробки
-    одну-две грани, и берётся направление, при котором точки в среднем ближе
-    всего к сторонам прямоугольника: грани ложатся на стороны. Наименьшая
-    площадь тут не годится: оболочка двух граней -- прямоугольный
-    треугольник, и рамка по гипотенузе у него той же площади, что по
-    катетам.
-
-    Невязка -- СКО расстояния точек до ближайшей стороны. У вертикальных
-    граней (коробка, стена) это шум дальности: точки одной-двух граней лежат
-    на сторонах. У дуги корпуса робота точки между касаниями отходят от
-    сторон на сантиметры. Стороны для невязки -- по 2-му и 98-му перцентилям,
-    чтобы одиночный выброс не отодвигал сторону от грани.
-
-    :return (center, size, yaw, rms): центр (2,), длина вдоль yaw и ширина,
-    yaw, невязка, м
-    """
-    hull = convex_hull(xy)
-    if len(hull) < 3:
-        # все точки на одной прямой: прямоугольник вырождается в отрезок
-        if len(hull) == 1:
-            return hull[0].astype(float), np.zeros(2), 0.0, 0.0
-        edge = hull[-1] - hull[0]
-        yaw = math.atan2(edge[1], edge[0])
-        return hull.mean(axis=0), np.array([float(np.linalg.norm(edge)), 0.0]), yaw, 0.0
-
-    edges = np.diff(np.vstack([hull, hull[:1]]), axis=0)
-    # Прямоугольник с осью angle тот же, что с angle + pi/2. К сторонам
-    # оболочки добавлена сетка через 1 градус: короткие рёбра на шумной грани
-    # уводят направление на несколько градусов.
-    angles = np.unique(
-        np.concatenate(
-            [
-                np.mod(np.arctan2(edges[:, 1], edges[:, 0]), math.pi / 2.0),
-                np.radians(np.arange(0.0, 90.0, 1.0)),
-            ]
-        )
-    )
-    along = np.stack([np.cos(angles), np.sin(angles)], axis=1)
-    across = np.stack([-np.sin(angles), np.cos(angles)], axis=1)
-    # Направление выбирается по точкам, прореженным до сетки 1 см: в плотном
-    # кластере их в разы меньше, а среднее расстояние до сторон то же.
-    # Координаты в осях каждого кандидата, (точки, кандидаты).
-    sparse = np.unique(np.round(xy / 0.01), axis=0) * 0.01
-    u, v = sparse @ along.T, sparse @ across.T
-    low_u, high_u, low_v, high_v = u.min(axis=0), u.max(axis=0), v.min(axis=0), v.max(axis=0)
-    to_side = np.minimum.reduce([u - low_u, high_u - u, v - low_v, high_v - v])
-    # при равенстве -- меньшая площадь
-    score = to_side.mean(axis=0) + 1e-6 * (high_u - low_u) * (high_v - low_v)
-    best = int(np.argmin(score))
-
-    # границы -- по всем точкам
-    u, v = xy @ along[best], xy @ across[best]
-    center = (u.max() + u.min()) / 2.0 * along[best] + (v.max() + v.min()) / 2.0 * across[best]
-    yaw = float(angles[best])
-    size = np.array([u.max() - u.min(), v.max() - v.min()])
-
-    low_u, high_u = np.percentile(u, [2.0, 98.0])
-    low_v, high_v = np.percentile(v, [2.0, 98.0])
-    to_side = np.minimum.reduce(
-        [np.abs(u - low_u), np.abs(high_u - u), np.abs(v - low_v), np.abs(high_v - v)]
-    )
-    rms = math.sqrt(float(np.mean(to_side ** 2)))
-
-    if size[1] > size[0]:
-        # длинная сторона -- вдоль yaw
-        size = size[::-1]
-        yaw += math.pi / 2.0
-    return center, size, yaw, rms
 
 
 def find_boxes(

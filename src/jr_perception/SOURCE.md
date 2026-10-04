@@ -1,9 +1,18 @@
 # Происхождение детектора
 
-## Реальный C++ детектор (03.10.2026)
+## Активная ветка Антона (04.10.2026)
 
-Реальный `src/hsl_real/launch/robot.launch.py` запускает
-`opponent_detector_cpp`. Его вычислительное ядро находится в
+`feature/anton-final-detector`: detector/background/segmentation/tracker,
+оценочные модули и пакеты robot_body_filter/dbscan_filter побайтно из
+`41e0d7de8cc49aca60b81f3f4bd1156cd862ce99`. Профиль fastlio исходного
+коммита сохранён как `anton_real.yaml`; изменён только pose_topic на
+`/localization/kinematic_state`. Фильтрация тела ±0,25 м повторяет исходный
+launch. Локализация текущего стека сохранена. Алгоритм не дорабатывался.
+Все восемь реальных bag прогнаны; последние пять — mapless odom ablation.
+
+## Неактивный C++ v26, историческая справка (03.10.2026)
+
+До переноса Антона real launch запускал `opponent_detector_cpp`. Его вычислительное ядро находится в
 `src/opponent_core.cpp`, ROS-обвязка — в `src/opponent_node.cpp`, профиль — в
 `config/real_cpp.yaml`. Он получает отфильтрованное облако Livox, `/map` и
 timestamped map-позу: `/localization/kinematic_state` при FAST-LIO2,

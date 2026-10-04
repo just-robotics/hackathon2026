@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Choose a real bag and replay its clouds with the current C++ detector in RViz.
+"""Choose a real bag and replay its clouds with the current Anton detector in RViz.
 
 The isolated container builds jr_perception from this checkout. It starts only
 the cached-cloud publisher, detector, and RViz. Source bags are read-only.
@@ -173,23 +173,24 @@ def container_command(args, selected: Path, run_name: str, output: Path) -> list
                     '--mount', f'type=bind,src={authority.resolve()},dst=/tmp/replay.xauthority,readonly']
     cache_prepare = ['python3', '/replay/tools/replay_real_detector.py', '--prepare-cache',
                      str(selected_container), '--cache-result', '/tmp/replay-cache-path']
-    replay = ['python3', '/replay/benchmarks/smoke_cpp_detector_ros.py']
-    replay_tail = ['--executable', '/tmp/detector-replay/install/jr_perception/lib/jr_perception/opponent_detector_cpp',
-                   '--profile', '/replay/src/jr_perception/config/real_cpp.yaml',
+    replay = ['python3', '/replay/benchmarks/replay_anton_ros.py']
+    replay_tail = ['--profile', '/replay/src/jr_perception/config/anton_real.yaml',
+                   '--crop-profile', '/replay/src/jr_perception/config/anton_crop.yaml',
+                   '--dbscan-profile', '/replay/src/dbscan_filter/config/dbscan.param.yaml',
                    '--count', '0', '--expect', 'any', '--rate', str(args.rate),
                    '--from-seconds', str(args.from_seconds),
                    '--log', str(output_container / 'detector.log')]
     if (selected / 'metadata.yaml').is_file():
         replay_tail += ['--source-bag', str(selected_container)]
     if not args.headless:
-        replay_tail += ['--rviz-config', '/replay/benchmarks/real_detector_once.rviz',
+        replay_tail += ['--rviz-config', '/replay/benchmarks/anton_detector.rviz',
                         '--rviz-log', str(output_container / 'rviz.log'), '--hold-seconds', '-1']
     script = '\n'.join([
         'set -e',
-        'source /opt/ros/humble/setup.bash',
+        'source /solution/install/setup.bash',
         shlex.join(cache_prepare),
-        'CMAKE_BUILD_PARALLEL_LEVEL=2 colcon --log-base /tmp/detector-replay/log build --base-paths /replay/src/jr_perception '
-        '--packages-select jr_perception --parallel-workers 1 --build-base /tmp/detector-replay/build '
+        'CMAKE_BUILD_PARALLEL_LEVEL=2 colcon --log-base /tmp/detector-replay/log build --base-paths /replay/src/jr_perception /replay/src/robot_body_filter /replay/src/dbscan_filter '
+        '--packages-select jr_perception robot_body_filter dbscan_filter --parallel-workers 1 --build-base /tmp/detector-replay/build '
         '--install-base /tmp/detector-replay/install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF',
         'source /tmp/detector-replay/install/setup.bash',
         'IFS= read -r replay_cache < /tmp/replay-cache-path',
@@ -199,7 +200,7 @@ def container_command(args, selected: Path, run_name: str, output: Path) -> list
 
 
 def parser():
-    result = argparse.ArgumentParser(description='Выбор real bag, текущий C++-детектор и обычный RViz.')
+    result = argparse.ArgumentParser(description='Выбор real bag, детектор Антона и обычный RViz.')
     result.add_argument('--bag', help='Папка SESSION/bag, папка с manifest.json или имя записи')
     result.add_argument('--bag-root', type=Path, default=DEFAULT_BAG_ROOT,
                         help=f'Где искать записи (по умолчанию {DEFAULT_BAG_ROOT})')

@@ -62,21 +62,22 @@ def main():
                      and node['executable'] in ('robot_detector.py', 'opponent_detector_cpp')]
         assert len(detectors) == 1, (mode, detectors)
         detector_node = detectors[0]
-        assert detector_node['executable'] == 'opponent_detector_cpp', (mode, detector_node)
+        assert detector_node['executable'] == 'robot_detector.py', (mode, detector_node)
         params = {}
         for layer in detector_node['parameters']:
             if isinstance(layer, dict):
                 params.update(layer)
             else:
                 profile = yaml.safe_load(Path(layer).read_text())
-                params.update(profile['opponent_detector_cpp']['ros__parameters'])
+                params.update(profile['/**']['ros__parameters'])
         assert params['use_sim_time'] is False
-        assert params['cloud_topic'] == '/sensing/lidar/points_filtered'
+        assert params['cloud_topic'] == '/sensing/lidar/dbscan/pointcloud'
         expected_pose = '/localization/kinematic_state' if mode == 'fastlio' else '/navigation/self'
         assert params['pose_topic'] == expected_pose, (mode, params['pose_topic'])
         assert params['map_topic'] == '/map'
         assert params['world_frame'] == 'map' and params['base_frame'] == 'base_footprint'
-        assert params['confirmation_hits'] == 5
+        assert params['tracker']['reacquire_time'] == 3.0
+        assert params['tracker']['switch_after'] == 1.0
         native = next(node for node in observed if node['package'] == 'hsl_nav2_control')
         assert native['parameters'][-1]['costmap.plugins'] == ['static_layer', 'inflation_layer']
         report.append({'mode': mode, 'detector': detector_node['executable'],
