@@ -322,6 +322,7 @@ python3 benchmarks/run_duel_series.py --runs 3 --start-seed 0 --active-s 90 --tr
 | [REAL_ROBOT.md](docs/REAL_ROBOT.md) | Оборудование, конфиги, сборка, запуск, остановка и диагностика |
 | [DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | ROS-интерфейсы, серии, графики и replay детектора |
 | [NAV2_MPPI_ADAPTATION.md](docs/NAV2_MPPI_ADAPTATION.md) | Границы интеграции штатного MPPI |
+| [STUCK_ANALYSIS.md](docs/STUCK_ANALYSIS.md) | Причины застреваний исследователя в симуляции, перебор параметров, правки ветки `fix/explorer-stuck-recovery` |
 | [OFFLINE_MAPPING.md](docs/OFFLINE_MAPPING.md) | Получение статической карты из bag |
 | [config/maps/README.md](config/maps/README.md) | Карты и их системы координат |
 
