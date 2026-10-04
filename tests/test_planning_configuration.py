@@ -50,3 +50,8 @@ def test_native_yaml_fallback_matches_external_soft_clearance_defaults():
         for part in parts:
             current=current[part]
         assert current==value, key
+
+
+def test_stuck_recovery_defaults_are_present_and_positive():
+    cfg=load_planning(ROOT/'config/planning.yaml')['global']
+    assert cfg['stuck_hold_s']>0 and cfg['phantom_distance']>0 and cfg['phantom_ttl_s']>0

@@ -39,6 +39,8 @@ class DecisionManager(Node):
             "min_dwell": 0.5, "evade_distance": 1.8,
             "capture_distance": 0.8, "danger_weight": 2.0,
             "goal_weight": 1.0, "own_max_speed": 0.5,
+            "evade_exit_distance": 1.8, "evade_min_hold": 2.0,
+            "goal_block_radius": 0.95, "standoff_distance": 1.5,
         }
         for key, value in defaults.items():
             self.declare_parameter(key, value)

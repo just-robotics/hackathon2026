@@ -174,7 +174,9 @@ class DecisionPolicy:
     def __init__(self, role, opponent_start, *, own_start=None, pose_timeout=0.5,
                  scan_timeout=1.0, opponent_timeout=1.0, switch_margin=0.15,
                  min_dwell=0.5, evade_distance=1.8, capture_distance=0.8,
-                 danger_weight=2.0, goal_weight=1.0, own_max_speed=0.5):
+                 danger_weight=2.0, goal_weight=1.0, own_max_speed=0.5,
+                 evade_exit_distance=None, evade_min_hold=2.0,
+                 goal_block_radius=0.95, standoff_distance=1.5):
         if role not in ("explorer", "guardian"):
             raise ValueError("role must be explorer or guardian")
         if not isfinite(own_max_speed) or own_max_speed <= 0:
@@ -194,6 +196,18 @@ class DecisionPolicy:
         self.capture_distance = capture_distance
         self.danger_weight = danger_weight
         self.goal_weight = goal_weight
+        # Выход из EVADE только когда страж дальше evade_exit_distance и EVADE
+        # держался не меньше evade_min_hold: иначе GOAL и EVADE с
+        # противоположными опорными маршрутами чередуются на границе зоны.
+        self.evade_exit_distance = (evade_distance if evade_exit_distance is None
+                                    else evade_exit_distance)
+        self.evade_min_hold = evade_min_hold
+        # Страж ближе goal_block_radius к центру цели: цель недостижима
+        # (запретная зона A*), идём к точке стоянки в standoff_distance от стража
+        # и стоим там, а не дёргаемся у границы зоны.
+        self.goal_block_radius = goal_block_radius
+        self.standoff_distance = standoff_distance
+        self.evade_since = float("-inf")
         self.previous = WAIT
         self.last_switch = float("-inf")
         self.search_anchor = None
@@ -244,6 +258,12 @@ class DecisionPolicy:
             if obs.map_stamp <= 0:
                 scores[EXPLORE] = self.goal_weight + 0.05
             chosen = self._select(scores, obs.now)
+            if (self.previous == EVADE and chosen != EVADE and threat_pose is not None
+                    and (threat_distance < self.evade_exit_distance
+                         or obs.now - self.evade_since < self.evade_min_hold)):
+                chosen = EVADE
+            if chosen == EVADE and self.previous != EVADE:
+                self.evade_since = obs.now
             if chosen == EVADE:
                 # Keep the real objective as the target. The planner applies
                 # higher opponent clearance/cost and lets A* first escape a
@@ -254,8 +274,18 @@ class DecisionPolicy:
                 result = Decision(EXPLORE, self.goal, 0.35, 1.0, 0.65, 3.0,
                                   "map not available")
             else:
-                result = Decision(GOAL, self.goal, 0.35, 1.0, 0.85, 6.0,
-                                  "moving toward guardian start around danger")
+                goal = self.goal
+                reason = "moving toward guardian start around danger"
+                if (threat_pose is not None and
+                        hypot(threat_pose.x - self.goal.x,
+                              threat_pose.y - self.goal.y) < self.goal_block_radius):
+                    away_x, away_y = obs.own.x - threat_pose.x, obs.own.y - threat_pose.y
+                    norm = max(hypot(away_x, away_y), 1e-6)
+                    goal = Pose2(threat_pose.x + self.standoff_distance * away_x / norm,
+                                 threat_pose.y + self.standoff_distance * away_y / norm,
+                                 self.goal.yaw)
+                    reason = "guardian occupies the goal: holding at standoff"
+                result = Decision(GOAL, goal, 0.35, 1.0, 0.85, 6.0, reason)
         elif not opponent_fresh:
             anchor = obs.opponent if obs.opponent else self.goal
             if obs.opponent is not None:

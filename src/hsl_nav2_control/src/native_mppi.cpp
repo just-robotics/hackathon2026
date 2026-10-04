@@ -366,6 +366,12 @@ private:
       json << "{\"backend\":\"nav2_cpp\",\"result\":\"ok\",\"recovery\":"
         << (recovery ? "true" : "false") << ",\"first_speed_mps\":" << cmd.twist.linear.x
         << ",\"first_omega_radps\":" << cmd.twist.angular.z
+        << ",\"ref_poses\":" << reference_->poses.size()
+        << ",\"ref_end\":[" << reference_->poses.back().pose.position.x << ","
+        << reference_->poses.back().pose.position.y << "]"
+        << ",\"traj_end\":[" << path.poses.back().pose.position.x << ","
+        << path.poses.back().pose.position.y << "]"
+        << ",\"traj_len_m\":" << length
         << ",\"capture_heading_required\":" << (capture_heading ? "true" : "false") << "}";
       std_msgs::msg::String diag; diag.data = json.str(); diag_pub_->publish(diag);
     } catch (const std::exception & error) {

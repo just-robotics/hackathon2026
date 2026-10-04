@@ -10,7 +10,7 @@ from time import perf_counter
 import rclpy
 from hsl_interfaces.msg import PlanningIntent
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
@@ -83,6 +83,9 @@ class TrajectoryPlanner(Node):
         self.declare_parameter("pose_timeout", 1.2)
         self.declare_parameter("scan_timeout", 1.8)
         self.declare_parameter("intent_timeout", 1.0)
+        self.declare_parameter("stuck_hold_s", 4.0)
+        self.declare_parameter("phantom_distance", 0.45)
+        self.declare_parameter("phantom_ttl_s", 30.0)
         self.declare_parameter("random_seed", 0)
         self.declare_parameter("require_match_active", False)
         self.require_match_active = self.get_parameter("require_match_active").value
@@ -96,6 +99,9 @@ class TrajectoryPlanner(Node):
         self.pose_timeout = self.get_parameter("pose_timeout").value
         self.scan_timeout = self.get_parameter("scan_timeout").value
         self.intent_timeout = self.get_parameter("intent_timeout").value
+        self.stuck_hold_s = float(self.get_parameter("stuck_hold_s").value)
+        self.phantom_distance = float(self.get_parameter("phantom_distance").value)
+        self.phantom_ttl_s = float(self.get_parameter("phantom_ttl_s").value)
         self.random_seed = int(self.get_parameter("random_seed").value)
         self.declare_parameter("max_speed", 0.5)
         self.max_speed = float(self.get_parameter("max_speed").value)
@@ -141,9 +147,18 @@ class TrajectoryPlanner(Node):
         self.recovery_attempt = 0
         self.recovery_goal = None
         self.recovery_origin = None
+        # Команды MPPI за текущее окно без прогресса: различают упор (команда
+        # одного знака, смещения нет) и дедлок с нулевой командой.
+        self.cmd_sum = 0.0
+        self.cmd_abs = 0.0
+        self.cmd_count = 0
+        # Временные препятствия, которых нет в статической карте: (x, y, истекает).
+        self.phantoms = []
+        self.stuck_events = 0
         # These are current states, not an event log. Avoid spending a second
         # draining old poses/intents after a costly planning/scan callback.
         latest_sensor = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.create_subscription(Twist, "navigation/mppi_cmd_vel", self.on_cmd, 10)
         self.create_subscription(Odometry, "navigation/self", self.on_own, 1)
         self.create_subscription(Odometry, "opponent/odom", self.on_opponent, 1)
         self.create_subscription(PlanningIntent, "navigation/intent", self.on_intent, 1)
@@ -176,6 +191,24 @@ class TrajectoryPlanner(Node):
         if msg.header.frame_id == self.frame:
             self.own = (odom_pose(msg), seconds(msg.header.stamp))
             self.measured_omega = float(msg.twist.twist.angular.z)
+
+    def on_cmd(self, msg):
+        self.cmd_sum += msg.linear.x
+        self.cmd_abs += abs(msg.linear.x)
+        self.cmd_count += 1
+
+    def reset_cmd_window(self):
+        self.cmd_sum = self.cmd_abs = 0.0
+        self.cmd_count = 0
+
+    def phantom_points(self):
+        points = []
+        for x, y, _ in self.phantoms:
+            points.append((x, y, 0.3))
+            for index in range(8):
+                angle = index * 0.7853981633974483
+                points.append((x + 0.12 * cos(angle), y + 0.12 * sin(angle), 0.3))
+        return points
 
     def on_opponent(self, msg):
         if msg.header.frame_id == self.frame:
@@ -305,6 +338,7 @@ class TrajectoryPlanner(Node):
             self.progress_pose = own
             self.progress_since = now
             self.nominal_retry = 0
+            self.reset_cmd_window()
             self.progress_behavior = intent.behavior
             self.alignment_until = now + 8.0
             self.progress_heading_error = heading_error
@@ -319,8 +353,40 @@ class TrajectoryPlanner(Node):
                 self.progress_pose = own
                 self.progress_since = now
             self.progress_heading_error = heading_error
+        at_goal = (bool(self.global_path) and
+                   hypot(self.global_path[-1].x - own.x, self.global_path[-1].y - own.y)
+                   < max(0.4, intent.target_tolerance + 0.1))
+        if at_goal and self.progress_since is not None:
+            # Стоим в конце маршрута (цель или точка стоянки): это не застревание.
+            self.progress_since = now
+            self.reset_cmd_window()
+        if self.phantoms and any(expiry <= now for _, _, expiry in self.phantoms):
+            self.phantoms = [item for item in self.phantoms if item[2] > now]
+            self.dirty = True
+        phantom_added = False
         if (self.progress_since is not None and
-                now - self.progress_since >= 4.0):
+                now - self.progress_since >= self.stuck_hold_s):
+            mean_abs = self.cmd_abs / self.cmd_count if self.cmd_count else 0.0
+            mean_signed = self.cmd_sum / self.cmd_count if self.cmd_count else 0.0
+            pushing = mean_abs > 0.04 and abs(mean_signed) > 0.6 * mean_abs
+            if pushing:
+                # Команда одного знака, а робот стоит: упор в препятствие, которого
+                # нет в карте. Запоминаем его на пути и объезжаем.
+                sign = 1.0 if mean_signed > 0 else -1.0
+                px = own.x + sign * self.phantom_distance * cos(own.yaw)
+                py = own.y + sign * self.phantom_distance * sin(own.yaw)
+                guardian_near = (self.opponent is not None and
+                                 hypot(px - self.opponent[0].x, py - self.opponent[0].y) < 0.9)
+                if not guardian_near and not any(hypot(px - x, py - y) < 0.2
+                                                 for x, y, _ in self.phantoms):
+                    self.phantoms.append((px, py, now + self.phantom_ttl_s))
+                    self.dirty = True
+                    phantom_added = True
+            self.stuck_events += 1
+            self.planning_diagnostics["stuck"] = {
+                "mean_abs_cmd": round(mean_abs, 3), "mean_cmd": round(mean_signed, 3),
+                "pushing": pushing, "phantom_added": phantom_added,
+                "phantoms": len(self.phantoms), "events": self.stuck_events}
             blocked_ahead = next((point for point in self.global_path
                                   if hypot(point.x - own.x,
                                            point.y - own.y) >= 0.35), None)
@@ -334,13 +400,19 @@ class TrajectoryPlanner(Node):
             # First retry the nominal route/warm start. A useful turn in free
             # space must not immediately hand authority to an arbitrary escape.
             self.recovery_goal = None
-            pending_native_recovery = self.nominal_retry > 0 and self.recovery_avoid is not None
+            # Первый простой повторяет маршрут; повторный, упор или нулевая команда
+            # при свободном маршруте (дедлок) запускают манёвр выхода.
+            pending_native_recovery = self.nominal_retry > 0 or phantom_added
             self.nominal_retry += 1
             self.recovery_origin = own
             self.progress_pose = own
             self.progress_since = now
+            self.reset_cmd_window()
             self.progress_heading_error = heading_error
-            self.get_logger().warn("No translation for 4 s; retrying route (avoid only confirmed obstacles)")
+            self.get_logger().warn(
+                f"No translation for {self.stuck_hold_s:.0f} s; "
+                f"{'recovery maneuver' if pending_native_recovery else 'retrying route'}"
+                f"{' (obstacle remembered ahead)' if phantom_added else ''}")
         recovery_avoid = self.recovery_avoid if now < self.recovery_until else None
         enemy = (self.opponent[0] if self.opponent and now - self.opponent[1] <= 2.0
                  else None)
@@ -360,7 +432,7 @@ class TrajectoryPlanner(Node):
             "enemy_prediction": [enemy_future.x, enemy_future.y] if enemy_future else None})
         if self.dirty:
             # Map occupancy comes only from known_grid, never LiDAR/track outputs.
-            self.world.update(self.grid_points, [], own,
+            self.world.update(self.grid_points + self.phantom_points(), [], own,
                               self.grid_free, self.grid_bounds)
             self.dirty = False
         if pending_native_recovery or self.recovery_goal is not None:

@@ -186,6 +186,42 @@ class DecisionTests(unittest.TestCase):
         result = policy.step(self.observation(now=10.1, opponent=DecisionPose(1.0, 0)))
         self.assertEqual(result.behavior, EVADE)
 
+    def test_evade_holds_until_exit_distance_and_min_hold(self):
+        policy = DecisionPolicy("explorer", self.area)
+        self.assertEqual(policy.step(self.observation(opponent=DecisionPose(0.8, 0))).behavior, EVADE)
+        # 1.7 м: по очкам уже GOAL, но выход из EVADE только дальше 1.8 м
+        self.assertEqual(policy.step(
+            self.observation(now=10.6, opponent=DecisionPose(1.7, 0))).behavior, EVADE)
+        self.assertEqual(policy.step(
+            self.observation(now=12.7, opponent=DecisionPose(1.9, 0))).behavior, GOAL)
+
+    def test_evade_min_hold_blocks_early_exit_even_when_far(self):
+        policy = DecisionPolicy("explorer", self.area, evade_min_hold=3.0)
+        policy.step(self.observation(now=10, opponent=DecisionPose(0.8, 0)))
+        self.assertEqual(policy.step(
+            self.observation(now=11, opponent=DecisionPose(2.5, 0))).behavior, EVADE)
+        self.assertEqual(policy.step(
+            self.observation(now=13.5, opponent=DecisionPose(2.5, 0))).behavior, GOAL)
+
+    def test_guardian_on_goal_gives_standoff_target_on_the_approach_line(self):
+        from dataclasses import replace
+        policy = DecisionPolicy("explorer", self.area)
+        guardian = DecisionPose(policy.goal.x, policy.goal.y)
+        own = DecisionPose(guardian.x - 2.5, guardian.y)
+        result = policy.step(replace(self.observation(opponent=guardian), own=own))
+        self.assertEqual(result.behavior, GOAL)
+        self.assertAlmostEqual(result.target.x, guardian.x - policy.standoff_distance)
+        self.assertAlmostEqual(result.target.y, guardian.y)
+
+    def test_guardian_away_from_goal_keeps_real_goal_target(self):
+        from dataclasses import replace
+        policy = DecisionPolicy("explorer", self.area)
+        guardian = DecisionPose(policy.goal.x - 2.0, policy.goal.y)
+        result = policy.step(replace(self.observation(opponent=guardian),
+                                     own=DecisionPose(guardian.x - 2.5, guardian.y)))
+        self.assertEqual(result.behavior, GOAL)
+        self.assertEqual(result.target, policy.goal)
+
     def test_reaching_guardian_center_stops_explorer(self):
         policy = DecisionPolicy("explorer", self.area)
         reached = Observation(10, DecisionPose(4.0, -2), 10, None, 0, 10, 10, True)

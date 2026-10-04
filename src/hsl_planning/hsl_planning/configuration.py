@@ -7,6 +7,10 @@ GLOBAL_DEFAULTS = {
     'resolution': .10, 'robot_radius': .21, 'local_safety_margin': 0.,
     'pose_timeout': 1.2,
     'scan_timeout': 1.8, 'intent_timeout': 1.,
+    # Восстановление при застревании: простой stuck_hold_s с нулевым смещением
+    # у маршрута; временная метка препятствия на phantom_distance впереди живёт
+    # phantom_ttl_s (препятствие, которого нет в карте, например коробка).
+    'stuck_hold_s': 4., 'phantom_distance': .45, 'phantom_ttl_s': 30.,
 }
 LOCAL_DEFAULTS = {
     'MPPI.time_steps': 60,
@@ -46,7 +50,7 @@ def load_planning(path=None):
         raise ValueError('robot_radius must cover the Kobuki body (>=0.178 m)')
     if not .025 <= g['resolution'] <= .2:
         raise ValueError('global resolution must be in [0.025,0.2] m')
-    if any(g[k]<=0 for k in ('pose_timeout','scan_timeout','intent_timeout')):
+    if any(g[k]<=0 for k in ('pose_timeout','scan_timeout','intent_timeout','stuck_hold_s')):
         raise ValueError('planning lifetimes/timeouts must be positive')
     if not 0 < l['MPPI.PathAngleCritic.max_angle_to_furthest'] <= 3.141592653589793:
         raise ValueError('path angle threshold must be in (0,pi] rad')

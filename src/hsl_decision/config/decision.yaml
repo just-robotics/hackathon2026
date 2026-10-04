@@ -16,3 +16,9 @@ decision_manager:
     goal_weight: 1.0
     # Own motion capability for interception; rival velocity remains observed.
     own_max_speed: 0.5
+    # EVADE держится, пока страж ближе evade_exit_distance и не менее evade_min_hold с.
+    evade_exit_distance: 1.8
+    evade_min_hold: 2.0
+    # Страж на цели (ближе goal_block_radius к её центру): стоять в standoff_distance от него.
+    goal_block_radius: 0.95
+    standoff_distance: 1.5
