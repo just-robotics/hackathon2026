@@ -76,7 +76,11 @@ class RealMatch(Node):
             self.finished = True
         self.pub.publish(Bool(data=self.allowed and ready and not self.finished))
         self.finished_pub.publish(Bool(data=self.finished))
-        if (self.finished or not ready) and self.allowed and self.client.service_is_ready() and self.stop_future is None:
+        # Permission is revoked only when the stage ends. A localization drop
+        # (even a one-second gap in /localization/ready) only clears
+        # /match/active, which stops motion_gate and the planner; motion
+        # resumes by itself once localization is ready again.
+        if self.finished and self.allowed and self.client.service_is_ready() and self.stop_future is None:
             self.stop_future = self.client.call_async(SetBool.Request(data=False))
 
 
