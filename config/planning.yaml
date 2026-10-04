@@ -10,7 +10,7 @@ global:
 local:
   MPPI.PathAngleCritic.max_angle_to_furthest: 0.35  # Keep alignment cost until heading is within 20 degrees.
   MPPI.time_steps: 60  # prediction horizon 3.0 s at model_dt 0.05; swept-check covers it all
-  MPPI.ObstaclesCritic.repulsion_weight: 1.0
+  MPPI.ObstaclesCritic.repulsion_weight: 0.3
   MPPI.ObstaclesCritic.critical_weight: 10.0
   MPPI.ObstaclesCritic.collision_margin_distance: 0.02
   MPPI.ObstaclesCritic.inflation_radius: 0.45
