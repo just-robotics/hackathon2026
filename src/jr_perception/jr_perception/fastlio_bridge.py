@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""Мост FAST-LIO2 -> одометрия base_footprint во фрейме карты и TF map -> odom.
+
+FAST-LIO2 публикует /Odometry: позу своего body (IMU лидара) во фрейме
+camera_init -- это body на момент старта. Лидар на роботе висит вверх
+ногами, поэтому и camera_init перевёрнут. Мост переводит это в позу
+base_footprint (как у AMCL) во фрейме карты:
+
+    T_map_base(t) = T_map_base0 * T_base_body * T_ci_body(t) * T_body_base
+
+  T_map_base0  -- поза base_footprint на карте при старте (параметры x, y, yaw;
+                  точно -- от initial_pose.py), робот стоит ровно;
+  T_body_base  -- из /tf_static (base_frame -> lidar_frame) и смещения
+                  лидара в IMU из конфига FAST-LIO2 (extrinsic_T, поворот
+                  единичный).
+
+Публикует:
+  odometry_topic  nav_msgs/Odometry, frame map, child base_footprint; скорости
+                  в base_footprint по разности поз;
+  TF map -> odom  такой, чтобы map -> odom -> ... -> base_link давал позу
+                  FAST-LIO2 (как делает AMCL). Сразу map -> base_footprint
+                  нельзя: у него уже есть родитель (odom). Если odom_frame
+                  пуст (бэг проигрывается без /tf, колёсной одометрии в TF
+                  нет) -- публикуется сразу map -> base_footprint.
+  /localization/ready, /localization/status (publish_ready) -- готовность
+                  для стека робота вместо монитора AMCL: поза FAST-LIO2
+                  свежая и TF map -> odom опубликован.
+"""
+
+import json
+import math
+import time
+
+import numpy as np
+import rclpy
+from geometry_msgs.msg import TransformStamped
+from nav_msgs.msg import Odometry
+from std_msgs.msg import Bool, String
+from rcl_interfaces.msg import ParameterDescriptor
+from rclpy.duration import Duration
+from rclpy.node import Node
+from rclpy.time import Time
+from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
+
+
+def matrix(translation, quaternion) -> np.ndarray:
+    """4x4 по переносу (x, y, z) и кватерниону (x, y, z, w)"""
+    x, y, z, w = quaternion
+    t = np.eye(4)
+    t[:3, :3] = [
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ]
+    t[:3, 3] = translation
+    return t
+
+
+def quaternion(rotation: np.ndarray) -> tuple:
+    """Кватернион (x, y, z, w) по матрице поворота 3x3"""
+    trace = np.trace(rotation)
+    if trace > 0.0:
+        s = 2.0 * math.sqrt(trace + 1.0)
+        return (
+            (rotation[2, 1] - rotation[1, 2]) / s,
+            (rotation[0, 2] - rotation[2, 0]) / s,
+            (rotation[1, 0] - rotation[0, 1]) / s,
+            0.25 * s,
+        )
+    i = int(np.argmax(np.diag(rotation)))
+    j, k = (i + 1) % 3, (i + 2) % 3
+    s = 2.0 * math.sqrt(1.0 + rotation[i, i] - rotation[j, j] - rotation[k, k])
+    q = [0.0, 0.0, 0.0, 0.0]
+    q[i] = 0.25 * s
+    q[j] = (rotation[j, i] + rotation[i, j]) / s
+    q[k] = (rotation[k, i] + rotation[i, k]) / s
+    q[3] = (rotation[k, j] - rotation[j, k]) / s
+    return tuple(q)
+
+
+def rotation_vector(rotation: np.ndarray) -> np.ndarray:
+    """Ось * угол по матрице поворота"""
+    angle = math.acos(max(-1.0, min(1.0, (np.trace(rotation) - 1.0) / 2.0)))
+    if angle < 1e-9:
+        return np.zeros(3)
+    axis = np.array(
+        [
+            rotation[2, 1] - rotation[1, 2],
+            rotation[0, 2] - rotation[2, 0],
+            rotation[1, 0] - rotation[0, 1],
+        ]
+    ) / (2.0 * math.sin(angle))
+    return axis * angle
+
+
+def stamp_seconds(stamp) -> float:
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+class FastLioBridge(Node):
+    def __init__(self):
+        super().__init__("fastlio_bridge")
+        source = self.declare_parameter("fastlio_topic", "/Odometry").value
+        target = self.declare_parameter("odometry_topic", "/localization/fastlio/odometry").value
+        self.map_frame = self.declare_parameter("map_frame", "map").value
+        self.odom_frame = self.declare_parameter("odom_frame", "odom").value
+        self.base_frame = self.declare_parameter("base_frame", "base_footprint").value
+        self.lidar_frame = self.declare_parameter("lidar_frame", "livox").value
+        # положение лидара в IMU, как extrinsic_T в конфиге FAST-LIO2
+        self.extrinsic = np.array(
+            self.declare_parameter("extrinsic_t", [-0.011, -0.02329, 0.04412]).value
+        )
+        # тип не фиксирован: x:=1 из командной строки -- целое, и узел не падал бы
+        start = [
+            float(self.declare_parameter(name, 0.0, ParameterDescriptor(dynamic_typing=True)).value)
+            for name in ("x", "y", "yaw")
+        ]
+        self.publish_tf = self.declare_parameter("publish_tf", True).value
+        # TF map -> odom датируется вперёд на столько, как transform_tolerance AMCL
+        self.tf_tolerance = self.declare_parameter("tf_tolerance", 0.1).value
+        # Готовность для стека робота (localization: fastlio): поза и TF не
+        # старше max_age по часам ноды
+        self.publish_ready = self.declare_parameter("publish_ready", False).value
+        self.max_age = self.declare_parameter("max_age", 0.5).value
+        self.last_pose = None
+        self.last_tf = None
+
+        x, y, yaw = start
+        self.map_from_start = matrix((x, y, 0.0), (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)))
+        self.map_from_ci = None
+        self.body_from_base = None
+        self.last = None
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_broadcaster = TransformBroadcaster(self)
+        self.publisher = self.create_publisher(Odometry, target, 50)
+        self.create_subscription(Odometry, source, self.on_odometry, 50)
+        if self.publish_ready:
+            self.ready_publisher = self.create_publisher(Bool, "/localization/ready", 10)
+            self.status_publisher = self.create_publisher(String, "/localization/status", 10)
+            self.create_timer(0.1, self.publish_readiness)
+        self.get_logger().info(
+            f"{source} -> {target} ({self.map_frame} -> {self.base_frame}), "
+            f"старт ({x:.3f}, {y:.3f}, {math.degrees(yaw):.1f} град)"
+            + (f", TF {self.map_frame} -> {self.odom_frame or self.base_frame}" if self.publish_tf else "")
+        )
+
+    def calibrate(self) -> bool:
+        """body -> base по TF лидара на базе и смещению лидара в IMU"""
+        try:
+            t = self.tf_buffer.lookup_transform(self.base_frame, self.lidar_frame, Time())
+        except TransformException as error:
+            self.get_logger().warning(
+                f"Нет TF {self.base_frame} -> {self.lidar_frame}: {error}",
+                throttle_duration_sec=5.0,
+            )
+            return False
+        tr, q = t.transform.translation, t.transform.rotation
+        base_from_lidar = matrix((tr.x, tr.y, tr.z), (q.x, q.y, q.z, q.w))
+        body_from_lidar = np.eye(4)
+        body_from_lidar[:3, 3] = self.extrinsic
+        self.body_from_base = body_from_lidar @ np.linalg.inv(base_from_lidar)
+        # camera_init -- body на старте, а база на старте стоит в map_from_start
+        self.map_from_ci = self.map_from_start @ np.linalg.inv(self.body_from_base)
+        return True
+
+    def on_odometry(self, message: Odometry):
+        if self.map_from_ci is None and not self.calibrate():
+            return
+
+        p, q = message.pose.pose.position, message.pose.pose.orientation
+        ci_from_body = matrix((p.x, p.y, p.z), (q.x, q.y, q.z, q.w))
+        map_from_base = self.map_from_ci @ ci_from_body @ self.body_from_base
+        moment = stamp_seconds(message.header.stamp)
+
+        out = Odometry()
+        out.header.stamp = message.header.stamp
+        out.header.frame_id = self.map_frame
+        out.child_frame_id = self.base_frame
+        position = map_from_base[:3, 3]
+        out.pose.pose.position.x, out.pose.pose.position.y, out.pose.pose.position.z = (
+            float(v) for v in position
+        )
+        (
+            out.pose.pose.orientation.x,
+            out.pose.pose.orientation.y,
+            out.pose.pose.orientation.z,
+            out.pose.pose.orientation.w,
+        ) = (float(v) for v in quaternion(map_from_base[:3, :3]))
+        out.pose.covariance[0] = out.pose.covariance[7] = out.pose.covariance[14] = 1e-4
+        out.pose.covariance[21] = out.pose.covariance[28] = out.pose.covariance[35] = 1e-4
+
+        # скорости в base_link по разности с прошлой позой
+        if self.last is not None and moment > self.last[0]:
+            dt = moment - self.last[0]
+            previous = self.last[1]
+            linear = previous[:3, :3].T @ (position - previous[:3, 3]) / dt
+            angular = rotation_vector(previous[:3, :3].T @ map_from_base[:3, :3]) / dt
+            t = out.twist.twist
+            t.linear.x, t.linear.y, t.linear.z = (float(v) for v in linear)
+            t.angular.x, t.angular.y, t.angular.z = (float(v) for v in angular)
+        self.last = (moment, map_from_base)
+        self.publisher.publish(out)
+        self.last_pose = time.monotonic()
+
+        if self.publish_tf:
+            self.publish_map_to_odom(message.header.stamp, map_from_base)
+
+    def publish_map_to_odom(self, stamp, map_from_base: np.ndarray):
+        if not self.odom_frame:
+            self.send_transform(stamp, self.base_frame, map_from_base)
+            return
+
+        # Поза FAST-LIO2 датирована концом скана и бывает на 10-20 мс новее
+        # последней колёсной одометрии: тогда берётся последний TF -- за это
+        # время робот сдвигается на миллиметры. Без ожидания: обработчик,
+        # ждущий TF, отставал от поз, и детектор не дожидался позы на скан.
+        try:
+            t = self.tf_buffer.lookup_transform(self.odom_frame, self.base_frame, Time.from_msg(stamp))
+        except TransformException:
+            try:
+                t = self.tf_buffer.lookup_transform(self.odom_frame, self.base_frame, Time())
+            except TransformException as error:
+                self.get_logger().warning(
+                    f"Нет TF {self.odom_frame} -> {self.base_frame}: {error}",
+                    throttle_duration_sec=5.0,
+                )
+                return
+        tr, q = t.transform.translation, t.transform.rotation
+        odom_from_base = matrix((tr.x, tr.y, tr.z), (q.x, q.y, q.z, q.w))
+        self.send_transform(stamp, self.odom_frame, map_from_base @ np.linalg.inv(odom_from_base))
+
+    def send_transform(self, stamp, child_frame: str, map_from_child: np.ndarray):
+        """TF map -> child_frame (odom или сразу база)"""
+        out = TransformStamped()
+        out.header.stamp = (Time.from_msg(stamp) + Duration(seconds=self.tf_tolerance)).to_msg()
+        out.header.frame_id = self.map_frame
+        out.child_frame_id = child_frame
+        out.transform.translation.x, out.transform.translation.y, out.transform.translation.z = (
+            float(v) for v in map_from_child[:3, 3]
+        )
+        (
+            out.transform.rotation.x,
+            out.transform.rotation.y,
+            out.transform.rotation.z,
+            out.transform.rotation.w,
+        ) = (float(v) for v in quaternion(map_from_child[:3, :3]))
+        self.tf_broadcaster.sendTransform(out)
+        self.last_tf = time.monotonic()
+
+    def publish_readiness(self):
+        now = time.monotonic()
+        pose_fresh = self.last_pose is not None and now - self.last_pose <= self.max_age
+        transform_fresh = not self.publish_tf or (
+            self.last_tf is not None and now - self.last_tf <= self.max_age
+        )
+        ready = pose_fresh and transform_fresh
+        self.ready_publisher.publish(Bool(data=ready))
+        self.status_publisher.publish(String(data=json.dumps(dict(
+            ready=ready, source="fastlio", pose_fresh=pose_fresh,
+            transform_fresh=transform_fresh))))
+
+
+def main():
+    rclpy.init()
+    node = FastLioBridge()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

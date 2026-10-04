@@ -1,0 +1,25 @@
+# Детектор соперника на бэгах с едущего робота
+# (jr_detector_fastlio_bag.launch.py).
+# Облако -- после robot_body_filter (корпус и пол) и dbscan_filter (шум
+# вблизи), во фрейме лидара: self_range и проверки детектора считаются от
+# самого датчика. Поза base_footprint во фрейме map -- FAST-LIO2 через
+# fastlio_bridge.py. Фон -- карта занятости из /map (карта полигона из
+# map_server), строится детектором в рантайме.
+# Пороги робота -- как у бэгов с реального Kobuki (robot_detector_bag.param.yaml).
+/**:
+  ros__parameters:
+    cloud_topic: "/sensing/lidar/dbscan/pointcloud"
+    pose_topic: "/localization/fastlio/odometry"
+    world_frame: "map"
+    base_frame: "base_footprint"
+    opponent_frame: "opponent"
+    world: ""
+    map_topic: "/map"
+    # запас фона у стен: облако смещено относительно карты на 5-10 см
+    map_margin: 0.15
+    max_range: 6.0
+    robot:
+      max_height: 0.50
+      min_top: 0.25
+      min_points: 10
+      min_extent: 0.22
