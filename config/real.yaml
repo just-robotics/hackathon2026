@@ -2,8 +2,8 @@
 mission_file: real_match.yaml
 kobuki_port: /dev/kobuki
 livox_config: livox_mid360.json
-# FAST-LIO2 anchored at robot.start (fastlio_bridge.py), no AMCL correction.
-# Output: /localization/kinematic_state in map, TF map -> odom.
+# FAST-LIO2 provides LiDAR/IMU odometry; AMCL corrects it against map_file.
+# Output: /localization/kinematic_state in map.
 localization: fastlio  # alternatively amcl, odometry or external_tf
 fastlio_file: fastlio.yaml
 localization_file: localization.yaml
