@@ -1,0 +1,9 @@
+# Mid-360 frame: near ghost returns in the four directions blocked by own rods.
+# Fitted on evening 02Oct bags. Farther returns and other azimuths are retained.
+# Raw /livox/lidar remains unmodified and is still recorded.
+real_lidar_filter:
+  ros__parameters:
+    self_occlusion_centers_deg: [15.0, 165.0, -165.0, -15.0]
+    self_occlusion_half_angle_deg: 5.0
+    self_occlusion_max_range: 0.45
+    filter_low_confidence: true

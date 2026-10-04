@@ -1,9 +1,9 @@
 """Детектор соперника (robot_detector.py) на бэге с едущего робота + RViz.
 
 Локализация -- FAST-LIO2: livox_custom.py -> fastlio_mapping ->
-fastlio_bridge.py. Облако детектору -- после robot_body_filter (корпус и
-пол) и dbscan_filter (шум вблизи робота), во фрейме лидара. Фон -- карта
-полигона из map_server.
+fastlio_bridge.py. Облако детектору -- после real_lidar_filter (фантомы
+своих стоек), robot_body_filter (свой корпус и пол) и dbscan_filter (шум
+вблизи робота), во фрейме лидара. Фон -- карта полигона из map_server.
 
     ros2 launch jr_launch jr_detector_fastlio_bag.launch.py bag:=<запись или запись/bag>
 
@@ -74,6 +74,7 @@ def nodes(context):
         share / "config/maps/maze_bag_v1.yaml"
     )
     x, y, yaw = start_pose(context, bag, map_file)
+    body_half = float(LaunchConfiguration("body_half").perform(context))
     sim = {"use_sim_time": True}
 
     actions = [
@@ -114,8 +115,22 @@ def nodes(context):
             output="screen",
             parameters=[{"autostart": True, "node_names": ["map_server"], **sim}],
         ),
+        # Фантомы от своих стоек: четыре узких сектора до 0.45 м, как на роботе
+        Node(
+            package="hsl_lidar_filter",
+            executable="real_lidar_filter",
+            name="real_lidar_filter",
+            output="screen",
+            parameters=[
+                str(share / "config/sensing/lidar_filter.yaml"),
+                {"lidar_topic": "/livox/lidar", **sim},
+            ],
+        ),
         # Облако остаётся во фрейме лидара: детектор считает self_range и лучи
-        # от начала координат облака, в base_footprint датчик оказался бы на полу
+        # от начала координат облака, в base_footprint датчик оказался бы на
+        # полу. Корпус -- квадрат +-body_half вокруг базы (Kobuki R 0.178,
+        # пластины 0.17), а не +-0.4 из crop.param.yaml: тот срезал ближнюю
+        # половину соперника, вставшего в полуметре.
         Node(
             package="robot_body_filter",
             executable="robot_body_filter_node",
@@ -123,10 +138,17 @@ def nodes(context):
             output="screen",
             parameters=[
                 str(share / "config/sensing/crop.param.yaml"),
-                {"keep_input_frame": True, **sim},
+                {
+                    "keep_input_frame": True,
+                    "static_boxes.body.min_x": -body_half,
+                    "static_boxes.body.min_y": -body_half,
+                    "static_boxes.body.max_x": body_half,
+                    "static_boxes.body.max_y": body_half,
+                    **sim,
+                },
             ],
             remappings=[
-                ("~/input/pointcloud", "/livox/lidar"),
+                ("~/input/pointcloud", "/sensing/lidar/points_filtered"),
                 ("~/output/pointcloud", "/sensing/lidar/cropped/pointcloud"),
             ],
         ),
@@ -192,6 +214,7 @@ def generate_launch_description():
         DeclareLaunchArgument("yaw", default_value="", description="рад"),
         DeclareLaunchArgument("rate", default_value="1.0", description="скорость проигрывания бэга"),
         DeclareLaunchArgument("delay", default_value="3.0", description="пауза перед бэгом, с: ноды успевают подняться"),
+        DeclareLaunchArgument("body_half", default_value="0.25", description="половина квадрата своего корпуса в облаке детектора, м"),
         DeclareLaunchArgument("rviz", default_value="true"),
         OpaqueFunction(function=nodes),
     ])

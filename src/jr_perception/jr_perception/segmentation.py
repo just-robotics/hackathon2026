@@ -301,12 +301,32 @@ class RobotModel:
     # робота 0.28-0.34 на 0.5-3 м, а узкие высокие предметы (ножки, стойки)
     # дают 0.1-0.2.
     min_extent: float = 0.0
-    # Пробел между нижними пластинами и верхней: у реального Kobuki там
-    # только тонкие стойки. Доля точек кластера в этом слое не больше
-    # max_gap_share; 1 -- проверка выключена.
-    gap_min_z: float = 0.25
-    gap_max_z: float = 0.34
-    max_gap_share: float = 1.0
+    # Грани. Лидар видит у коробки (0.15x0.15x0.40, 0.40x0.60x0.20) и стены
+    # одну-две вертикальные грани, и все точки лежат на сторонах
+    # прямоугольника (face_fit). У Kobuki точки есть и внутри круга: стойки,
+    # пластины, лидар. Кластер -- предмет, если СКО расстояния точек до
+    # ближайшей стороны меньше face_rms или он тоньше min_thickness (видна
+    # одна грань). По реальным бэгам у робота СКО 3.4-6.5 см (5-95%), а у
+    # половины принятых за него коробок и стен -- меньше 2 см. 0 -- выключено:
+    # в симуляции робот вдали -- одна дуга корпуса без точек внутри.
+    face_rms: float = 0.0
+    min_thickness: float = 0.0
+    # Пробел между пластинами. У Kobuki плотно корпус с нижней и средней
+    # пластинами (до 0.25 м) и верхняя пластина (0.397), а между ними --
+    # только тонкие стойки. Коробка и ноги сплошные по высоте. Плотность
+    # точек в слое стоек (на метр высоты) делится на большую из плотностей
+    # корпуса и верхней пластины: больше max_hole_ratio -- предмет. По
+    # реальным бэгам у робота медиана 0.1-0.3, у сплошных предметов 0.7-1.1.
+    # Проверка -- когда в корпусе и пластине вместе не меньше
+    # min_profile_points точек. 0 -- выключено (в симуляции стойки прозрачны).
+    body_min_z: float = 0.03
+    body_max_z: float = 0.25
+    hole_min_z: float = 0.26
+    hole_max_z: float = 0.37
+    plate_min_z: float = 0.38
+    plate_max_z: float = 0.46
+    max_hole_ratio: float = 0.0
+    min_profile_points: int = 10
     # Если кластер шире робота (робот прижался к стене или предмету), в нём
     # ищется окружность радиуса radius, и дальше проверяются только точки не
     # дальше radius + contain_margin от её центра.
@@ -425,10 +445,18 @@ def inspect_cluster(
     if extent < model.min_extent:
         return None, f"узкий: {extent:.2f}"
 
+    if model.face_rms > 0.0 or model.min_thickness > 0.0:
+        thickness, faces = face_fit(xy)
+        if thickness < model.min_thickness:
+            return None, f"грань: толщина {100 * thickness:.0f} см"
+        if faces < model.face_rms:
+            return None, f"грани: точки на них, {100 * faces:.1f} см"
+
     heights = points[:, 2]
-    gap = float(np.mean((heights >= model.gap_min_z) & (heights < model.gap_max_z)))
-    if gap > model.max_gap_share:
-        return None, f"нет пробела: {100 * gap:.0f}%"
+    if model.max_hole_ratio > 0.0:
+        ratio, counted = hole_ratio(heights, model)
+        if counted >= model.min_profile_points and ratio > model.max_hole_ratio:
+            return None, f"нет пробела между пластинами: {ratio:.2f}"
 
     rim = xy[heights <= model.rim_max_z]
     guess = edge_center(xy, rim, observer, model.radius)
@@ -463,11 +491,53 @@ def inspect_cluster(
         # уже идущий продлит. Центр по краям с большой СКО: центр фита
         # короткой дуги гуляет с поворотом робота, и вблизи с ним трек
         # дрожал сильнее.
-        if model.min_top > 0.0 or model.max_gap_share < 1.0:
+        if model.min_top > 0.0 or model.max_hole_ratio > 0.0:
             return Detection(guess, model.fallback_std, strong=False), ""
         return None, f"прямая: {100 * rms:.1f} против {100 * straight:.1f} см"
 
     return Detection(center, model.measurement_std, strong=True), ""
+
+
+def face_fit(xy: np.ndarray) -> tuple:
+    """Насколько точки лежат на вертикальных гранях: (толщина, невязка), м
+
+    Прямоугольник -- oriented_rectangle: одна-две видимые грани коробки
+    ложатся на его стороны. Стороны -- по 2-му и 98-му перцентилям, чтобы
+    одиночный выброс не отодвигал сторону от грани. Невязка -- СКО
+    расстояния точек до ближайшей стороны, толщина -- меньшая сторона.
+
+    :xy (N, 2) точки кластера
+    """
+    _, _, yaw = oriented_rectangle(xy)
+    along = np.array([math.cos(yaw), math.sin(yaw)])
+    u, v = xy @ along, xy @ np.array([-along[1], along[0]])
+    low_u, high_u = np.percentile(u, [2.0, 98.0])
+    low_v, high_v = np.percentile(v, [2.0, 98.0])
+    to_side = np.minimum.reduce(
+        [np.abs(u - low_u), np.abs(high_u - u), np.abs(v - low_v), np.abs(high_v - v)]
+    )
+    thickness = float(min(high_u - low_u, high_v - low_v))
+    return thickness, math.sqrt(float(np.mean(to_side ** 2)))
+
+
+def hole_ratio(heights: np.ndarray, model: RobotModel) -> tuple:
+    """Пробел между пластинами: (отношение плотностей, точек в корпусе и пластине)
+
+    Плотность -- точек на метр высоты слоя. Слой стоек делится на более
+    плотный из корпуса и верхней пластины: вблизи пластину срезает поле
+    зрения лидара (вверх он видит на 7 градусов), а корпус бывает закрыт
+    предметом перед роботом.
+
+    :heights (N,) высоты точек кластера над полом
+    """
+    def layer(low: float, high: float) -> tuple:
+        count = int(np.count_nonzero((heights >= low) & (heights < high)))
+        return count, count / (high - low)
+
+    body, body_density = layer(model.body_min_z, model.body_max_z)
+    _, hole_density = layer(model.hole_min_z, model.hole_max_z)
+    plate, plate_density = layer(model.plate_min_z, model.plate_max_z)
+    return hole_density / max(body_density, plate_density, 1e-9), body + plate
 
 
 def detect_robot(
