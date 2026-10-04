@@ -15,7 +15,6 @@ localization_scan:
 amcl:
   ros__parameters:
     global_frame_id: map
-    odom_frame_id: odom
     base_frame_id: base_footprint
     robot_model_type: nav2_amcl::DifferentialMotionModel
     tf_broadcast: true
