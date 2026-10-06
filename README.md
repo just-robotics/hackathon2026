@@ -1,4 +1,4 @@
-# hackathon2026
+# hаckathon2026
 
 Стек автопилота Autoware / ROS 2 Humble и симуляция Kobuki с многослойным
 лидаром в Gazebo Classic 11. Все компоненты запускаются в Docker через CLI `helm`
